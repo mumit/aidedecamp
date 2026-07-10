@@ -105,6 +105,27 @@ when the design doc gets long. Newest first.
   wiring is tested with a fake Bolt app, no live Slack.
 - No-inbound-port transport is the concrete OpenClaw-class mitigation (design 8.1).
 
+## 2026-07 — Ingestion (Gmail watch → Pub/Sub → history)
+- **Gmail push via users.watch → Pub/Sub → users.history.list.** Watch expires
+  ≤7 days and stops *silently* on lapse, so renewal is a first-class daily
+  scheduled op (`ensure_watch`) with explicit expiry tracking; renews
+  proactively at <48h remaining.
+- **Reconcile from the STORED historyId, not the notification's.** The push
+  payload carries the LATEST historyId; using it as the start point would skip
+  every change. `process_notification` uses the stored baseline as
+  startHistoryId and advances it only on success.
+- **Three silent-data-loss traps handled explicitly**: (1) latest-vs-start
+  historyId, (2) stale historyId → 404 surfaced as `HistoryExpired` re-sync
+  signal, (3) messages duplicated across history records → deduped by threadId.
+- **No inbound port on the credential box** (design 4.6): this code takes an
+  already-decoded notification; the Pub/Sub HTTP receipt + base64url decode runs
+  in a thin republisher outside the process. `decode_pubsub_message` provided
+  for that republisher.
+- Transport-agnostic: Gmail client + watch-state store injected, so the whole
+  reconcile/renew logic is tested without GCP, Pub/Sub, or credentials.
+- Note: Google's agent-tool quota/tiering (still-open) governs watch/poll
+  cadence; daily renewal + event-driven reads (not polling) keeps call volume low.
+
 ## Still open
 - Google Chat action-layer API design (sync events only vs full Workspace Events
   pull pattern for v1).

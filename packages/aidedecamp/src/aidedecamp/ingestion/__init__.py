@@ -1,13 +1,34 @@
 """Event ingestion (design doc 4.3, 4.6).
 
 Gmail: users.watch -> Cloud Pub/Sub pointer -> users.history.list. Watch expires
-every 7 days; renew daily. Calendar: registered HTTPS webhook (no Pub/Sub) — keep
-it off the credential-holding box via a thin Cloud Run/Function republisher onto
-Pub/Sub. Chat: Workspace Events API (Pub/Sub delivery). Slack: Socket Mode
-(outbound only). Net goal: the box holding credentials/memory has no open inbound
-port (the OpenClaw lesson, 8.1).
+every 7 days; renew daily (gmail_watch.ensure_watch). Notifications carry the
+LATEST historyId, so reconciliation runs from the STORED baseline
+(gmail_history.process_notification), dedupes by threadId, and handles the stale-
+historyId 404 as a distinct HistoryExpired re-sync signal.
 
-CRITICAL: tag every ingested payload with provenance (user-authored vs
-fetched-from-email/chat) before it reaches the model. Untrusted content must be
-marked untrusted — this is the concrete defense against indirect prompt injection.
+Net security goal: the box holding credentials/memory has NO open inbound port.
+The Pub/Sub HTTP receipt + base64url decode happens in a thin republisher
+outside this process; this code takes already-decoded notifications.
+
+CRITICAL: downstream, every ingested payload is provenance-tagged untrusted
+(handled at the connector boundary, connectors.Provenance.FETCHED) before it
+reaches the model.
 """
+
+from .gmail_watch import WatchResult, WatchState, ensure_watch
+from .gmail_history import (
+    HistoryExpired,
+    MailboxChanges,
+    decode_pubsub_message,
+    process_notification,
+)
+
+__all__ = [
+    "ensure_watch",
+    "WatchResult",
+    "WatchState",
+    "process_notification",
+    "decode_pubsub_message",
+    "MailboxChanges",
+    "HistoryExpired",
+]
