@@ -1,11 +1,34 @@
-"""Memory: capture / consolidate / retrieve (design doc 2.2).
+"""Memory: capture / consolidate / retrieve (design doc 2.2, 2.3).
 
-v1 substrate is Mem0, self-hosted, with a migration path to Graphiti once
-temporal 'who owns what, as of when' queries start to matter (2.3). Key capture
-signals: correction diffs (draft vs sent) and implicit action signals
-(approved / edited / ignored / rejected). Consolidation runs on a schedule, not
-in real time, and supersedes stale facts rather than overwriting them.
-
-The interface here should stay substrate-agnostic (add / search / consolidate)
-so the Mem0 -> Graphiti swap is an implementation change, not an API change.
+Substrate-agnostic interface (``base.MemoryStore``) with a Mem0 implementation
+(``mem0_store.Mem0Store``) wired to Fuel iX for extraction+embedding, and
+capture-signal helpers (``signals``) that turn correction diffs and action
+signals into memories. Migration path to Graphiti is an implementation swap
+behind ``MemoryStore``, not an API change.
 """
+
+from .base import (
+    ConsolidationReport,
+    MemoryRecord,
+    MemoryStore,
+    Message,
+    Scope,
+)
+from .mem0_store import Mem0Store, build_mem0_config
+from ..fuelix import EmbeddingModel, DEFAULT_EMBEDDING_MODEL
+from .signals import ActionSignal, capture_action_signal, capture_correction
+
+__all__ = [
+    "MemoryStore",
+    "MemoryRecord",
+    "Message",
+    "Scope",
+    "ConsolidationReport",
+    "Mem0Store",
+    "build_mem0_config",
+    "EmbeddingModel",
+    "DEFAULT_EMBEDDING_MODEL",
+    "ActionSignal",
+    "capture_correction",
+    "capture_action_signal",
+]

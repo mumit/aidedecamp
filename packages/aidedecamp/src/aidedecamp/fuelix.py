@@ -43,6 +43,33 @@ class Model(str, Enum):
     GPT_5_6_TERRA = "gpt-5.6-terra"
 
 
+class EmbeddingModel(str, Enum):
+    """Verified Fuel iX embedding model identifiers.
+
+    Bundled with their output dimensionality because the vector store's
+    ``embedding_model_dims`` MUST equal it, or the store rejects every insert.
+    Use :meth:`dims` rather than hard-coding a number anywhere.
+    """
+
+    TEXT_3_LARGE = "text-embedding-3-large"
+    TEXT_3_SMALL = "text-embedding-3-small"
+    ADA_002 = "text-embedding-ada-002"
+
+    @property
+    def dims(self) -> int:
+        return {
+            "text-embedding-3-large": 3072,
+            "text-embedding-3-small": 1536,
+            "text-embedding-ada-002": 1536,
+        }[self.value]
+
+
+# Default embedder: 3-small is the quality/cost sweet spot. Upgrade to
+# TEXT_3_LARGE (3072 dims) if retrieval quality proves limiting — that change
+# requires recreating the vector collection, it is not a hot swap.
+DEFAULT_EMBEDDING_MODEL = EmbeddingModel.TEXT_3_SMALL
+
+
 class Task(str, Enum):
     """Task shapes the orchestrator routes on."""
 

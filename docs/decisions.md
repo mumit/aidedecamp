@@ -30,6 +30,28 @@ when the design doc gets long. Newest first.
   401 raises `TokenRejectedError` ("needs manual rotation") rather than being
   swallowed by a retry loop.
 
+## 2026-07 — Memory layer (Mem0, Fuel iX-wired)
+- **Substrate: Mem0 self-hosted**, behind a substrate-agnostic `MemoryStore`
+  interface (`add`/`search`/`get_all`/`delete`/`consolidate`) so the planned
+  migration to Graphiti is an implementation swap, not an API change.
+- **Mem0's extraction LLM points at Fuel iX** (`openai_base_url` = Fuel iX,
+  Haiku 4.5 as the cheap per-write extractor), not OpenAI — no data leaves via a
+  second unmanaged path. **Embeddings also served by Fuel iX** (verified:
+  `text-embedding-3-small` @1536 default, `text-embedding-3-large` @3072,
+  `ada-002` @1536); `build_mem0_config(embedding_model=...)` derives the vector
+  store dims from the chosen model so the dims/model coupling can't be
+  mis-set. 3-small chosen as default (quality/cost balance); 3-large is an
+  upgrade requiring collection recreate; ada-002 not used (older, no advantage
+  over 3-small at equal dims).
+- **Capture signals**: correction diffs stored with light inference (extract the
+  *preference*); raw action signals (approved/edited/ignored/rejected) stored
+  verbatim (`infer=False`) so consolidation reasons over ground truth.
+- **Personal vs TELUS isolation** is by separate deployments with separate
+  stores, not by scoping within one store — cross-deployment leakage impossible
+  by construction.
+- Deep scheduled consolidation (cross-memory dedupe / stale-fact supersession on
+  the strong model) deferred to Phase 4; Mem0's write-time update covers v1.
+
 ## Still open
 - Google Chat action-layer API design (sync events only vs full Workspace Events
   pull pattern for v1).
