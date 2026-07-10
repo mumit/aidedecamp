@@ -91,6 +91,20 @@ when the design doc gets long. Newest first.
   (unread mail + today's events → summary via CONVERSE model), writes nothing,
   frames mail as untrusted. The safe first thing to ship.
 
+## 2026-07 — Slack channel (Socket Mode, thin door)
+- **Slack via Bolt Socket Mode** (outbound WebSocket, no inbound port) — the
+  channel is a thin surface over the one orchestrator: it renders briefs and
+  approval cards and translates button clicks into `Command(resume=...)` on the
+  paused graph. No assistant logic lives in the channel ("one brain, many doors").
+- **Approval card carries the workflow thread_id** in each button's value, so a
+  click routes back to resume the exact paused LangGraph workflow. Approve →
+  resume approved; Reject → resume rejected; Edit → modal → resume edited.
+- **Block builders are pure functions** in `channels/blocks.py`, testable
+  without Slack and reusable for Google Chat cards later.
+- slack_bolt is a lazy optional import; graph/app injected so the button→resume
+  wiring is tested with a fake Bolt app, no live Slack.
+- No-inbound-port transport is the concrete OpenClaw-class mitigation (design 8.1).
+
 ## Still open
 - Google Chat action-layer API design (sync events only vs full Workspace Events
   pull pattern for v1).

@@ -1,6 +1,24 @@
 """Interaction surfaces (design doc 3.1). One brain, many doors.
 
-Slack and Google Chat first (approvals via buttons/cards), browser next (audit
-and correct memory), voice last (cascaded STT -> Fuel iX orchestrator -> TTS).
-All share the one orchestrator and one memory store behind them.
+Slack first (Socket Mode, approvals via buttons), Google Chat next (cards),
+browser and voice later. All are thin surfaces over the single orchestrator and
+memory store — they render and collect, they do not decide.
 """
+
+from .blocks import (
+    ACTION_APPROVE,
+    ACTION_EDIT,
+    ACTION_REJECT,
+    approval_blocks,
+    brief_blocks,
+)
+from .slack import SlackChannel
+
+__all__ = [
+    "SlackChannel",
+    "brief_blocks",
+    "approval_blocks",
+    "ACTION_APPROVE",
+    "ACTION_EDIT",
+    "ACTION_REJECT",
+]
