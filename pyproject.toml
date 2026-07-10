@@ -1,0 +1,9 @@
+# Workspace-level tool config. Each package under packages/ has its own build
+# metadata; this file only holds shared dev-tool settings.
+
+[tool.ruff]
+line-length = 90
+target-version = "py310"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Secrets and local config — NEVER commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+token.json
+client_secret*.json
+service-account*.json
+
+# Local runtime artifacts
+audit.log.jsonl
+*.sqlite
+*.db
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
