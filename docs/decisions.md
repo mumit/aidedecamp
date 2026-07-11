@@ -105,6 +105,36 @@ when the design doc gets long. Newest first.
   wiring is tested with a fake Bolt app, no live Slack.
 - No-inbound-port transport is the concrete OpenClaw-class mitigation (design 8.1).
 
+## 2026-07 — Google Chat channel (Cards v2, thin-door pattern)
+- **Transport contract matches the no-inbound-port rule (rule 5).** Button
+  clicks arrive as HTTP POSTs at a thin republisher outside the main process
+  (same pattern as Gmail Pub/Sub ingestion). The republisher decodes the event
+  and calls `GoogleChatChannel.handle_interaction(event)`; the return value is
+  forwarded as the HTTP 200 response body back to Google Chat. The channel
+  never opens a port.
+- **`send_fn(space, payload)` is injected**, keeping `GoogleChatChannel` free
+  of Google auth dependencies. `make_chat_send_fn(credentials)` is provided as
+  a convenience for production assembly; tests inject a fake lambda.
+- **Cards v2 format.** `gchat_cards.py` is the Cards v2 counterpart to
+  `blocks.py`: pure functions, no I/O, testable without credentials. The
+  approval card carries `thread_id` as an action parameter on every button
+  (not as a block/widget identifier), which is how `handle_interaction`
+  routes clicks back to the right paused workflow.
+- **Action name strings are shared with `blocks.py`** (`"adc_approve"`,
+  `"adc_edit"`, `"adc_reject"`). In Slack these are `action_id` values; in
+  Chat they're `onClick.action.function` names and appear as
+  `action.actionMethodName` in CARD_CLICKED events. Using the same strings
+  means the orchestrator never needs to branch on which channel posted a card.
+- **Edit action deferred** (dialog UI), same handling as Slack's modal: the
+  button returns an `actionResponse.type: DIALOG` stub; the dialog submit
+  path (which calls `resume("edited", text)`) is a wiring task, not a design
+  question.
+- **Still open (now answered):** Google Chat uses synchronous card interaction
+  events (HTTP POST → thin republisher → `handle_interaction`) for the
+  approval flow. Workspace Events API (Pub/Sub) is the right path for
+  proactive space/message event ingestion (new @mentions, etc.) — deferred to
+  the ingestion phase.
+
 ## 2026-07 — DirectOAuthConnector (google-api-python-client)
 - **All five interface methods implemented** against the Google REST APIs:
   `list_threads` (threads.list + threads.get metadata), `get_thread`
