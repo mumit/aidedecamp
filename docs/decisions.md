@@ -3,6 +3,64 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — Runtime entrypoint (design 4.6, always-on process)
+
+- **`runtime.py`** is the wiring layer that turns the tested library into an
+  actually-running process: `build_runtime()` (override-or-build-real, same
+  pattern as `build_app()`) assembles `AppContext` + credentials + connector +
+  a raw Gmail service (ingestion needs one directly, independent of whichever
+  `WorkspaceConnector` is configured) + Slack/Chat channels, and `Runtime`
+  exposes the testable wiring: `process_gmail_notification`,
+  `process_chat_event`, `renew_gmail_watch`, `renew_chat_subscription`.
+- **Two kinds of code, deliberately kept apart.** The wiring methods above are
+  fully unit-tested with injected fakes, same as every other module. The live
+  loops (`run`, `run_gmail_pubsub_loop`, `run_chat_pubsub_loop`) are thin and
+  `pragma: no cover`, matching the existing `SlackChannel.start()` precedent —
+  they need a real GCP project and Slack workspace, so their correctness rests
+  on the wiring logic they call being independently tested, not on testing the
+  loop itself. `python -m aidedecamp` (`__main__.py`) just calls
+  `build_runtime().run()`.
+- **Pull, not push, per rule 5.** Gmail and Chat notifications arrive via a
+  synchronous **pull** subscription (`google-cloud-pubsub`'s
+  `SubscriberClient.pull()`, lazily imported, added to the `[google]` extra) —
+  outbound-only, this process calls out to Pub/Sub, nothing calls in. Slack
+  uses its existing Socket Mode. `run()` starts the two pull loops on daemon
+  threads and blocks the main thread on Slack's Socket Mode connection (or, if
+  Slack isn't configured, just waits, so the daemon threads keep running).
+- **New concrete state implementations**: `ingestion/state.py`'s
+  `JsonGmailWatchState`/`JsonChatSubscriptionState` are the first real
+  implementations of the `WatchState`/`SubscriptionState` protocols — until
+  now every test used a dict-backed fake and nothing persisted for real.
+  Deliberately NOT interchangeable despite the similar shape: each serializes
+  `expiration` the way its *consuming* module's read path expects — epoch
+  milliseconds for `gmail_watch.ensure_watch` (`_from_epoch_ms`), an ISO-8601
+  string for `chat_events.ensure_subscription` (`_parse_expire_time`). Getting
+  this backwards wouldn't fail loudly, it would silently mistime renewal —
+  covered by tests that exercise each state class through its consuming
+  module's actual renewal-decision path, not just round-tripping the field.
+- **`make_slack_say(bot_token, channel)`** (new, in `channels/slack.py`) is the
+  Slack counterpart to the existing `make_chat_send_fn`: a `say`-shaped
+  callable for proactive posts (a Gmail-triggered approval card, a brief) that
+  don't arrive inside a live Slack event with their own `say` in scope.
+- **`GoogleChatChannel.post_text(space, text)`** (new) — the plain-text
+  counterpart to `post_brief`/`post_approval`'s Cards v2 payloads, needed to
+  wire `dispatcher.handle_chat_message`'s conversational replies to Chat; there
+  was no way to send a bare-text message before this.
+- **New config fields**, following the existing `*_path`/`*_topic` naming
+  convention: `user_id` (default `"me"` — one deployment acts as one identity,
+  used both as the Gmail API user alias and the memory/audit `user_id`),
+  `slack_default_channel`/`chat_default_space` (where to post proactively,
+  absent a live event context), `gmail_pubsub_subscription`/
+  `chat_pubsub_subscription` (the pull subscription, distinct from
+  `gmail_pubsub_topic`/`chat_pubsub_topic` — watch/subscribe calls *publish* to
+  a topic, the runtime *pulls* from a subscription attached to it),
+  `gmail_watch_state_path`/`chat_subscription_state_path` (where the two new
+  JSON state files persist).
+- **Still not wired**: Slack conversational Q&A (`process_chat_event` only
+  targets Chat — Slack has no `_converse` equivalent yet) and Calendar
+  ingestion (no push-notification path exists). Both remain in `CLAUDE.md`'s
+  next-steps list.
+
 ## 2026-07 — Audit log (structured, retrievable reason-for-action)
 
 - **`audit/log.py` implements the design-4.7 requirement.** The draft-approve

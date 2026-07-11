@@ -29,6 +29,7 @@ from .chat_events import (
     ensure_subscription,
     process_chat_event,
 )
+from .state import JsonChatSubscriptionState, JsonGmailWatchState
 
 __all__ = [
     "ensure_watch",
@@ -43,4 +44,6 @@ __all__ = [
     "SubscriptionState",
     "ensure_subscription",
     "process_chat_event",
+    "JsonGmailWatchState",
+    "JsonChatSubscriptionState",
 ]

@@ -5,6 +5,10 @@ slack_bolt needed.
 
 from __future__ import annotations
 
+import sys
+from types import ModuleType
+from unittest.mock import patch
+
 from aidedecamp.channels import (
     ACTION_APPROVE,
     ACTION_EDIT,
@@ -12,6 +16,7 @@ from aidedecamp.channels import (
     SlackChannel,
     approval_blocks,
     brief_blocks,
+    make_slack_say,
 )
 
 
@@ -106,4 +111,67 @@ def test_post_approval_uses_say():
     ch.post_approval(say, thread_id="t1", domain="mail", proposed_draft="hey")
     assert calls
     actions = [b for b in calls[0]["blocks"] if b["type"] == "actions"][0]
+    assert actions["elements"][0]["value"] == "t1"
+
+
+# --- make_slack_say (proactive posting, no live event context) -----------
+
+
+def _fake_slack_sdk_module():
+    calls = []
+
+    class _FakeWebClient:
+        def __init__(self, token):
+            calls.append({"token": token})
+
+        def chat_postMessage(self, **kwargs):
+            calls.append(kwargs)
+            return {"ok": True}
+
+    mod = ModuleType("slack_sdk")
+    mod.WebClient = _FakeWebClient
+    return mod, calls
+
+
+def test_make_slack_say_builds_client_with_bot_token():
+    mod, calls = _fake_slack_sdk_module()
+    with patch.dict(sys.modules, {"slack_sdk": mod}):
+        say = make_slack_say("xoxb-token", "C123")
+        say(text="hello")
+
+    assert calls[0] == {"token": "xoxb-token"}
+
+
+def test_make_slack_say_posts_to_configured_channel():
+    mod, calls = _fake_slack_sdk_module()
+    with patch.dict(sys.modules, {"slack_sdk": mod}):
+        say = make_slack_say("xoxb-token", "C123")
+        say(text="hello", blocks=[{"type": "header"}])
+
+    post_call = calls[1]
+    assert post_call["channel"] == "C123"
+    assert post_call["text"] == "hello"
+    assert post_call["blocks"] == [{"type": "header"}]
+
+
+def test_make_slack_say_returns_result():
+    mod, _ = _fake_slack_sdk_module()
+    with patch.dict(sys.modules, {"slack_sdk": mod}):
+        say = make_slack_say("xoxb-token", "C123")
+        result = say(text="hi")
+
+    assert result == {"ok": True}
+
+
+def test_make_slack_say_usable_with_post_approval():
+    """make_slack_say's output is a drop-in `say` for SlackChannel.post_approval."""
+    mod, calls = _fake_slack_sdk_module()
+    ch = SlackChannel(app=FakeApp())
+    with patch.dict(sys.modules, {"slack_sdk": mod}):
+        say = make_slack_say("xoxb-token", "C123")
+        ch.post_approval(say, thread_id="t1", domain="mail", proposed_draft="hey")
+
+    post_call = calls[1]
+    assert post_call["channel"] == "C123"
+    actions = [b for b in post_call["blocks"] if b["type"] == "actions"][0]
     assert actions["elements"][0]["value"] == "t1"

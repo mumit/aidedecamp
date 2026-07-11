@@ -48,10 +48,24 @@ class Settings:
     # Path to a Google credentials JSON file (service account or OAuth user).
     # When absent, google.auth.default() (ADC) is used.
     google_credentials_file: str | None = None
-    # Fully-qualified Pub/Sub topic names for Gmail and Chat ingestion.
+    # Fully-qualified Pub/Sub topic names (what users.watch/subscriptions.create
+    # publish to) and subscription names (what the runtime pulls from — a
+    # separate GCP resource attached to the topic) for Gmail and Chat ingestion.
     gmail_pubsub_topic: str | None = None
+    gmail_pubsub_subscription: str | None = None
     chat_pubsub_topic: str | None = None
+    chat_pubsub_subscription: str | None = None
     checkpointer_db_path: str = "./aidedecamp.db"
+    # Where the ingestion watch/subscription baselines persist between restarts.
+    gmail_watch_state_path: str = "./gmail_watch_state.json"
+    chat_subscription_state_path: str = "./chat_subscription_state.json"
+    # The single identity this deployment acts as (memory/audit user_id, and
+    # the Gmail API "me" alias). One deployment = one identity, per design 4.6.
+    user_id: str = "me"
+    # Where the assistant proactively posts (briefs, approval cards) absent a
+    # live event context to reply into.
+    slack_default_channel: str | None = None
+    chat_default_space: str | None = None
     extra: dict[str, str] = field(default_factory=dict)
 
     @classmethod
@@ -67,6 +81,17 @@ class Settings:
             google_project_id=e.get("GOOGLE_PROJECT_ID"),
             google_credentials_file=e.get("ADC_GOOGLE_CREDENTIALS_FILE"),
             gmail_pubsub_topic=e.get("ADC_GMAIL_PUBSUB_TOPIC"),
+            gmail_pubsub_subscription=e.get("ADC_GMAIL_PUBSUB_SUBSCRIPTION"),
             chat_pubsub_topic=e.get("ADC_CHAT_PUBSUB_TOPIC"),
+            chat_pubsub_subscription=e.get("ADC_CHAT_PUBSUB_SUBSCRIPTION"),
             checkpointer_db_path=e.get("ADC_DB_PATH", "./aidedecamp.db"),
+            gmail_watch_state_path=e.get(
+                "ADC_GMAIL_WATCH_STATE_PATH", "./gmail_watch_state.json"
+            ),
+            chat_subscription_state_path=e.get(
+                "ADC_CHAT_SUBSCRIPTION_STATE_PATH", "./chat_subscription_state.json"
+            ),
+            user_id=e.get("ADC_USER_ID", "me"),
+            slack_default_channel=e.get("ADC_SLACK_CHANNEL"),
+            chat_default_space=e.get("ADC_CHAT_SPACE"),
         )

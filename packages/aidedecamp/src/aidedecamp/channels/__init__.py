@@ -13,12 +13,13 @@ from .blocks import (
     approval_blocks,
     brief_blocks,
 )
-from .slack import SlackChannel
+from .slack import SlackChannel, make_slack_say
 from .gchat import GoogleChatChannel, make_chat_send_fn
 from .gchat_cards import approval_card, brief_card
 
 __all__ = [
     "SlackChannel",
+    "make_slack_say",
     "GoogleChatChannel",
     "make_chat_send_fn",
     "brief_blocks",

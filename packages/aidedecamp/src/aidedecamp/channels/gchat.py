@@ -97,6 +97,11 @@ class GoogleChatChannel:
             ),
         )
 
+    def post_text(self, space: str, text: str) -> None:
+        """Post a plain-text message — conversational Q&A replies, which have
+        no card layout (contrast ``post_brief``/``post_approval``)."""
+        self._send(space, {"text": text})
+
     def handle_interaction(self, event: dict[str, Any]) -> dict[str, Any] | None:
         """Process a decoded CARD_CLICKED interaction event from the republisher.
 

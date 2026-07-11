@@ -231,6 +231,13 @@ def test_post_approval_calls_send_fn():
     )
 
 
+def test_post_text_calls_send_fn_with_plain_text():
+    send_fn, calls = _send_recorder()
+    ch = GoogleChatChannel(send_fn=send_fn)
+    ch.post_text("spaces/ABC", "The answer is 42.")
+    assert calls == [("spaces/ABC", {"text": "The answer is 42."})]
+
+
 def test_no_send_fn_raises_on_post():
     ch = GoogleChatChannel()  # no send_fn
     with pytest.raises(RuntimeError, match="send_fn"):

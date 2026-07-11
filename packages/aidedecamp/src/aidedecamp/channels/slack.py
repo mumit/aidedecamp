@@ -137,3 +137,25 @@ class SlackChannel:
             # submit it calls self._resume(thread_id, "edited", edited_text).
             # The modal round-trip is UI wiring deferred to implementation.
             pass
+
+
+def make_slack_say(bot_token: str, channel: str) -> Callable[..., Any]:
+    """Build a ``say``-shaped callable for proactive posts — a morning brief or
+    a Gmail-triggered approval card, neither of which arrives inside a live
+    Slack event with its own ``say`` in scope (unlike button-click handlers,
+    which get one from Bolt). Lazily imports ``slack_sdk`` (bundled with
+    slack_bolt) so the module loads without it.
+
+    Use with :class:`SlackChannel`'s ``post_brief``/``post_approval``::
+
+        say = make_slack_say(settings.slack_bot_token, settings.slack_default_channel)
+        slack_channel.post_approval(say, thread_id=..., domain=..., proposed_draft=...)
+    """
+
+    def say(**kwargs: Any) -> Any:
+        from slack_sdk import WebClient
+
+        client = WebClient(token=bot_token)
+        return client.chat_postMessage(channel=channel, **kwargs)
+
+    return say
