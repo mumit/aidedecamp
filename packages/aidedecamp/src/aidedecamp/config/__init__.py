@@ -80,6 +80,10 @@ class Settings:
     pending_state_path: str = "./pending_approvals.json"
     # How long a card sits unanswered before the sweep captures IGNORED.
     approval_ignore_hours: int = 48
+    # Conversational Q&A working memory: rolling window per (channel, user).
+    conversation_state_path: str = "./conversation_state.json"
+    converse_window_turns: int = 10
+    converse_ttl_minutes: int = 120
     # The single identity this deployment acts as (memory/audit user_id, and
     # the Gmail API "me" alias). One deployment = one identity, per design 4.6.
     user_id: str = "me"
@@ -130,6 +134,11 @@ class Settings:
                 "ADC_PENDING_STATE_PATH", "./pending_approvals.json"
             ),
             approval_ignore_hours=int(e.get("ADC_APPROVAL_IGNORE_HOURS", "48")),
+            conversation_state_path=e.get(
+                "ADC_CONVERSATION_STATE_PATH", "./conversation_state.json"
+            ),
+            converse_window_turns=int(e.get("ADC_CONVERSE_WINDOW_TURNS", "10")),
+            converse_ttl_minutes=int(e.get("ADC_CONVERSE_TTL_MINUTES", "120")),
             user_id=e.get("ADC_USER_ID", "me"),
             slack_default_channel=e.get("ADC_SLACK_CHANNEL"),
             chat_default_space=e.get("ADC_CHAT_SPACE"),

@@ -1025,6 +1025,93 @@ def _chat_event(text: str = "hello") -> dict:
     }
 
 
+def test_converse_replays_conversation_window():
+    """Prior turns land in the model call between system and the current
+    message, with the framing they were stored with (prompt 04)."""
+    from aidedecamp.conversation import JsonConversationLog
+
+    client = _FakeClient(reply="the second one is at 2pm")
+    app = _fake_app_ctx(client=client)
+    replies = []
+
+    import tempfile, os
+    with tempfile.TemporaryDirectory() as td:
+        conv = JsonConversationLog(os.path.join(td, "conv.json"))
+        handle_slack_message(
+            app, text="what's on my plate today?", user_id="U1",
+            post_text=replies.append, conversation=conv,
+        )
+        handle_slack_message(
+            app, text="when is the second one?", user_id="U1",
+            post_text=replies.append, conversation=conv,
+        )
+
+    follow_up = client.calls[1]["messages"]
+    assert follow_up[0]["role"] == "system"
+    # the first exchange is replayed before the new question
+    assert follow_up[1] == {
+        "role": "user", "content": "[UNTRUSTED chat]\nwhat's on my plate today?"
+    }
+    assert follow_up[2]["role"] == "assistant"
+    assert follow_up[-1]["content"] == "[UNTRUSTED chat]\nwhen is the second one?"
+
+
+def test_converse_without_conversation_is_single_shot():
+    client = _FakeClient()
+    app = _fake_app_ctx(client=client)
+
+    handle_slack_message(
+        app, text="hello", user_id="U1", post_text=lambda t: None
+    )
+
+    messages = client.calls[0]["messages"]
+    assert len(messages) == 2  # system + current message only, as before
+    assert messages[1]["content"] == "[UNTRUSTED chat]\nhello"
+
+
+def test_brief_exchange_recorded_into_window():
+    """A brief request also lands in the window, so 'expand on the second
+    item' works right after a brief."""
+    from aidedecamp.conversation import JsonConversationLog
+
+    app = _fake_app_ctx()
+    import tempfile, os
+    with tempfile.TemporaryDirectory() as td:
+        conv = JsonConversationLog(os.path.join(td, "conv.json"))
+        handle_slack_message(
+            app, text="morning brief please", user_id="U1",
+            post_text=lambda t: None, brief_fn=lambda: "1. mail 2. meetings",
+            conversation=conv,
+        )
+        turns = conv.recent(channel="slack", user_id="U1")
+
+    assert len(turns) == 2
+    assert turns[0]["content"] == "[UNTRUSTED chat]\nmorning brief please"
+    assert turns[1] == {"role": "assistant", "content": "1. mail 2. meetings"}
+
+
+def test_chat_and_slack_windows_do_not_mix():
+    from aidedecamp.conversation import JsonConversationLog
+
+    client = _FakeClient()
+    app = _fake_app_ctx(client=client)
+    import tempfile, os
+    with tempfile.TemporaryDirectory() as td:
+        conv = JsonConversationLog(os.path.join(td, "conv.json"))
+        handle_slack_message(
+            app, text="slack question", user_id="U1",
+            post_text=lambda t: None, conversation=conv,
+        )
+        handle_chat_message(
+            app, _chat_event("chat question"),
+            post_text=lambda t: None, user_id="U1", conversation=conv,
+        )
+
+    # The Chat call must not contain the Slack turn.
+    chat_messages = client.calls[1]["messages"]
+    assert all("slack question" not in m["content"] for m in chat_messages)
+
+
 def test_chat_message_converses_for_regular_text():
     client = _FakeClient(reply="here is your answer")
     app = _fake_app_ctx(client=client)

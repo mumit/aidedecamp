@@ -36,6 +36,7 @@ from typing import Any, Callable
 from .app import AppContext, build_app
 from .brief import assemble_brief
 from .config import Settings
+from .conversation import JsonConversationLog
 from .connectors import WorkspaceConnector, make_connector
 from .credentials import load_google_credentials
 from .dispatcher import (
@@ -85,6 +86,7 @@ class Runtime:
     calendar_watch_state: Any = None  # ingestion.calendar_watch.ChannelState
     calendar_sync_state: Any = None   # ingestion.calendar_sync.SyncState
     pending: Any = None              # orchestrator.pending.PendingApprovals
+    conversation: Any = None         # conversation.ConversationLog
 
     # --- event processing (testable) ---------------------------------------
 
@@ -142,6 +144,7 @@ class Runtime:
             post_text=_post_text,
             user_id=self.settings.user_id,
             brief_fn=_brief_fn,
+            conversation=self.conversation,
         )
 
     def process_calendar_notification(self, notification: dict[str, Any]):
@@ -383,6 +386,7 @@ def build_runtime(
     calendar_watch_state: ChannelState | None = None,
     calendar_sync_state: SyncState | None = None,
     pending: Any = None,
+    conversation: Any = None,
 ) -> Runtime:
     """Assemble a :class:`Runtime` from config and optional overrides.
 
@@ -422,6 +426,11 @@ def build_runtime(
     )
 
     resolved_pending = pending or JsonPendingApprovals(settings.pending_state_path)
+    resolved_conversation = conversation or JsonConversationLog(
+        settings.conversation_state_path,
+        max_turns=settings.converse_window_turns,
+        ttl_minutes=settings.converse_ttl_minutes,
+    )
 
     # The one shared resume path, bound to the pending registry so every
     # decision — whichever channel it arrives on — marks its card resolved.
@@ -473,6 +482,7 @@ def build_runtime(
                 brief_fn=lambda: assemble_brief(
                     resolved_connector, resolved_app.client
                 ).summary,
+                conversation=resolved_conversation,
             )
 
         resolved_slack = SlackChannel(
@@ -518,4 +528,5 @@ def build_runtime(
         calendar_watch_state=resolved_calendar_watch_state,
         calendar_sync_state=resolved_calendar_sync_state,
         pending=resolved_pending,
+        conversation=resolved_conversation,
     )

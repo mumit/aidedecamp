@@ -431,6 +431,21 @@ class _FakePending:
         return []
 
 
+class _FakeConversation:
+    """Injected so tests never touch the real file-backed default window."""
+
+    def __init__(self):
+        self.appended = []
+
+    def recent(self, *, channel, user_id, now=None):
+        return []
+
+    def append(self, *, channel, user_id, role, content, now=None):
+        self.appended.append(
+            {"channel": channel, "user_id": user_id, "role": role, "content": content}
+        )
+
+
 def _runtime(**overrides):
     kwargs = dict(
         app=_app_ctx(),
@@ -440,6 +455,7 @@ def _runtime(**overrides):
         chat_state=_FakeChatState(),
         chat_events_service=object(), calendar_service=object(),
         pending=_FakePending(),
+        conversation=_FakeConversation(),
     )
     kwargs.update(overrides)
     return build_runtime(_settings(), **kwargs)

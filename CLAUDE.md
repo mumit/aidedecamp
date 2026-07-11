@@ -112,6 +112,11 @@ and `credentials.py`).
   reject flow (see `docs/decisions.md`) — the republisher forwards a
   verified, decoded click here over Pub/Sub; this is what actually calls
   `resume_fn` and posts the real confirmation.
+- `conversation.py` — ephemeral Q&A working memory: a rolling per-(channel,
+  user) window (`JsonConversationLog`, turn-capped + TTL'd) that
+  `dispatcher._converse` replays so follow-up questions work. Deliberately
+  NOT the MemoryStore — no `store.add`, no learning; that boundary is stated
+  in its docstring and must stay hard.
 - `brief.py` — read-only morning brief (first end-to-end deliverable). A plain
   function, not a graph — it has no HITL/interrupt need.
 - `app.py` — runtime assembly (`build_app` → `AppContext`): wires the real

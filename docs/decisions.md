@@ -3,6 +3,34 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — Conversation context for Q&A (roadmap prompt 04)
+
+- **`conversation.py`** — a `ConversationLog` Protocol + `JsonConversationLog`
+  (the `ingestion/state.py` pattern): a rolling window of recent turns keyed
+  by `(channel, user_id)`, capped at `ADC_CONVERSE_WINDOW_TURNS` (default 10
+  messages) and expired past `ADC_CONVERSE_TTL_MINUTES` (default 120 — TTL is
+  enforced on *read* too, so a window that sat on disk overnight comes back
+  empty without a rewrite). `dispatcher._converse` replays the window between
+  the system prompt and the current message, so "when is the second one?"
+  finally works; brief-request exchanges are recorded too, so follow-ups
+  right after a brief work the same way.
+- **Working memory is a hard boundary from MemoryStore** (design 2.1's first
+  row vs. everything `memory/` handles). Nothing here calls `store.add` — no
+  fact extraction, no learning, no retrieval. If a Q&A exchange ever deserves
+  to become durable memory, that's an explicit capture decision elsewhere,
+  never a side effect of chatting. Stated in the module docstring because
+  this is exactly the kind of boundary that erodes.
+- **Provenance survives replay (rule 2)**: incoming chat text is stored
+  *with* its `[UNTRUSTED chat]` frame and replayed verbatim as user/assistant
+  turns only — history is never promoted into system/instruction content.
+- **Backward compatible**: `conversation=None` (the default on
+  `handle_chat_message`/`handle_slack_message`) preserves the old
+  single-shot behavior byte-identically; `runtime.build_runtime` wires the
+  real file-backed window into both channels' message paths
+  (Slack `channel="slack"`, Chat `channel="chat"` — isolated windows).
+- **New config**: `conversation_state_path` (`ADC_CONVERSATION_STATE_PATH`),
+  `converse_window_turns`, `converse_ttl_minutes`.
+
 ## 2026-07 — Pending-approvals registry: card dedupe + the IGNORED signal (roadmap prompt 03)
 
 - **`orchestrator/pending.py`** — a `PendingApprovals` Protocol +
