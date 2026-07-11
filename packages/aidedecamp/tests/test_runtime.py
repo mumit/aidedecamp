@@ -411,6 +411,26 @@ def test_build_runtime_builds_gchat_via_make_chat_send_fn(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+class _FakePending:
+    """Injected so tests never touch the real file-backed default registry."""
+
+    def __init__(self):
+        self.registered = []
+        self.resolved = []
+
+    def get_pending_for_source(self, source_ref):
+        return None
+
+    def register(self, **kw):
+        self.registered.append(kw)
+
+    def resolve(self, lg_tid):
+        self.resolved.append(lg_tid)
+
+    def pending(self):
+        return []
+
+
 def _runtime(**overrides):
     kwargs = dict(
         app=_app_ctx(),
@@ -419,6 +439,7 @@ def _runtime(**overrides):
         watch_state=_FakeWatchState(),
         chat_state=_FakeChatState(),
         chat_events_service=object(), calendar_service=object(),
+        pending=_FakePending(),
     )
     kwargs.update(overrides)
     return build_runtime(_settings(), **kwargs)
@@ -827,6 +848,48 @@ def test_process_chat_interaction_reject_posts_rejection_confirmation():
     runtime.process_chat_interaction(_interaction_click("adc_reject", "t-9"))
 
     assert gchat.texts == [("spaces/ABC", "🗑️ Rejected — nothing sent.")]
+
+
+def test_gmail_notification_registers_pending_card():
+    """process_gmail_notification threads the registry through the dispatcher
+    (prompt 03): a posted card lands in the registry."""
+    pending = _FakePending()
+    runtime = _runtime(
+        slack=_FakeSlackChannel(), slack_say=lambda **kw: None, pending=pending
+    )
+
+    runtime.process_gmail_notification({"emailAddress": "me", "historyId": "200"})
+
+    assert len(pending.registered) == 1
+    assert pending.registered[0]["domain"] == "mail"
+
+
+def test_sweep_pending_ignored_uses_settings_threshold(tmp_path):
+    """sweep_pending_ignored wires registry + store + audit log + the
+    configured ignore-hours threshold together (prompt 03)."""
+    from datetime import datetime, timedelta, timezone
+
+    from aidedecamp.orchestrator import JsonPendingApprovals
+
+    registry = JsonPendingApprovals(str(tmp_path / "pending.json"))
+    t0 = datetime(2026, 7, 10, 12, 0, tzinfo=timezone.utc)
+    registry.register(
+        lg_tid="gmail:t1:100", source_ref="t1", domain="mail", posted_at=t0
+    )
+    store = _FakeMemoryStore()
+    runtime = _runtime(app=_app_ctx(store=store), pending=registry)
+
+    # Default threshold is 48h: 47h in → nothing; 49h in → swept.
+    assert runtime.sweep_pending_ignored(now=t0 + timedelta(hours=47)) == 0
+    assert runtime.sweep_pending_ignored(now=t0 + timedelta(hours=49)) == 1
+    assert runtime.sweep_pending_ignored(now=t0 + timedelta(hours=50)) == 0
+
+
+def test_sweep_pending_ignored_noop_without_registry():
+    runtime = _runtime(pending=None)
+    # build_runtime substitutes the real default when passed None, so force it:
+    runtime.pending = None
+    assert runtime.sweep_pending_ignored() == 0
 
 
 def test_process_chat_interaction_records_audit_log():

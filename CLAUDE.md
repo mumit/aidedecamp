@@ -61,7 +61,11 @@ and `credentials.py`).
   interaction path — don't reintroduce a fourth copy of this — and
   `apply_confirmation(decision, result)`, the one honest post-decision
   confirmation text shared by every channel: it must never claim a send or a
-  materialization that didn't happen), `triage.py`
+  materialization that didn't happen), `pending.py` (pending-approvals
+  registry: dedupes cards per source thread, and `sweep_ignored` turns cards
+  unanswered past `ADC_APPROVAL_IGNORE_HOURS` into `ActionSignal.IGNORED`
+  captures — resolution happens inside `resume_workflow`, the one shared
+  resume path), `triage.py`
   (plain function, not a graph — one `Task.CLASSIFY` call deciding
   URGENT/ROUTINE/NOISE; see `dispatcher.py` below for where it gates drafting),
   `scheduling.py` (plain function — `detect_conflict`, read-only overlap check;

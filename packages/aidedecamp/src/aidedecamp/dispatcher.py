@@ -75,6 +75,7 @@ def handle_gmail_notification(
     thread_id_prefix: str = "gmail",
     audit_log: AuditLog | None = None,
     triage_fn: Callable[[Any, str], TriageResult] | None = None,
+    pending: Any = None,
 ) -> list[str]:
     """Process a decoded Gmail Pub/Sub notification.
 
@@ -96,6 +97,14 @@ def handle_gmail_notification(
     otherwise act on the thread (that would be a new autonomous write path
     outside the existing per-(action,domain) autonomy gate, rule 3).
 
+    ``pending`` is an optional
+    :class:`~orchestrator.pending.PendingApprovals` registry. When supplied,
+    a Gmail thread that already has a pending (unanswered) approval card is
+    skipped entirely — no second card for the same thread — with a
+    ``superseded_notification`` audit event so "why didn't I get another
+    card" stays answerable; and each newly posted card is registered so the
+    ignore-sweep and dedupe can see it.
+
     Returns the list of LangGraph thread_ids that were submitted (one per
     changed Gmail thread that wasn't triaged as noise).  Raises
     :class:`~ingestion.HistoryExpired` when the stored historyId has expired;
@@ -106,6 +115,24 @@ def handle_gmail_notification(
 
     submitted: list[str] = []
     for gmail_tid in changes.thread_ids:
+        if pending is not None:
+            existing = pending.get_pending_for_source(gmail_tid)
+            if existing is not None:
+                if audit_log is not None:
+                    audit_log.record(
+                        thread_id=existing.lg_tid,
+                        workflow="draft_approve",
+                        events=[{
+                            "event": "superseded_notification",
+                            "ts": datetime.now(timezone.utc).isoformat(),
+                            "gmail_thread_id": gmail_tid,
+                            "history_id": changes.new_history_id,
+                        }],
+                        domain="mail",
+                        user_id=user_id,
+                    )
+                continue
+
         try:
             thread = connector.get_thread(gmail_tid)
         except Exception:  # noqa: BLE001
@@ -162,6 +189,13 @@ def handle_gmail_notification(
         rationale: list[str] | None = result.get("retrieved_memories") or None
 
         post_approval(lg_tid, proposed, rationale)
+        if pending is not None:
+            pending.register(
+                lg_tid=lg_tid,
+                source_ref=gmail_tid,
+                domain="mail",
+                posted_at=datetime.now(timezone.utc),
+            )
         submitted.append(lg_tid)
 
     return submitted

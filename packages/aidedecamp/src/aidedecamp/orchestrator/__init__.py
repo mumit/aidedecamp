@@ -25,6 +25,12 @@ from .draft_approve import (
     make_connector_apply_fn,
     resume_workflow,
 )
+from .pending import (
+    JsonPendingApprovals,
+    PendingApproval,
+    PendingApprovals,
+    sweep_ignored,
+)
 from .triage import Priority, TriageResult, triage_thread
 from .scheduling import ConflictResult, detect_conflict
 
@@ -40,6 +46,10 @@ __all__ = [
     "make_connector_apply_fn",
     "resume_workflow",
     "MAX_ITERATIONS",
+    "JsonPendingApprovals",
+    "PendingApproval",
+    "PendingApprovals",
+    "sweep_ignored",
     "Priority",
     "TriageResult",
     "triage_thread",

@@ -76,6 +76,10 @@ class Settings:
     chat_subscription_state_path: str = "./chat_subscription_state.json"
     calendar_watch_state_path: str = "./calendar_watch_state.json"
     calendar_sync_state_path: str = "./calendar_sync_state.json"
+    # Pending-approval registry (card dedupe + the IGNORED-signal sweep).
+    pending_state_path: str = "./pending_approvals.json"
+    # How long a card sits unanswered before the sweep captures IGNORED.
+    approval_ignore_hours: int = 48
     # The single identity this deployment acts as (memory/audit user_id, and
     # the Gmail API "me" alias). One deployment = one identity, per design 4.6.
     user_id: str = "me"
@@ -122,6 +126,10 @@ class Settings:
             calendar_sync_state_path=e.get(
                 "ADC_CALENDAR_SYNC_STATE_PATH", "./calendar_sync_state.json"
             ),
+            pending_state_path=e.get(
+                "ADC_PENDING_STATE_PATH", "./pending_approvals.json"
+            ),
+            approval_ignore_hours=int(e.get("ADC_APPROVAL_IGNORE_HOURS", "48")),
             user_id=e.get("ADC_USER_ID", "me"),
             slack_default_channel=e.get("ADC_SLACK_CHANNEL"),
             chat_default_space=e.get("ADC_CHAT_SPACE"),

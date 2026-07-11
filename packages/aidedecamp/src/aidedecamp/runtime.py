@@ -55,7 +55,12 @@ from .ingestion import (
     ensure_subscription,
     ensure_watch,
 )
-from .orchestrator import make_connector_apply_fn, resume_workflow
+from .orchestrator import (
+    JsonPendingApprovals,
+    make_connector_apply_fn,
+    resume_workflow,
+    sweep_ignored,
+)
 from .ingestion.calendar_sync import SyncState
 from .ingestion.calendar_watch import ChannelState
 from .ingestion.chat_events import SubscriptionState
@@ -79,6 +84,7 @@ class Runtime:
     calendar_service: Any = None     # raw Calendar API resource, for ingestion
     calendar_watch_state: Any = None  # ingestion.calendar_watch.ChannelState
     calendar_sync_state: Any = None   # ingestion.calendar_sync.SyncState
+    pending: Any = None              # orchestrator.pending.PendingApprovals
 
     # --- event processing (testable) ---------------------------------------
 
@@ -115,6 +121,7 @@ class Runtime:
             post_approval=_post_approval,
             user_id=self.settings.user_id,
             audit_log=self.app.audit_log,
+            pending=self.pending,
         )
 
     def process_chat_event(self, event: dict[str, Any]) -> None:
@@ -178,7 +185,9 @@ class Runtime:
             return
 
         def _resume_fn(thread_id: str, decision: str, text: str | None) -> Any:
-            return resume_workflow(self.app.graph, thread_id, decision, text)
+            return resume_workflow(
+                self.app.graph, thread_id, decision, text, pending=self.pending
+            )
 
         def _post_text(text: str) -> None:
             self.gchat.post_text(self.settings.chat_default_space, text)
@@ -189,6 +198,23 @@ class Runtime:
             resume_fn=_resume_fn,
             post_text=_post_text,
             user_id=self.settings.user_id,
+            audit_log=self.app.audit_log,
+        )
+
+    def sweep_pending_ignored(self, *, now: Any = None) -> int:
+        """Turn stale unanswered approval cards into IGNORED memory signals
+        (design 2.2). Called on a schedule; safe to call any time — each
+        entry is swept at most once. Returns how many were swept."""
+        if self.pending is None:
+            return 0
+        from datetime import timedelta
+
+        return sweep_ignored(
+            self.pending,
+            self.app.store,
+            user_id=self.settings.user_id,
+            max_age=timedelta(hours=self.settings.approval_ignore_hours),
+            now=now,
             audit_log=self.app.audit_log,
         )
 
@@ -356,6 +382,7 @@ def build_runtime(
     calendar_service: Any = None,
     calendar_watch_state: ChannelState | None = None,
     calendar_sync_state: SyncState | None = None,
+    pending: Any = None,
 ) -> Runtime:
     """Assemble a :class:`Runtime` from config and optional overrides.
 
@@ -393,6 +420,15 @@ def build_runtime(
     resolved_app = app or build_app(
         settings, apply_fn=make_connector_apply_fn(resolved_connector)
     )
+
+    resolved_pending = pending or JsonPendingApprovals(settings.pending_state_path)
+
+    # The one shared resume path, bound to the pending registry so every
+    # decision — whichever channel it arrives on — marks its card resolved.
+    def _bound_resume(thread_id: str, decision: str, text: str | None) -> Any:
+        return resume_workflow(
+            resolved_app.graph, thread_id, decision, text, pending=resolved_pending
+        )
 
     resolved_gmail_service = gmail_service
     if resolved_gmail_service is None:  # pragma: no cover - requires live creds
@@ -440,7 +476,9 @@ def build_runtime(
             )
 
         resolved_slack = SlackChannel(
-            graph=resolved_app.graph, message_fn=_slack_message_fn
+            graph=resolved_app.graph,
+            resume_fn=_bound_resume,
+            message_fn=_slack_message_fn,
         )
         if settings.slack_default_channel:
             resolved_slack_say = make_slack_say(
@@ -453,6 +491,7 @@ def build_runtime(
 
         resolved_gchat = GoogleChatChannel(
             graph=resolved_app.graph,
+            resume_fn=_bound_resume,
             send_fn=make_chat_send_fn(resolved_credentials),
         )
 
@@ -478,4 +517,5 @@ def build_runtime(
         calendar_service=resolved_calendar_service,
         calendar_watch_state=resolved_calendar_watch_state,
         calendar_sync_state=resolved_calendar_sync_state,
+        pending=resolved_pending,
     )

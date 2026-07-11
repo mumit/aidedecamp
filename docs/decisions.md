@@ -3,6 +3,37 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — Pending-approvals registry: card dedupe + the IGNORED signal (roadmap prompt 03)
+
+- **`orchestrator/pending.py`** — a `PendingApprovals` Protocol +
+  `JsonPendingApprovals` (the `ingestion/state.py` pattern), tracking each
+  posted approval card as `{lg_tid: source_ref, domain, posted_at, status}`.
+  Two consumers:
+- **Dedupe**: `dispatcher.handle_gmail_notification` now skips any Gmail
+  thread that already has an unanswered card — no triage call, no draft, no
+  second card — recording a `superseded_notification` audit event against
+  the *existing* card's workflow so "why didn't I get another card" stays
+  answerable. Newly posted cards are registered after `post_approval`.
+- **The IGNORED signal finally fires** (design 2.2 named it one of the two
+  most underused capture signals; `ActionSignal.IGNORED` existed with zero
+  writers). `sweep_ignored(registry, store, …, max_age, now)` resolves
+  entries pending longer than `ADC_APPROVAL_IGNORE_HOURS` (default 48) and
+  captures an IGNORED action signal (`infer=False`, verbatim, like all raw
+  action signals) plus an `approval_ignored` audit event. Exposed as
+  `Runtime.sweep_pending_ignored()`; cadence arrives with the scheduler
+  (roadmap prompt 05).
+- **Resolution lives in the one shared resume path.** `resume_workflow`
+  gained an optional `pending` registry and marks the card resolved after
+  every decision — `build_runtime` binds one `_bound_resume` closure into
+  both channels and the async Chat path, so no per-channel bookkeeping
+  exists to drift. `resolve()` is a no-op for never-registered workflows.
+- **Deliberately signals-and-hygiene only**: a swept entry's workflow stays
+  paused and resumable in the checkpointer (a very late click still works),
+  and nothing writes to the underlying mail (rule 3 — IGNORED capture is a
+  memory write, not an action).
+- **New config**: `pending_state_path` (`ADC_PENDING_STATE_PATH`),
+  `approval_ignore_hours` (`ADC_APPROVAL_IGNORE_HOURS`).
+
 ## 2026-07 — Edit flow wired end to end on both channels (roadmap prompt 02)
 
 - **This closes the design's flagship learning-signal gap**: edit-before-send

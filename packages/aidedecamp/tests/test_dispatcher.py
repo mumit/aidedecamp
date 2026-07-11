@@ -295,6 +295,89 @@ def test_gmail_graph_state_carries_thread_ref_for_apply():
     assert graph.calls[0]["state"]["incoming_ref"] == "t1"
 
 
+def test_pending_registry_dedupes_second_notification():
+    """A thread with an unanswered card gets no second card; the skip is
+    audited as superseded_notification (prompt 03)."""
+    from aidedecamp.orchestrator.pending import PendingApproval
+
+    class _FakePending:
+        def __init__(self, existing=None):
+            self.existing = existing
+            self.registered = []
+
+        def get_pending_for_source(self, source_ref):
+            return self.existing if self.existing and self.existing.source_ref == source_ref else None
+
+        def register(self, **kw):
+            self.registered.append(kw)
+
+        def resolve(self, lg_tid):
+            pass
+
+        def pending(self):
+            return []
+
+    from datetime import datetime, timezone as _tz
+
+    existing = PendingApproval(
+        lg_tid="gmail:t1:100", source_ref="t1", domain="mail",
+        posted_at=datetime.now(_tz.utc),
+    )
+    pending = _FakePending(existing)
+    graph = _FakeGraph()
+    audit = _FakeAuditLog()
+    app = _fake_app_ctx(graph=graph)
+    approvals = []
+
+    result = handle_gmail_notification(
+        app, {"emailAddress": "me@example.com", "historyId": "200"},
+        gmail_service=_FakeGmail(["t1"]),
+        watch_state=_FakeWatchState(history_id="100"),
+        connector=_FakeConnector({"t1": _FakeThread("t1")}),
+        post_approval=lambda *a: approvals.append(a),
+        user_id="me@example.com",
+        audit_log=audit,
+        pending=pending,
+    )
+
+    assert result == []
+    assert approvals == []
+    assert graph.calls == []  # never even drafted
+    assert audit.records[0]["events"][0]["event"] == "superseded_notification"
+    assert audit.records[0]["thread_id"] == "gmail:t1:100"
+
+
+def test_new_approval_card_registered_as_pending():
+    class _FakePending:
+        def __init__(self):
+            self.registered = []
+
+        def get_pending_for_source(self, source_ref):
+            return None
+
+        def register(self, **kw):
+            self.registered.append(kw)
+
+    pending = _FakePending()
+    app = _fake_app_ctx(graph=_FakeGraph())
+
+    handle_gmail_notification(
+        app, {"emailAddress": "me@example.com", "historyId": "200"},
+        gmail_service=_FakeGmail(["t1"]),
+        watch_state=_FakeWatchState(history_id="100"),
+        connector=_FakeConnector({"t1": _FakeThread("t1")}),
+        post_approval=lambda *a: None,
+        user_id="me@example.com",
+        pending=pending,
+    )
+
+    assert len(pending.registered) == 1
+    reg = pending.registered[0]
+    assert reg["source_ref"] == "t1"
+    assert reg["lg_tid"].startswith("gmail:t1:")
+    assert reg["domain"] == "mail"
+
+
 def test_handle_gmail_rationale_passed_through():
     mems = ["prefers short replies"]
     graph = _FakeGraph(proposed="short reply", memories=mems)

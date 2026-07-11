@@ -254,7 +254,12 @@ def build_draft_approve_graph(
 
 
 def resume_workflow(
-    graph: Any, thread_id: str, decision: str, text: str | None = None
+    graph: Any,
+    thread_id: str,
+    decision: str,
+    text: str | None = None,
+    *,
+    pending: Any = None,
 ) -> Any:
     """Resume a paused draft-approve workflow with a human decision.
 
@@ -263,6 +268,11 @@ def resume_workflow(
     card-interaction path (``dispatcher.handle_chat_interaction``) — this used
     to be duplicated per channel; a third caller was the point where that
     stopped being worth it.
+
+    ``pending`` is an optional :class:`~orchestrator.pending.PendingApprovals`
+    registry; being the single resume path makes this the one place every
+    decision marks its card resolved (so the ignore-sweep never fires on an
+    answered card). ``resolve`` is a no-op for workflows never registered.
     """
     from langgraph.types import Command
 
@@ -270,7 +280,10 @@ def resume_workflow(
     payload: dict[str, Any] = {"decision": decision}
     if text is not None:
         payload["text"] = text
-    return graph.invoke(Command(resume=payload), cfg)
+    result = graph.invoke(Command(resume=payload), cfg)
+    if pending is not None:
+        pending.resolve(thread_id)
+    return result
 
 
 def make_connector_apply_fn(connector: Any) -> Callable[[dict[str, Any]], str | None]:

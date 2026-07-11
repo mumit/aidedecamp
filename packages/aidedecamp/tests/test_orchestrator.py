@@ -418,6 +418,28 @@ def test_resume_workflow_edits_with_text():
     assert out["final_text"] == "Sure, works for me."
 
 
+def test_resume_workflow_resolves_pending_entry():
+    """resume_workflow is the single resume path, so it's the one place every
+    decision marks its pending card resolved (prompt 03)."""
+
+    class _FakePending:
+        def __init__(self):
+            self.resolved = []
+
+        def resolve(self, lg_tid):
+            self.resolved.append(lg_tid)
+
+    store = FakeStore()
+    graph = build_draft_approve_graph(client=FakeClient(), store=store)
+    cfg = {"configurable": {"thread_id": "t-resume-pending"}}
+    graph.invoke(_base_state(), cfg)
+
+    pending = _FakePending()
+    resume_workflow(graph, "t-resume-pending", "approved", pending=pending)
+
+    assert pending.resolved == ["t-resume-pending"]
+
+
 def test_resume_workflow_omits_text_key_when_none():
     """No text -> no 'text' key in the resume payload at all (not text=None),
     since the approve node reads state.get('proposed_draft') as the fallback
