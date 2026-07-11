@@ -3,6 +3,34 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — Memory transparency: see, correct, teach (roadmap prompt 11)
+
+- **Memory stops being write-only from the user's view.** `get_all`/`delete`
+  existed with no surface; `memory/commands.py` is now the engine both
+  surfaces render: `list_memories` (numbered listing + a number→id map that
+  makes "forget 3" unambiguous against exactly that listing),
+  `resolve_memory` (listing number or unique id prefix/suffix — ambiguity
+  returns `None`, never a guess), `forget_memory`, `remember_fact`
+  (`signal: explicit`, `infer=True`). Every mutation is audited under a
+  `"memory"` workflow (`memory_deleted`/`memory_taught`) — corrections to
+  the assistant's knowledge are exactly the audit log's business.
+- **Chat grammar** (routed *before* brief keywords — "what do you know
+  about the morning brief" is a memory command): `what do you know [about
+  <topic>]` / `memories …` → list ("about me/you" means everything, not a
+  search); `forget <selector>` → **two-step** (shows the memory, requires a
+  literal "confirm forget"; stale confirmations are a polite no-op);
+  `remember <fact>`. Listing maps and pending confirmations live in a
+  per-(channel,user) dict held by the Runtime — deliberately process-local;
+  losing it across a restart costs one re-listing.
+- **Rule-2 boundary stated where it matters**: the grammar only ever runs
+  on the user's own direct messages (Slack DMs user-filtered, Chat events
+  HUMAN-sender-filtered upstream) and must never be applied to fetched
+  bodies — "remember that X" inside an email is content, not a command.
+- **CLI**: `aidedecamp memory list [--query]` / `forget <id> [--yes]` /
+  `remember <text>` — same engine, terminal rendering; forget prompts
+  unless `--yes`. The `autonomy` group stays a placeholder for prompt 12.
+- Deliberately **no bulk delete** — per-memory, explicit, confirmed.
+
 ## 2026-07 — Compose stack + quickstart docs (roadmap prompt 10)
 
 - **`deploy/compose.yml` is the canonical stack**: Qdrant always, the

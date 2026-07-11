@@ -330,6 +330,8 @@ def handle_chat_message(
     user_id: str,
     brief_fn: Callable[[], str] | None = None,
     conversation: Any = None,
+    memory_ui: dict | None = None,
+    audit_log: AuditLog | None = None,
 ) -> None:
     """Process a decoded Chat space event.
 
@@ -356,6 +358,8 @@ def handle_chat_message(
         brief_fn=brief_fn,
         channel="chat",
         conversation=conversation,
+        memory_ui=memory_ui,
+        audit_log=audit_log,
     )
 
 
@@ -367,6 +371,8 @@ def handle_slack_message(
     post_text: Callable[[str], None],
     brief_fn: Callable[[], str] | None = None,
     conversation: Any = None,
+    memory_ui: dict | None = None,
+    audit_log: AuditLog | None = None,
 ) -> None:
     """Route one already-decoded Slack DM to a brief or a conversational reply.
 
@@ -382,7 +388,16 @@ def handle_slack_message(
         brief_fn=brief_fn,
         channel="slack",
         conversation=conversation,
+        memory_ui=memory_ui,
+        audit_log=audit_log,
     )
+
+
+# Per-(channel,user) UI state for memory commands: the last listing's
+# number→id map and any pending forget-confirmation. Process-local by design
+# (a lost listing reference across restarts costs one re-listing); the
+# runtime passes its own dict, tests pass explicit ones.
+_MEMORY_UI_STATE: dict[tuple[str, str], dict[str, Any]] = {}
 
 
 def _respond_to_message(
@@ -394,13 +409,40 @@ def _respond_to_message(
     brief_fn: Callable[[], str] | None,
     channel: str = "chat",
     conversation: Any = None,
+    memory_ui: dict | None = None,
+    audit_log: Any = None,
 ) -> None:
-    """Shared brief-keyword-vs-converse routing for both chat channels.
+    """Shared routing for both chat channels: memory commands first (they
+    may contain brief keywords — "what do you know about the morning
+    brief"), then brief keywords, then conversational fallback.
+
+    Memory commands only ever run here — on the user's own direct messages
+    (Slack DMs are user-filtered, Chat events HUMAN-sender-filtered
+    upstream) — never on fetched content (rule 2; see memory/commands.py).
 
     Every exchange — brief requests included — is recorded into the
     conversation window, so "expand on the second item" works right after a
     brief the same way it works after a Q&A answer.
     """
+    response = _try_memory_command(
+        app_ctx, text, user_id,
+        channel=channel,
+        memory_ui=memory_ui if memory_ui is not None else _MEMORY_UI_STATE,
+        audit_log=audit_log,
+    )
+    if response is not None:
+        if conversation is not None:
+            conversation.append(
+                channel=channel, user_id=user_id, role="user",
+                content=f"[UNTRUSTED chat]\n{text}",
+            )
+            conversation.append(
+                channel=channel, user_id=user_id, role="assistant",
+                content=response,
+            )
+        post_text(response)
+        return
+
     text_lower = text.lower()
     if any(kw in text_lower for kw in ("brief", "summary", "morning")):
         response = brief_fn() if brief_fn is not None else "Brief not configured."
@@ -418,6 +460,96 @@ def _respond_to_message(
         )
 
     post_text(response)
+
+
+def _try_memory_command(
+    app_ctx: AppContext,
+    text: str,
+    user_id: str,
+    *,
+    channel: str,
+    memory_ui: dict,
+    audit_log: Any = None,
+) -> str | None:
+    """Parse and execute a memory command, or return None for non-commands.
+
+    Grammar (user DMs only — see _respond_to_message):
+      "what do you know [about <topic>]" / "memories [about <topic>]" → list
+      "forget <number-or-id>"  → two-step: shows the memory, asks to confirm
+      "confirm forget"          → performs the pending deletion
+      "remember <fact>"         → store an explicit user-taught fact
+    """
+    from .memory.commands import (
+        forget_memory,
+        list_memories,
+        remember_fact,
+        resolve_memory,
+    )
+
+    stripped = text.strip()
+    lower = stripped.lower()
+    state = memory_ui.setdefault((channel, user_id), {})
+
+    list_prefixes = ("what do you know", "memories", "list memories")
+    matched_prefix = next((p for p in list_prefixes if lower.startswith(p)), None)
+    if matched_prefix is not None:
+        rest = stripped[len(matched_prefix):].strip()
+        if rest.lower().startswith("about"):
+            rest = rest[len("about"):].strip()
+        query = rest.rstrip("?").strip() or None
+        if query and query.lower() in ("me", "you", "yourself", "myself"):
+            query = None  # "about me" means "everything", not a search
+        listing = list_memories(app_ctx.store, user_id=user_id, query=query)
+        state["listing"] = listing.ids
+        state.pop("pending_forget", None)
+        header = (
+            f"Here's what I know about “{query}”:" if query
+            else "Here's what I've learned so far:"
+        )
+        footer = "\nReply “forget <number>” to delete one, or “remember <fact>” to teach me."
+        return f"{header}\n{listing.text}{footer}"
+
+    if lower == "confirm forget":
+        pending_id = state.pop("pending_forget", None)
+        if pending_id is None:
+            return "Nothing pending to forget."
+        record = resolve_memory(
+            app_ctx.store, user_id=user_id, selector=pending_id
+        )
+        if record is None:
+            return "That memory is already gone."
+        forget_memory(
+            app_ctx.store, record, user_id=user_id, audit_log=audit_log
+        )
+        return f"Forgotten: “{record.text}”"
+
+    if lower.startswith("forget "):
+        selector = stripped[len("forget "):].strip()
+        record = resolve_memory(
+            app_ctx.store, user_id=user_id, selector=selector,
+            listing_ids=state.get("listing"),
+        )
+        if record is None:
+            return (
+                "I couldn't pin down which memory you mean — say "
+                "“what do you know” for a numbered list, then “forget <number>”."
+            )
+        state["pending_forget"] = record.id
+        return (
+            f"Delete this memory? “{record.text}”\n"
+            "Reply “confirm forget” to delete it."
+        )
+
+    if lower.startswith("remember "):
+        fact = stripped[len("remember "):].strip()
+        if not fact:
+            return None
+        remember_fact(
+            app_ctx.store, user_id=user_id, text=fact, audit_log=audit_log
+        )
+        return f"Got it — I'll remember: “{fact}”"
+
+    return None
 
 
 def _converse(

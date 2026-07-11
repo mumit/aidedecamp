@@ -32,7 +32,7 @@ import json
 import logging
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -160,6 +160,7 @@ class Runtime:
     conversation: Any = None         # conversation.ConversationLog
     chat_service: Any = None         # raw Chat API resource (poll-mode reads)
     chat_poll_state: Any = None      # ingestion.state.JsonChatPollState
+    memory_ui: dict = field(default_factory=dict)  # memory-command UI state
 
     # --- event processing (testable) ---------------------------------------
 
@@ -219,6 +220,8 @@ class Runtime:
             user_id=self.settings.user_id,
             brief_fn=_brief_fn,
             conversation=self.conversation,
+            memory_ui=self.memory_ui,
+            audit_log=self.app.audit_log,
         )
 
     def process_calendar_notification(self, notification: dict[str, Any]):
@@ -786,6 +789,7 @@ def build_runtime(
     )
 
     resolved_pending = pending or JsonPendingApprovals(settings.pending_state_path)
+    _memory_ui: dict = {}
     resolved_conversation = conversation or JsonConversationLog(
         settings.conversation_state_path,
         max_turns=settings.converse_window_turns,
@@ -843,6 +847,8 @@ def build_runtime(
                     resolved_connector, resolved_app, settings
                 ).summary,
                 conversation=resolved_conversation,
+                memory_ui=_memory_ui,
+                audit_log=resolved_app.audit_log,
             )
 
         resolved_slack = SlackChannel(
@@ -908,4 +914,5 @@ def build_runtime(
         conversation=resolved_conversation,
         chat_service=resolved_chat_service,
         chat_poll_state=resolved_chat_poll_state,
+        memory_ui=_memory_ui,
     )

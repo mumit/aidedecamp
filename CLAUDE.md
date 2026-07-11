@@ -72,7 +72,10 @@ and `credentials.py`).
   no hold-creation/accept-decline action layer built, deliberately — see
   `docs/decisions.md`).
 - `memory/` — substrate-agnostic `MemoryStore` (`base.py`), Mem0 impl
-  (`mem0_store.py`), capture signals (`signals.py`).
+  (`mem0_store.py`), capture signals (`signals.py`), transparency commands
+  (`commands.py`: list/resolve/forget/remember — the engine behind the chat
+  grammar and `aidedecamp memory`; chat-side routing runs only on user DMs,
+  never on fetched content, and forget is two-step).
 - `connectors/` — swappable `WorkspaceConnector`: `mcp.py` (real, Google managed
   MCP), `direct_oauth.py` (real, google-api-python-client). `make_connector`
   selects by config. `get_event(event_id)` is the single-item counterpart to
