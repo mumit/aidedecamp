@@ -7,3 +7,7 @@ target-version = "py310"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# deploy/ (under packages/aidedecamp/) holds standalone deployable services
+# (e.g. deploy/republisher/) with their own dependency sets, independent of
+# the aidedecamp package — never collect them here.
+norecursedirs = ["deploy"]
