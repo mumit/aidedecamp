@@ -242,24 +242,37 @@ touches credentials, memory, or the Fuel iX token — if it's compromised, it
 can at most inject a bogus (headers-only) message onto one Pub/Sub topic that
 `Runtime.process_calendar_notification` just re-reconciles from, safely.
 
-**This service is not part of the `aidedecamp` package** — it's a few lines
-of standalone Cloud Run code (any HTTP framework), not built yet. Concretely,
-it needs to:
+**Not part of the installable `aidedecamp` package** — it lives at
+`packages/aidedecamp/deploy/calendar_republisher/` (own `main.py`,
+`requirements.txt`, `Dockerfile`, `test_main.py`), deployed independently,
+the same way `deploy/mem0-compose.yml` is infrastructure rather than
+application code. It's a small Flask app with one route:
 
 1. Accept a POST, read the `X-Goog-Channel-ID` / `X-Goog-Resource-ID` /
    `X-Goog-Resource-State` / `X-Goog-Message-Number` headers (the exact shape
    `ingestion/calendar_sync.py::decode_calendar_headers` expects as input).
 2. Publish `{"channel_id": ..., "resource_id": ..., "resource_state": ...,
-   "message_number": ...}` as JSON onto `aidedecamp-calendar`.
-3. Return HTTP 200 immediately (Google requires a fast ack; do the Pub/Sub
-   publish synchronously since it's cheap, don't do anything else).
+   "message_number": ...}` as JSON onto `aidedecamp-calendar`, waiting for
+   publish confirmation (`future.result()`) before acking — losing a
+   notification because we returned 200 before the publish actually landed
+   would be worse than the extra latency of waiting for it.
+3. Return HTTP 200.
+
+Test it (own dependency set, not part of the main `pytest` run):
+
+```bash
+cd packages/aidedecamp/deploy/calendar_republisher
+pip install -r requirements.txt pytest
+pytest test_main.py
+```
 
 Deploy it, note its HTTPS URL, and set that as `ADC_CALENDAR_WEBHOOK_ADDRESS`
 — that's the `address` field `ensure_calendar_watch` registers with Google.
 
 ```bash
 gcloud run deploy aidedecamp-calendar-republisher \
-  --source=./republisher \
+  --source=packages/aidedecamp/deploy/calendar_republisher \
+  --set-env-vars="CALENDAR_PUBSUB_TOPIC=projects/${PROJECT_ID}/topics/aidedecamp-calendar" \
   --allow-unauthenticated \
   --region=us-central1
 ```

@@ -3,6 +3,30 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — Calendar webhook republisher implemented
+
+- **`deploy/calendar_republisher/`** — the piece `docs/deployment.md` §8
+  flagged as "not built yet" now exists: a small Flask app (`main.py`) with
+  one route, its own `requirements.txt`/`Dockerfile`/`test_main.py`, deployed
+  independently of the `aidedecamp` package (same shape as
+  `deploy/mem0-compose.yml` — infrastructure, not library code).
+- **Waits for publish confirmation before acking.** `publish()` calls
+  `future.result(timeout=10)` rather than returning immediately after
+  `.publish()` — silently losing a Calendar notification because the webhook
+  ack raced ahead of the actual Pub/Sub publish would be worse than the
+  extra latency of waiting for confirmation.
+- **Tested offline** (Flask's test client + an injected fake publisher via
+  `app.config["PUBLISHER"]`/`app.config["TOPIC"]`), matching the rest of the
+  codebase's injected-collaborator convention — no live GCP needed to verify
+  the header-decoding and publish-wiring logic, only to actually deploy it.
+  Flask is intentionally **not** added to the `aidedecamp` package's own
+  dependencies — this service has its own `requirements.txt` and is tested/
+  deployed independently, verified by installing Flask into a scratch
+  environment, running its 8 tests, then uninstalling it and confirming the
+  main 288-test suite was unaffected.
+- `docs/deployment.md` §8 updated to point at the real path and drop the
+  "not built yet" language.
+
 ## 2026-07 — Personal deployment moves to GCP; `docs/deployment.md` added
 
 - **Personal now runs on its own GCP project + Compute Engine VM**, not the
