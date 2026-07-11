@@ -92,6 +92,20 @@ def test_embedding_model_dims_lookup():
     assert EmbeddingModel.ADA_002.dims == 1536
 
 
+def test_qdrant_host_env_points_store_at_service(monkeypatch):
+    """ADC_QDRANT_HOST lets the containerized assistant reach the compose
+    stack's qdrant service (prompt 10); unset keeps mem0's default."""
+    monkeypatch.setenv("FUELIX_TOKEN", "tok-abc")
+    monkeypatch.setenv("ADC_QDRANT_HOST", "qdrant")
+    cfg = build_mem0_config()
+    assert cfg["vector_store"]["config"]["host"] == "qdrant"
+    assert cfg["vector_store"]["config"]["port"] == 6333
+
+    monkeypatch.delenv("ADC_QDRANT_HOST")
+    cfg = build_mem0_config()
+    assert "host" not in cfg["vector_store"]["config"]
+
+
 # --- store adapter -------------------------------------------------------
 
 def test_add_and_search_roundtrip(store):

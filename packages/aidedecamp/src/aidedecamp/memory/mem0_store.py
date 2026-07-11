@@ -88,13 +88,17 @@ def build_mem0_config(
     if vector_store is not None:
         resolved_vs = vector_store
     else:
-        resolved_vs = {
-            "provider": "qdrant",
-            "config": {
-                "collection_name": "aidedecamp",
-                "embedding_model_dims": embedding_model.dims,
-            },
+        vs_config: dict[str, Any] = {
+            "collection_name": "aidedecamp",
+            "embedding_model_dims": embedding_model.dims,
         }
+        # In the compose stack the assistant runs in a container where Qdrant
+        # isn't localhost — ADC_QDRANT_HOST/PORT point it at the service name.
+        qdrant_host = os.environ.get("ADC_QDRANT_HOST")
+        if qdrant_host:
+            vs_config["host"] = qdrant_host
+            vs_config["port"] = int(os.environ.get("ADC_QDRANT_PORT", "6333"))
+        resolved_vs = {"provider": "qdrant", "config": vs_config}
 
     return {"llm": llm, "embedder": resolved_embedder, "vector_store": resolved_vs}
 

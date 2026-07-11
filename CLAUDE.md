@@ -218,9 +218,13 @@ safety posture; violating one is a bug, not a shortcut.
 
 ## Environment
 
-Copy `.env.example` to `.env`. `FUELIX_TOKEN` is needed for anything hitting Fuel
-iX; Slack (`SLACK_APP_TOKEN`/`SLACK_BOT_TOKEN`) and Google creds come later per
-phase. `.env` is gitignored — never commit it.
+Copy `.env.example` to `.env` — or run `aidedecamp init`, which writes it.
+`FUELIX_TOKEN` is needed for anything hitting Fuel iX; Slack
+(`SLACK_APP_TOKEN`/`SLACK_BOT_TOKEN`) and Google creds per channel/source.
+`ADC_DATA_DIR` derives all state paths; `ADC_INGESTION_MODE` defaults to
+`poll` (no GCP infra needed — push is the hardened posture). `.env` is
+gitignored — never commit it. `deploy/compose.yml` is the canonical stack
+(Qdrant + optional `--profile assistant` container).
 
 Fuel iX: `base_url = https://api.fuelix.ai`; models `claude-haiku-4-5`,
 `claude-sonnet-4-7`, `claude-sonnet-5`, `gpt-5.4`, `gpt-5.6-luna`,

@@ -1,15 +1,60 @@
-# Deployment Guide — GCP (personal and TELUS)
+# Deployment Guide (personal and TELUS)
 
 This is the concrete "how to actually run this" companion to `docs/design.md`
 (architecture) and `docs/decisions.md` (why things are shaped the way they
 are). Read `CLAUDE.md`'s non-negotiable rules first — this guide implements
 them, it doesn't relitigate them.
 
+There are two tracks:
+
+- **Track A — quickstart (poll mode, the default).** No GCP project, no
+  Pub/Sub, no republisher: the assistant polls Gmail/Calendar/Chat on a
+  timer, outbound-only. Anything that can run Docker + Python works (a
+  laptop, a home box, a VM). This is the day-one path and stays a perfectly
+  reasonable permanent posture for a personal deployment.
+- **Track B — hardened push deployment (GCP).** Pub/Sub push ingestion fed
+  by watches, the republisher on Cloud Run, Secret Manager, one GCP project
+  per deployment. Lower latency, lower API-call volume, and the posture the
+  TELUS deployment should use. Everything from §2 onward is Track B.
+
 **Status: unexercised.** Every step below is derived from the code and from
 Google's documented APIs, but nothing here has been run against a real GCP
-project yet. Treat this as a detailed first draft to execute and correct
-against reality, not a verified runbook. Update it as you go — a deployment
-guide that drifts from what actually works is worse than none.
+project or live account yet — in either track. Treat this as a detailed
+first draft to execute and correct against reality, not a verified runbook.
+Update it as you go — a deployment guide that drifts from what actually
+works is worse than none.
+
+---
+
+## Track A — quickstart (poll mode)
+
+The short version is the README quickstart; the operational notes:
+
+1. `pip install -e "packages/bearer-openai" -e
+   "packages/aidedecamp[orchestrator,memory,google,slack]"`.
+2. `docker compose -f packages/aidedecamp/deploy/compose.yml up -d` —
+   Qdrant only; Mem0 runs in-process inside the assistant.
+3. `aidedecamp init` — writes `.env` (chmod 0600) and can run the Google
+   OAuth consent flow for a consumer Gmail account. Poll mode and a single
+   `ADC_DATA_DIR` are the defaults it writes.
+4. `aidedecamp doctor` until everything relevant is PASS/SKIP, then
+   `aidedecamp brief`, then `aidedecamp run`.
+5. Always-on options, in increasing effort: a tmux session; the systemd unit
+   in §9 (drop the Pub/Sub-specific parts); or the compose `assistant`
+   profile (`--profile assistant up -d --build`), which mounts all state in
+   the `adc_data` volume and points Mem0 at the `qdrant` service.
+
+What Track A gives up relative to Track B: event latency is the poll
+cadence (`ADC_POLL_SECONDS`, default 120s, floor 30s) instead of push; and
+**Google Chat approval buttons don't work without the republisher** (card
+clicks are POSTs from Google; there's nothing to poll) — use Slack for
+approvals in Track A, or deploy just the republisher + the Chat-interaction
+Pub/Sub pair (§8, §12) as a halfway step. Watch renewals, Pub/Sub quotas,
+and the republisher simply don't exist in this track.
+
+---
+
+## Track B — hardened push deployment (GCP)
 
 **Change from `docs/design.md` §4.6**: that section assumed personal ran on a
 home server and only TELUS ran on GCP. Both deployments now run on GCP —

@@ -31,38 +31,65 @@ packages/
 The two are developed together now for convenience; `bearer-openai` deliberately
 knows nothing about `aidedecamp` so it can leave home cleanly.
 
-## Quick start (dev)
+## Quickstart — first brief in about 15 minutes
+
+Prerequisites: Python 3.10+, Docker, a Google account, and a Fuel iX bearer
+token. The default **poll mode** needs no GCP project, no Pub/Sub, and no
+webhook infrastructure — everything is outbound-only.
 
 ```bash
-# from the repo root
+# 1. Clone and install
+git clone <this repo> && cd aidedecamp
 python -m venv .venv && source .venv/bin/activate
-pip install -e "packages/bearer-openai[dev]"
-pip install -e "packages/aidedecamp[dev]"
+pip install -e "packages/bearer-openai" \
+            -e "packages/aidedecamp[orchestrator,memory,google,slack]"
+
+# 2. Start the memory substrate (Qdrant; Mem0 runs in-process)
+docker compose -f packages/aidedecamp/deploy/compose.yml up -d
+
+# 3. Interactive setup — writes .env, can run the Google OAuth consent flow
+aidedecamp init
+
+# 4. Validate everything, then see your first brief in the terminal
+aidedecamp doctor
+aidedecamp brief
+```
+
+Make it always-on with `aidedecamp run` (a terminal, tmux, or the systemd
+unit in [`docs/deployment.md`](docs/deployment.md)) — or fully containerized:
+
+```bash
+docker compose -f packages/aidedecamp/deploy/compose.yml --profile assistant up -d --build
+```
+
+From there it polls your inbox, posts a morning brief at your configured
+time, and sends draft-approval cards to Slack/Chat; approving one creates
+the draft in Gmail for you to send. Never commit `.env`.
+
+### Dev setup
+
+```bash
+pip install -e "packages/bearer-openai[dev]" -e "packages/aidedecamp[dev]"
 pytest packages/aidedecamp packages/bearer-openai
 ```
 
-Then either copy `.env.example` to `.env` and fill it in by hand — or just run
-`aidedecamp init`, the interactive setup wizard (it writes `.env` for you and
-can bootstrap the Google OAuth consent flow). `aidedecamp doctor` validates
-every credential and service with fix hints; `aidedecamp brief` prints your
-first morning brief in the terminal. Never commit `.env`.
+Optional extras (the package imports without them): `[memory]` (Mem0 +
+Qdrant), `[orchestrator]` (LangGraph), `[slack]` (Slack Bolt), `[google]`
+(direct-OAuth Google API access + Pub/Sub).
 
-Optional extras (installed only if you need them; the package loads without
-them): `[memory]` (Mem0 + Qdrant), `[orchestrator]` (LangGraph),
-`[slack]` (Slack Bolt), `[google]` (direct-OAuth Google API access).
-
-`packages/aidedecamp/deploy/` holds standalone deployable infrastructure — a
-Mem0/Qdrant compose file and the Calendar-webhook/Chat-interaction republisher
-service — each with its own dependency set, not part of the main test run
-(see `pytest.ini`'s `norecursedirs` and each service's own instructions).
+`packages/aidedecamp/deploy/` holds standalone deployable infrastructure —
+the compose stack, the assistant Dockerfile, and the Calendar-webhook/
+Chat-interaction republisher service — each with its own dependency set, not
+part of the main test run (see `pytest.ini`'s `norecursedirs`).
 
 ## Running it for real
 
-The library is built and tested; actually running it as an always-on assistant
-against a live Gmail/Calendar/Chat/Slack account is GCP deployment work, not
-code. [`docs/deployment.md`](docs/deployment.md) walks through project setup,
-credentials, Pub/Sub topics, the republisher, and the systemd service, for
-both a personal and a TELUS-style deployment.
+Poll mode (above) is the day-one path. The hardened production posture —
+Pub/Sub push ingestion, the republisher on Cloud Run, Secret Manager, a
+dedicated GCP project per deployment — is Track B in
+[`docs/deployment.md`](docs/deployment.md), for both a personal and a
+TELUS-style deployment. `aidedecamp doctor` tells you what's missing at
+each step.
 
 ## Status
 

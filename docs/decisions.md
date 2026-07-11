@@ -3,6 +3,36 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — Compose stack + quickstart docs (roadmap prompt 10)
+
+- **`deploy/compose.yml` is the canonical stack**: Qdrant always, the
+  assistant behind `--profile assistant` (so the substrate can run alone
+  during setup while the CLI runs on the host). `deploy/mem0-compose.yml`
+  is superseded but kept with a pointer note, since docs and old decisions
+  link to it. New `deploy/Dockerfile` (repo-root context — it needs both
+  packages) installs only the app extras; the republisher keeps its own
+  image per the standalone-deployable convention. No secrets in image or
+  compose (rule 6): `.env` via `env_file`; all state in the `adc_data`
+  volume through `ADC_DATA_DIR=/data`.
+- **`ADC_QDRANT_HOST`/`ADC_QDRANT_PORT`**: `build_mem0_config`'s default
+  vector store now honors these, because inside the compose network Qdrant
+  isn't localhost — the compose file sets `ADC_QDRANT_HOST=qdrant`. Unset
+  keeps mem0's default behavior. Also: `Settings.from_env` now
+  `expanduser`s `ADC_DATA_DIR` so a hand-edited `~/.aidedecamp` works.
+- **README leads with a ~15-minute quickstart** (clone → compose up →
+  `aidedecamp init` → `doctor` → `brief`), dev setup demoted to a
+  subsection. **`docs/deployment.md` is restructured into two tracks**:
+  Track A (poll mode — no GCP, with its explicit trade-offs: poll-cadence
+  latency, and Chat approval buttons need the republisher) and Track B
+  (the existing hardened GCP/push content). The "unexercised" honesty
+  flag stays, now covering both tracks. `.env.example` rewritten
+  poll-mode-first with every setting added since it was written.
+- **Verification**: `docker compose config` validates; the image build is
+  a documented manual step (`docker build -f
+  packages/aidedecamp/deploy/Dockerfile .`) — the Docker daemon wasn't
+  running in the dev environment at the time, matching this project's
+  convention of flagging unexercised steps rather than claiming them.
+
 ## 2026-07 — Polling ingestion mode is the new default (roadmap prompt 09)
 
 - **`ADC_INGESTION_MODE=poll|push`, default `poll`.** Push ingestion needs

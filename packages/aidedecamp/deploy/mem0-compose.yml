@@ -1,3 +1,7 @@
+# NOTE: superseded by deploy/compose.yml (the full stack: Qdrant + the
+# assistant behind a --profile). This file is kept because docs and decisions
+# link to it; new setups should use compose.yml.
+#
 # Self-hosted Mem0 for Aide-de-camp.
 #
 # This stands up a local memory substrate: Qdrant (vector store) plus the Mem0

@@ -123,7 +123,8 @@ class Settings:
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "Settings":
         e = env if env is not None else dict(os.environ)
-        data_dir = e.get("ADC_DATA_DIR") or None
+        # expanduser so a hand-edited `ADC_DATA_DIR=~/.aidedecamp` works.
+        data_dir = os.path.expanduser(e.get("ADC_DATA_DIR") or "") or None
 
         def _path(key: str, filename: str) -> str:
             """Explicit env var wins; else derive from data_dir; else CWD."""
