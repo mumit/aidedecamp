@@ -9,7 +9,10 @@ it up front.
 
 Read [`docs/design.md`](docs/design.md) first — it's the source of truth for the
 architecture, the memory model, the earned-autonomy ladder, and the phased
-roadmap.
+roadmap. [`docs/decisions.md`](docs/decisions.md) is a running log of settled
+architectural decisions and the reasoning behind them.
+[`docs/deployment.md`](docs/deployment.md) covers the concrete GCP setup for
+running it.
 
 ## Why a monorepo with two packages
 
@@ -35,27 +38,66 @@ knows nothing about `aidedecamp` so it can leave home cleanly.
 python -m venv .venv && source .venv/bin/activate
 pip install -e "packages/bearer-openai[dev]"
 pip install -e "packages/aidedecamp[dev]"
-pytest
+pytest packages/aidedecamp packages/bearer-openai
 ```
 
 Then copy `.env.example` to `.env` and fill in your Fuel iX token and, as you
-wire up later phases, your Slack/Google credentials. Never commit `.env`.
+wire up channels/ingestion, your Slack/Google credentials. Never commit `.env`.
+
+Optional extras (installed only if you need them; the package loads without
+them): `[memory]` (Mem0 + Qdrant), `[orchestrator]` (LangGraph),
+`[slack]` (Slack Bolt), `[google]` (direct-OAuth Google API access).
+
+`packages/aidedecamp/deploy/` holds standalone deployable infrastructure — a
+Mem0/Qdrant compose file and the Calendar-webhook/Chat-interaction republisher
+service — each with its own dependency set, not part of the main test run
+(see `pytest.ini`'s `norecursedirs` and each service's own instructions).
+
+## Running it for real
+
+The library is built and tested; actually running it as an always-on assistant
+against a live Gmail/Calendar/Chat/Slack account is GCP deployment work, not
+code. [`docs/deployment.md`](docs/deployment.md) walks through project setup,
+credentials, Pub/Sub topics, the republisher, and the systemd service, for
+both a personal and a TELUS-style deployment.
 
 ## Status
 
-Phase 0 in progress. See each package's README and `docs/design.md` §6 for the
-roadmap. Current: Fuel iX client + task routing, per-deployment config, and the
-autonomy permission matrix are built and tested.
+Read-only + rung-2 (propose, wait for approval) is built end to end: Fuel iX
+client and task-shape model routing, per-deployment config, the autonomy
+permission matrix, LangGraph draft-and-approve orchestration, Mem0-backed
+memory (capture/consolidate/retrieve), triage (urgent/routine/noise), Gmail +
+Calendar + Google Chat + Slack ingestion and channels, Calendar
+scheduling-conflict detection (read-only), the structured audit log, and the
+`runtime.py` entrypoint that wires all of it into one process. 312 tests,
+all offline (no live credentials or network calls required to run the suite).
+
+What's deliberately not built: a Calendar write-action layer (creating holds,
+responding to invites — no well-defined trigger yet, and it needs its own
+autonomy-ladder decision), and an actual live deployment (nothing has run
+against a real GCP project yet). See `CLAUDE.md`'s "Next steps" and "Still
+open" sections for the current, maintained list.
 
 ## Security posture (read before running anything that touches real data)
 
 This project is, by construction, the exact shape the OpenClaw incidents warned
 about: a privileged agent exposed to untrusted input (any email you receive) with
 the ability to act. The design defends against that deliberately — see
-`docs/design.md` §3.2 and §8. Two rules that are non-negotiable from day one:
-untrusted content (email/chat bodies) is tagged as untrusted before it reaches
-the model, and autonomy is scoped per (action, domain), never global. Do not
-short-circuit either.
+`docs/design.md` §3.2 and §8. Rules that are non-negotiable from day one (the
+full list is in `CLAUDE.md`):
+
+- Untrusted content (email/chat bodies) is tagged as untrusted before it
+  reaches the model — never framed as instructions.
+- Autonomy is scoped per `(action, domain)`, never global, and fails safe to
+  human approval.
+- Send is refused by default; enabling it is a deliberate, separately-reviewed
+  change.
+- No inbound port on the credential-holding process — ingestion is
+  pull/outbound (Pub/Sub, Slack Socket Mode); the two sources needing a real
+  webhook (Calendar, Chat card-interactions) go through a separate,
+  credential-free republisher service that only forwards to Pub/Sub.
+
+Do not short-circuit any of these to make something "work."
 
 ## License
 

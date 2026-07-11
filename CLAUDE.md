@@ -29,8 +29,10 @@ Dev setup and full test run:
 pip install -e "packages/bearer-openai[dev]"
 pip install -e "packages/aidedecamp[dev]"
 pytest        # 312 tests should pass as a baseline before you change anything
-              # (the republisher under packages/aidedecamp/deploy/republisher/
-              # has its own separate test suite — see its own docstring)
+              # (deploy/ is excluded from collection via norecursedirs in both
+              # pytest.ini and pyproject.toml — deploy/republisher/ has its
+              # own dependency set and its own separate test suite, run from
+              # inside that directory; see docs/deployment.md §8)
 ```
 
 Optional extras are lazy-imported so the package loads without them:
@@ -161,6 +163,12 @@ safety posture; violating one is a bug, not a shortcut.
   test style in `packages/aidedecamp/tests/`.
 - Log decisions: when you settle something architectural, append it to
   `docs/decisions.md` (newest first) in the same format.
+- Standalone deployables with their own dependency set (like
+  `deploy/republisher/`) live under `packages/aidedecamp/deploy/` with their
+  own `requirements.txt`/tests, never as an `aidedecamp` package dependency.
+  `deploy/` is excluded from the main test collection (`norecursedirs`) —
+  if you add another such service, its tests will be skipped automatically;
+  run them from inside that service's own directory instead.
 
 ## Environment
 

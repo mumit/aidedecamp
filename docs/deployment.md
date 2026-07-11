@@ -295,7 +295,10 @@ decision on someone else's pending draft:
    response..."}` as an immediate placeholder.
 4. Anything else: return 200, do nothing.
 
-Test it (own dependency set, not part of the main `pytest` run):
+Test it (own dependency set, deliberately excluded from the main `pytest`
+run via `norecursedirs = deploy` in both `pytest.ini` and the root
+`pyproject.toml` — CI installs only `aidedecamp[dev]`, not Flask, so
+`pytest packages/aidedecamp` must never try to collect this service's tests):
 
 ```bash
 cd packages/aidedecamp/deploy/republisher
@@ -354,6 +357,9 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -e "packages/bearer-openai[dev]"
 pip install -e "packages/aidedecamp[dev,memory,orchestrator,slack,google]"
+
+# Sanity check before proceeding — same invocation CI runs, entirely offline.
+pytest packages/aidedecamp packages/bearer-openai -q
 
 # Memory substrate (Qdrant)
 docker compose -f packages/aidedecamp/deploy/mem0-compose.yml up -d

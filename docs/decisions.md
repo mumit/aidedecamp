@@ -3,6 +3,34 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — CI fixed: `deploy/` excluded from the main test collection
+
+- **Real CI failure**: `pytest packages/aidedecamp -q` (CI's actual invocation)
+  errored collecting `deploy/republisher/test_main.py` with
+  `ModuleNotFoundError: No module named 'flask'`. The republisher was always
+  documented as "own dependency set, not part of the main pytest run," but
+  that was only ever true by convention — nothing actually told pytest to
+  skip it, so plain directory recursion picked it up anyway.
+- **Fix**: `norecursedirs = deploy` added to both
+  `packages/aidedecamp/pytest.ini` (what CI's `pytest packages/aidedecamp -q`
+  step actually loads) and the root `pyproject.toml`'s
+  `[tool.pytest.ini_options]` (what a combined
+  `pytest packages/aidedecamp packages/bearer-openai` run from the repo root
+  loads instead — pytest resolves a different config file depending on
+  whether the given paths share a common package-level rootdir or fall back
+  to the repo root, so both needed the same exclusion; missing either one
+  would silently work only in some invocation shapes and fail in others,
+  which is exactly the trap this CI failure walked into).
+- **READMEs refreshed.** `README.md` and `packages/aidedecamp/README.md` had
+  drifted badly — both still described "Phase 0, only fuelix.py/config/
+  autonomy matrix built," when in reality read-only + rung-2 is complete end
+  to end (312 tests). Rewritten to match `CLAUDE.md`'s module map and
+  "Next steps"/"Still open" framing, with pointers to `docs/decisions.md` and
+  `docs/deployment.md` alongside `docs/design.md`.
+- `docs/deployment.md` §9 (VM setup) now runs the exact CI test invocation as
+  a sanity check before the Qdrant/systemd steps, and §8's republisher test
+  instructions note the exclusion is now enforced, not just documented.
+
 ## 2026-07 — `verify_chat_request` corrected against Google's actual docs
 
 - **Found and fixed a real bug** while confirming the "audience-claim value
