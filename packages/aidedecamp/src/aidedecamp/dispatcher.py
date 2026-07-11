@@ -7,8 +7,10 @@ no credential details — both are injected by the caller.
 
 ``handle_gmail_notification``
     Processes a decoded Pub/Sub notification, fetches each changed thread via the
-    connector, starts a draft-approve workflow per thread, and calls
-    ``post_approval`` with the paused workflow id + proposed draft.
+    connector, triages it (design 4.2 — a cheap Task.CLASSIFY pass; NOISE
+    threads are skipped, never drafted), starts a draft-approve workflow per
+    remaining thread, and calls ``post_approval`` with the paused workflow id +
+    proposed draft.
 
 ``handle_chat_message``
     Decodes a Chat space event, dispatches to a brief flow or a conversational
@@ -27,6 +29,7 @@ injected so the dispatcher is testable offline with fakes.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from .app import AppContext
@@ -36,6 +39,7 @@ from .fuelix import Task, model_for
 from .ingestion.chat_events import ChatMessage, process_chat_event
 from .ingestion.gmail_history import HistoryExpired, process_notification
 from .ingestion.gmail_watch import WatchState
+from .orchestrator.triage import Priority, TriageResult, triage_thread
 
 
 def handle_gmail_notification(
@@ -49,6 +53,7 @@ def handle_gmail_notification(
     user_id: str,
     thread_id_prefix: str = "gmail",
     audit_log: AuditLog | None = None,
+    triage_fn: Callable[[Any, str], TriageResult] | None = None,
 ) -> list[str]:
     """Process a decoded Gmail Pub/Sub notification.
 
@@ -60,12 +65,22 @@ def handle_gmail_notification(
     When ``audit_log`` is supplied, the workflow's ``audit_events`` (retrieve,
     draft, autonomy_gate, ...) are recorded against ``lg_tid`` so "why did it do
     that" is answerable later, per design rule 4.7 — not just while the graph's
-    checkpoint happens to still exist.
+    checkpoint happens to still exist. A skipped NOISE thread is recorded too,
+    under a ``"triage"`` workflow name, so "why didn't it draft a reply" is
+    equally answerable.
+
+    ``triage_fn`` defaults to :func:`orchestrator.triage.triage_thread`
+    (Task.CLASSIFY). Threads classified NOISE never reach the draft-approve
+    graph — this is purely a go/no-go gate; it does not label, archive, or
+    otherwise act on the thread (that would be a new autonomous write path
+    outside the existing per-(action,domain) autonomy gate, rule 3).
 
     Returns the list of LangGraph thread_ids that were submitted (one per
-    changed Gmail thread).  Raises :class:`~ingestion.HistoryExpired` when the
-    stored historyId has expired; the caller must re-baseline the watch.
+    changed Gmail thread that wasn't triaged as noise).  Raises
+    :class:`~ingestion.HistoryExpired` when the stored historyId has expired;
+    the caller must re-baseline the watch.
     """
+    triage_fn = triage_fn or triage_thread
     changes = process_notification(gmail_service, watch_state, notification)
 
     submitted: list[str] = []
@@ -81,6 +96,23 @@ def handle_gmail_notification(
         incoming_summary = (
             f"From: {thread.from_addr}\nSubject: {thread.subject}\n\n{thread.body}"
         )
+
+        triage = triage_fn(app_ctx.client, incoming_summary)
+        if triage.priority == Priority.NOISE:
+            if audit_log is not None:
+                audit_log.record(
+                    thread_id=lg_tid,
+                    workflow="triage",
+                    events=[{
+                        "event": "triaged_noise",
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                        "reason": triage.reason,
+                    }],
+                    domain="mail",
+                    user_id=user_id,
+                )
+            continue
+
         state: dict[str, Any] = {
             "incoming_summary": incoming_summary,
             "user_id": user_id,

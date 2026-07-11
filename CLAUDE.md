@@ -27,7 +27,7 @@ Dev setup and full test run:
 ```bash
 pip install -e "packages/bearer-openai[dev]"
 pip install -e "packages/aidedecamp[dev]"
-pytest        # 253 tests should pass as a baseline before you change anything
+pytest        # 270 tests should pass as a baseline before you change anything
 ```
 
 Optional extras are lazy-imported so the package loads without them:
@@ -44,7 +44,9 @@ and `credentials.py`).
 - `credentials.py` — Google credential loading (service account / OAuth user /
   ADC), scoped for Gmail/Calendar/Chat.
 - `orchestrator/` — LangGraph. `autonomy.py` (permission matrix), `state.py`,
-  `draft_approve.py` (the canonical retrieve→draft→gate→approve→capture loop).
+  `draft_approve.py` (the canonical retrieve→draft→gate→approve→capture loop),
+  `triage.py` (plain function, not a graph — one `Task.CLASSIFY` call deciding
+  URGENT/ROUTINE/NOISE; see `dispatcher.py` below for where it gates drafting).
 - `memory/` — substrate-agnostic `MemoryStore` (`base.py`), Mem0 impl
   (`mem0_store.py`), capture signals (`signals.py`).
 - `connectors/` — swappable `WorkspaceConnector`: `mcp.py` (real, Google managed
@@ -67,7 +69,10 @@ and `credentials.py`).
   Chat/Slack message into a graph invocation or a brief/converse reply.
   Channel-agnostic (`post_approval`/`post_text` are injected callables);
   `handle_chat_message` and `handle_slack_message` share the brief-vs-converse
-  routing via `_respond_to_message`.
+  routing via `_respond_to_message`. `handle_gmail_notification` triages
+  every thread first (`triage_fn`, defaults to `orchestrator.triage_thread`)
+  and skips drafting entirely for NOISE — a pure go/no-go gate, no auto-label
+  or other write action.
 - `brief.py` — read-only morning brief (first end-to-end deliverable). A plain
   function, not a graph — it has no HITL/interrupt need.
 - `app.py` — runtime assembly (`build_app` → `AppContext`): wires the real
@@ -140,18 +145,16 @@ Fuel iX: `base_url = https://api.fuelix.ai`; models `claude-haiku-4-5`,
 
 `app.py`, `DirectOAuthConnector`, the Google Chat channel, `credentials.py`,
 Chat ingestion, `dispatcher.py`, the audit log, `runtime.py` (the entrypoint),
-Slack conversational Q&A, and Calendar ingestion are all done (see
-`docs/decisions.md`). What's left:
+Slack conversational Q&A, Calendar ingestion, and the triage step are all done
+(see `docs/decisions.md`). What's left — both are now genuinely the last
+gaps between "tested library" and "running assistant":
 
-1. **A triage step.** `Task.CLASSIFY` (Haiku 4.5) is routed in `fuelix.py` but
-   never called — every new thread goes straight to draft, with no
-   urgent/routine/noise pass. Design 4.2 calls this a separate small graph.
-2. **A scheduling action layer for Calendar.** Ingestion (`calendar_watch.py`/
+1. **A scheduling action layer for Calendar.** Ingestion (`calendar_watch.py`/
    `calendar_sync.py`, `Runtime.process_calendar_notification`) stops at
    "here are the changed/cancelled event ids" — there's no graph that reacts
    to them (propose a hold, flag a conflict, etc.), matching design's
    unbuilt "scheduling graph."
-3. **Actually deploy it.** `runtime.py`'s wiring is tested, but `run()` and
+2. **Actually deploy it.** `runtime.py`'s wiring is tested, but `run()` and
    the `run_*_pubsub_loop()` methods have never touched a real GCP project or
    Slack workspace — that requires provisioning the Pub/Sub topics/
    subscriptions (and, for Calendar, the external webhook republisher) design

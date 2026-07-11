@@ -3,6 +3,46 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — Triage step (design 1.2, 4.2) — closes the Task.CLASSIFY gap
+
+- **`orchestrator/triage.py` is a plain function, not a LangGraph graph** —
+  same reasoning as `brief.py`: triage has no human-in-the-loop interrupt to
+  checkpoint around, so a graph would add machinery with nothing to pause on.
+  `triage_thread(client, incoming_summary)` makes one cheap `Task.CLASSIFY`
+  (Haiku 4.5) call and parses a two-line `PRIORITY:`/`REASON:` response into
+  `Priority.{URGENT,ROUTINE,NOISE}` + a reason string.
+- **Parsing failures default to ROUTINE, not NOISE.** A malformed or
+  off-format model response still results in the thread being drafted and
+  routed through the existing human-approval gate — the safe default,
+  because the downstream approval step is what actually protects against bad
+  autonomous action. Defaulting to NOISE on a parsing hiccup would silently
+  drop real mail with no human ever seeing it, which is a worse failure mode
+  than one extra draft the human declines.
+- **Deliberately narrow v1: no memory in the triage prompt.** Design 1.2 lists
+  "your past reactions" as a triage signal; this classifies from the thread's
+  own content only, to keep the pass cheap, single-purpose, and not
+  duplicated with the draft node's own memory search. Fast-follow, not done.
+- **`dispatcher.handle_gmail_notification` gained a `triage_fn` parameter**,
+  defaulting to the real `triage_thread`, so the gap CLAUDE.md flagged
+  ("Task.CLASSIFY routed but never called") is actually closed by default,
+  not left as another opt-in nobody wires up. NOISE-classified threads never
+  reach the draft-approve graph or `post_approval`; the skip itself is
+  recorded to `audit_log` under a `"triage"` workflow name, so "why didn't it
+  draft a reply" is answerable the same way "why did it draft this" already
+  is.
+- **Triage is a pure go/no-go gate — it does not act.** No auto-labeling,
+  auto-archiving, or any other write on NOISE threads. Adding one would be a
+  new autonomous write path outside the existing per-(action,domain)
+  autonomy gate (rule 3) — explicitly out of scope here, flagged as a
+  possible future addition that would need its own autonomy-gate review, not
+  something to slip in unreviewed alongside a "just add triage" task.
+- **Backward compatible by construction, verified**: every existing
+  `handle_gmail_notification` caller/test that doesn't override `triage_fn`
+  now also triggers one classify call through whatever fake client they
+  already inject; since the safe default is ROUTINE, none of those threads
+  get silently dropped, and the full suite passed unmodified except for the
+  new triage-specific tests.
+
 ## 2026-07 — Calendar ingestion (design 4.3, 4.6's one webhook exception)
 
 - **Two ingestion modules, mirroring the Gmail split exactly**:

@@ -179,6 +179,8 @@ You want an orchestration layer that is (a) genuinely model-agnostic, since Fuel
 
 Model this as **several small graphs, not one giant one**: a triage graph (per incoming email/message), a draft-and-approve graph, a scheduling graph, and a daily-brief graph. Small, single-purpose graphs are easier to reason about, checkpoint, and hand off between channels.
 
+> **Built (2026-07):** the draft-and-approve graph is the only one that's actually a LangGraph graph. Triage (`orchestrator/triage.py`) and the daily brief (`brief.py`) turned out not to need one — neither has a human-in-the-loop interrupt to checkpoint around, so a plain function is the simplest thing that satisfies the intent here; see `docs/decisions.md`. The scheduling graph remains unbuilt — Calendar ingestion reconciles changed events but nothing acts on them yet.
+
 *Aside: this is a different shape than Stagecraft.* Stagecraft orchestrates coding tools as a team for a bounded, interactive session. This is a long-running, event-driven, always-on service reacting to the outside world at unpredictable times. Some of the model-agnostic-adapter thinking will transfer directly; the execution model (durable, resumable, triggered by webhooks) won't.
 
 ### 4.3 Connecting to Google Workspace

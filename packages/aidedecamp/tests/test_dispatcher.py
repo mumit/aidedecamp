@@ -17,6 +17,7 @@ from aidedecamp.dispatcher import (
     handle_slack_message,
     _converse,
 )
+from aidedecamp.orchestrator.triage import Priority, TriageResult
 
 
 # ---------------------------------------------------------------------------
@@ -359,6 +360,168 @@ def test_gmail_notification_audit_skipped_for_failed_thread_fetch():
     )
 
     assert audit_log.records == []
+
+
+# ---------------------------------------------------------------------------
+# handle_gmail_notification — triage gate
+# ---------------------------------------------------------------------------
+
+
+def test_noise_thread_skips_draft_and_post_approval():
+    graph = _FakeGraph()
+    app = _fake_app_ctx(graph=graph)
+    connector = _FakeConnector({"t1": _FakeThread("t1")})
+    gmail = _FakeGmail(["t1"])
+    watch_state = _FakeWatchState(history_id="100")
+    approvals = []
+
+    result = handle_gmail_notification(
+        app, {"emailAddress": "me@example.com", "historyId": "700"},
+        gmail_service=gmail, watch_state=watch_state,
+        connector=connector,
+        post_approval=lambda *a: approvals.append(a),
+        user_id="me@example.com",
+        triage_fn=lambda client, summary: TriageResult(Priority.NOISE, "newsletter"),
+    )
+
+    assert result == []
+    assert approvals == []
+    assert graph.calls == []
+
+
+def test_urgent_thread_proceeds_to_draft():
+    graph = _FakeGraph(proposed="drafted reply")
+    app = _fake_app_ctx(graph=graph)
+    connector = _FakeConnector({"t1": _FakeThread("t1")})
+    gmail = _FakeGmail(["t1"])
+    watch_state = _FakeWatchState(history_id="100")
+    approvals = []
+
+    result = handle_gmail_notification(
+        app, {"emailAddress": "me@example.com", "historyId": "701"},
+        gmail_service=gmail, watch_state=watch_state,
+        connector=connector,
+        post_approval=lambda *a: approvals.append(a),
+        user_id="me@example.com",
+        triage_fn=lambda client, summary: TriageResult(Priority.URGENT, "escalation"),
+    )
+
+    assert len(result) == 1
+    assert len(approvals) == 1
+
+
+def test_routine_thread_proceeds_to_draft():
+    graph = _FakeGraph()
+    app = _fake_app_ctx(graph=graph)
+    connector = _FakeConnector({"t1": _FakeThread("t1")})
+    gmail = _FakeGmail(["t1"])
+    watch_state = _FakeWatchState(history_id="100")
+
+    result = handle_gmail_notification(
+        app, {"emailAddress": "me@example.com", "historyId": "702"},
+        gmail_service=gmail, watch_state=watch_state,
+        connector=connector,
+        post_approval=lambda *a: None,
+        user_id="me@example.com",
+        triage_fn=lambda client, summary: TriageResult(Priority.ROUTINE, "fine"),
+    )
+
+    assert len(result) == 1
+
+
+def test_noise_thread_records_triage_audit_event():
+    audit_log = _FakeAuditLog()
+    graph = _FakeGraph()
+    app = _fake_app_ctx(graph=graph, audit_log=audit_log)
+    connector = _FakeConnector({"t1": _FakeThread("t1")})
+    gmail = _FakeGmail(["t1"])
+    watch_state = _FakeWatchState(history_id="100")
+
+    handle_gmail_notification(
+        app, {"emailAddress": "me@example.com", "historyId": "703"},
+        gmail_service=gmail, watch_state=watch_state,
+        connector=connector,
+        post_approval=lambda *a: None,
+        user_id="me@example.com",
+        audit_log=audit_log,
+        triage_fn=lambda client, summary: TriageResult(Priority.NOISE, "automated digest"),
+    )
+
+    assert len(audit_log.records) == 1
+    rec = audit_log.records[0]
+    assert rec["workflow"] == "triage"
+    assert rec["domain"] == "mail"
+    assert rec["events"][0]["event"] == "triaged_noise"
+    assert rec["events"][0]["reason"] == "automated digest"
+
+
+def test_no_audit_call_for_noise_when_log_absent():
+    graph = _FakeGraph()
+    app = _fake_app_ctx(graph=graph)
+    connector = _FakeConnector({"t1": _FakeThread("t1")})
+    gmail = _FakeGmail(["t1"])
+    watch_state = _FakeWatchState(history_id="100")
+
+    # Must not raise even though no audit_log is provided.
+    handle_gmail_notification(
+        app, {"emailAddress": "me@example.com", "historyId": "704"},
+        gmail_service=gmail, watch_state=watch_state,
+        connector=connector,
+        post_approval=lambda *a: None,
+        user_id="me@example.com",
+        triage_fn=lambda client, summary: TriageResult(Priority.NOISE, "spam"),
+    )
+
+
+def test_default_triage_fn_uses_real_triage_thread():
+    """Without an override, handle_gmail_notification uses the real
+    triage_thread — a malformed/unrelated model response must default to
+    ROUTINE so the FakeClient's canned reply doesn't accidentally suppress
+    real mail."""
+    graph = _FakeGraph(proposed="a reply")
+    client = _FakeClient(reply="not a real classification response")
+    app = _fake_app_ctx(graph=graph, client=client)
+    connector = _FakeConnector({"t1": _FakeThread("t1")})
+    gmail = _FakeGmail(["t1"])
+    watch_state = _FakeWatchState(history_id="100")
+
+    result = handle_gmail_notification(
+        app, {"emailAddress": "me@example.com", "historyId": "705"},
+        gmail_service=gmail, watch_state=watch_state,
+        connector=connector,
+        post_approval=lambda *a: None,
+        user_id="me@example.com",
+        # no triage_fn override -> real triage_thread runs against the fake client
+    )
+
+    assert len(result) == 1
+
+
+def test_multiple_threads_mixed_triage_only_drafts_non_noise():
+    graph = _FakeGraph()
+    app = _fake_app_ctx(graph=graph)
+    connector = _FakeConnector({"t1": _FakeThread("t1"), "t2": _FakeThread("t2")})
+    gmail = _FakeGmail(["t1", "t2"])
+    watch_state = _FakeWatchState(history_id="100")
+
+    # First thread processed is noise, second is routine.
+    call_count = {"n": 0}
+    def _alternating_triage(client, summary):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return TriageResult(Priority.NOISE, "newsletter")
+        return TriageResult(Priority.ROUTINE, "fine")
+
+    result = handle_gmail_notification(
+        app, {"emailAddress": "me@example.com", "historyId": "706"},
+        gmail_service=gmail, watch_state=watch_state,
+        connector=connector,
+        post_approval=lambda *a: None,
+        user_id="me@example.com",
+        triage_fn=_alternating_triage,
+    )
+
+    assert len(result) == 1
 
 
 # ---------------------------------------------------------------------------
