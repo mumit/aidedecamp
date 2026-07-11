@@ -43,6 +43,9 @@ google = [
     "google-cloud-pubsub>=2",
 ]
 
+[project.scripts]
+aidedecamp = "aidedecamp.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/telus-labs/aidedecamp"
 Issues = "https://github.com/telus-labs/aidedecamp/issues"

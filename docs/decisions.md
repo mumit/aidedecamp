@@ -3,6 +3,43 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — CLI: init wizard, doctor, brief, run (roadmap prompt 08)
+
+- **`aidedecamp` console script** (`cli/` package, `[project.scripts]`),
+  stdlib argparse — five subcommands don't justify click/typer, and heavy
+  imports live inside subcommands so `--help` works in a bare install.
+  `memory`/`autonomy` groups are placeholders until roadmap M4.
+- **`init`** — interactive wizard writing a grouped, commented, chmod-0600
+  `.env` (refuses overwrite without `--force`; secrets via `getpass`, never
+  echoed). Defaults `connector=direct_oauth` (works with plain OAuth
+  credentials today; MCP stays a config value) and `ingestion=poll`
+  (prompt 09's mode — written now so the wizard doesn't need a breaking
+  change when it lands). Pointing it at an OAuth *client secret* offers to
+  run the consent flow (`InstalledAppFlow.run_local_server`,
+  google-auth-oauthlib, already in `[google]`) and saves an authorized-user
+  file into the data dir. **The consent flow is the one documented
+  exception to rule 5**: a short-lived localhost redirect listener during
+  interactive setup, user-initiated, gone when consent completes — not a
+  service port. Scopes are `SCOPES_DEFAULT`; `gmail.send` is never
+  requested (rule 4).
+- **`doctor`** — one PASS/FAIL/SKIP line per check with a fix hint, exit 1
+  on any FAIL. Checks are injected `Check(name, fn)` objects so tests fake
+  the battery; the default battery (env parse, data-dir writable, Fuel iX
+  1-token call surfacing `TokenRejectedError`'s rotation message, Google
+  credential load, Gmail/Calendar metadata reads, Mem0 reachability, Slack
+  `auth.test`, Pub/Sub subscription existence) does only read-only work.
+  `FATAL_CHECKS` (env/data-dir/fuelix/google-credentials) gate
+  **`run`** — which otherwise configures logging and calls
+  `build_runtime().run()`; `--no-checks` skips the gate.
+- **`brief`** — assembles and prints one brief; deliberately builds only
+  connector + client (no Mem0, no checkpointer) so "try it in a terminal"
+  works before the memory substrate is even running. `--post` goes through
+  the full runtime instead.
+- **`ADC_DATA_DIR`**: `Settings.data_dir` now derives all eight `*_path`
+  defaults (audit log, checkpointer DB, four ingestion state files, pending
+  registry, conversation window) — one variable for new users — while any
+  explicit per-path env var still wins.
+
 ## 2026-07 — Brief v2: local timezone, meeting prep, quiet threads (roadmap prompt 07)
 
 - **The UTC day-boundary bug is fixed** (roadmap defect #7): `assemble_brief`

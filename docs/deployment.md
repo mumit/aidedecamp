@@ -43,6 +43,11 @@ space, calendar owner). Nothing here is shared between the two.
 
 ---
 
+> **Shortcut:** `aidedecamp init` (interactive wizard) writes `.env` and can
+> run the Google OAuth consent flow for you, and `aidedecamp doctor` validates
+> each credential/resource below with a fix hint per failure — use them
+> alongside this guide rather than assembling everything by hand.
+
 ## 2. Prerequisites
 
 - A GCP project per deployment, billing enabled. (`gcloud projects create

@@ -41,8 +41,11 @@ pip install -e "packages/aidedecamp[dev]"
 pytest packages/aidedecamp packages/bearer-openai
 ```
 
-Then copy `.env.example` to `.env` and fill in your Fuel iX token and, as you
-wire up channels/ingestion, your Slack/Google credentials. Never commit `.env`.
+Then either copy `.env.example` to `.env` and fill it in by hand — or just run
+`aidedecamp init`, the interactive setup wizard (it writes `.env` for you and
+can bootstrap the Google OAuth consent flow). `aidedecamp doctor` validates
+every credential and service with fix hints; `aidedecamp brief` prints your
+first morning brief in the terminal. Never commit `.env`.
 
 Optional extras (installed only if you need them; the package loads without
 them): `[memory]` (Mem0 + Qdrant), `[orchestrator]` (LangGraph),

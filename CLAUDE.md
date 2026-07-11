@@ -123,6 +123,14 @@ and `credentials.py`).
   capped related-thread query per event, still one model call total), and
   `find_quiet_threads` — the single source of "waiting on" truth; the
   follow-up nudge feature must reuse it, not reimplement it.
+- `cli/` — the `aidedecamp` console script (argparse; lazy imports per
+  subcommand): `init` (setup wizard → chmod-0600 `.env`; can run the Google
+  OAuth consent flow — the one documented rule-5 exception: a short-lived
+  localhost listener during interactive setup, never `gmail.send` scope),
+  `doctor` (injected PASS/FAIL/SKIP checks with fix hints; `FATAL_CHECKS`
+  gate `run`), `brief` (connector+client only — works without Mem0), `run`,
+  and `memory`/`autonomy` placeholders for M4. `Settings.data_dir`
+  (`ADC_DATA_DIR`) derives all state-file paths; explicit path vars win.
 - `scheduler.py` — hand-rolled in-process scheduler (injected clock,
   deterministic tests; deliberately not APScheduler). `Runtime.build_scheduler()`
   assembles the standard jobs: daily brief (`ADC_BRIEF_TIME`/`ADC_TIMEZONE`),

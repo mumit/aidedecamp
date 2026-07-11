@@ -41,6 +41,11 @@ class Settings:
     mem0_url: str
     audit_log_path: str
 
+    # One directory for all mutable state (ADC_DATA_DIR). When set, every
+    # *_path/*_db default below derives from it — collapsing eight path vars
+    # into one for new users — while an explicit per-path env var still wins.
+    data_dir: str | None = None
+
     # Optional, populated per channel/source as they come online.
     slack_app_token: str | None = None
     slack_bot_token: str | None = None
@@ -101,11 +106,23 @@ class Settings:
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "Settings":
         e = env if env is not None else dict(os.environ)
+        data_dir = e.get("ADC_DATA_DIR") or None
+
+        def _path(key: str, filename: str) -> str:
+            """Explicit env var wins; else derive from data_dir; else CWD."""
+            explicit = e.get(key)
+            if explicit:
+                return explicit
+            if data_dir:
+                return os.path.join(data_dir, filename)
+            return f"./{filename}"
+
         return cls(
             deployment=Deployment(e.get("ADC_DEPLOYMENT", "personal")),
             connector_mode=ConnectorMode(e.get("ADC_CONNECTOR_MODE", "mcp")),
             mem0_url=e.get("ADC_MEM0_URL", "http://localhost:8000"),
-            audit_log_path=e.get("ADC_AUDIT_LOG_PATH", "./audit.log.jsonl"),
+            data_dir=data_dir,
+            audit_log_path=_path("ADC_AUDIT_LOG_PATH", "audit.log.jsonl"),
             slack_app_token=e.get("SLACK_APP_TOKEN"),
             slack_bot_token=e.get("SLACK_BOT_TOKEN"),
             google_project_id=e.get("GOOGLE_PROJECT_ID"),
@@ -122,26 +139,14 @@ class Settings:
             calendar_pubsub_subscription=e.get("ADC_CALENDAR_PUBSUB_SUBSCRIPTION"),
             calendar_webhook_address=e.get("ADC_CALENDAR_WEBHOOK_ADDRESS"),
             calendar_id=e.get("ADC_CALENDAR_ID", "primary"),
-            checkpointer_db_path=e.get("ADC_DB_PATH", "./aidedecamp.db"),
-            gmail_watch_state_path=e.get(
-                "ADC_GMAIL_WATCH_STATE_PATH", "./gmail_watch_state.json"
-            ),
-            chat_subscription_state_path=e.get(
-                "ADC_CHAT_SUBSCRIPTION_STATE_PATH", "./chat_subscription_state.json"
-            ),
-            calendar_watch_state_path=e.get(
-                "ADC_CALENDAR_WATCH_STATE_PATH", "./calendar_watch_state.json"
-            ),
-            calendar_sync_state_path=e.get(
-                "ADC_CALENDAR_SYNC_STATE_PATH", "./calendar_sync_state.json"
-            ),
-            pending_state_path=e.get(
-                "ADC_PENDING_STATE_PATH", "./pending_approvals.json"
-            ),
+            checkpointer_db_path=_path("ADC_DB_PATH", "aidedecamp.db"),
+            gmail_watch_state_path=_path("ADC_GMAIL_WATCH_STATE_PATH", "gmail_watch_state.json"),
+            chat_subscription_state_path=_path("ADC_CHAT_SUBSCRIPTION_STATE_PATH", "chat_subscription_state.json"),
+            calendar_watch_state_path=_path("ADC_CALENDAR_WATCH_STATE_PATH", "calendar_watch_state.json"),
+            calendar_sync_state_path=_path("ADC_CALENDAR_SYNC_STATE_PATH", "calendar_sync_state.json"),
+            pending_state_path=_path("ADC_PENDING_STATE_PATH", "pending_approvals.json"),
             approval_ignore_hours=int(e.get("ADC_APPROVAL_IGNORE_HOURS", "48")),
-            conversation_state_path=e.get(
-                "ADC_CONVERSATION_STATE_PATH", "./conversation_state.json"
-            ),
+            conversation_state_path=_path("ADC_CONVERSATION_STATE_PATH", "conversation_state.json"),
             converse_window_turns=int(e.get("ADC_CONVERSE_WINDOW_TURNS", "10")),
             converse_ttl_minutes=int(e.get("ADC_CONVERSE_TTL_MINUTES", "120")),
             timezone=e.get("ADC_TIMEZONE", "UTC"),
