@@ -40,6 +40,8 @@ def make_connector(settings, **kwargs) -> WorkspaceConnector:
         return McpWorkspaceConnector(mcp_call)
     return DirectOAuthConnector(
         credentials=kwargs.get("credentials"),
+        gmail_service=kwargs.get("gmail_service"),
+        calendar_service=kwargs.get("calendar_service"),
         send_enabled=kwargs.get("send_enabled", False),
     )
 

@@ -33,6 +33,9 @@ memory = ["mem0ai>=0.1", "qdrant-client>=1.9"]
 orchestrator = ["langgraph>=0.2", "langgraph-checkpoint-sqlite>=2"]
 # Slack channel (Socket Mode). Kept optional; install to run the Slack surface.
 slack = ["slack-bolt>=1.24"]
+# Direct-OAuth Google API access (DirectOAuthConnector). Kept optional; install
+# when running without managed MCP servers.
+google = ["google-api-python-client>=2", "google-auth>=2", "google-auth-oauthlib>=1"]
 
 [project.urls]
 Homepage = "https://github.com/telus-labs/aidedecamp"

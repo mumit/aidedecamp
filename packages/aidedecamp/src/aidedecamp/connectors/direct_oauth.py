@@ -4,27 +4,31 @@ The fallback for when managed MCP servers aren't permitted (e.g. a TELUS
 governance decision): talk to the Google APIs directly via
 google-api-python-client with a per-deployment OAuth credential.
 
-This is a documented stub for now — the interface, the send-gating design, and
-the scope discipline are pinned down here so filling it in is mechanical. The
-key design point, and the reason send-gating lives in *this* implementation
-rather than the MCP one: direct OAuth is the only path that *can* technically
-send, so it's the only place a send scope + autonomy grant could unlock it. The
-MCP path can't send at all (no tool), which is why it's the safer default.
-
 Scope discipline (design + Google guidance): start read-only
-(``gmail.readonly``, ``calendar.readonly``), add ``gmail.compose`` for drafting,
-and add ``gmail.send`` ONLY when an autonomy grant explicitly calls for
-autonomous sending. Never request send scope "to avoid re-auth later."
+(``gmail.readonly``, ``calendar.readonly``), add ``gmail.compose`` for
+drafting, and add ``gmail.send`` ONLY when an autonomy grant explicitly calls
+for autonomous sending. Never request send scope "to avoid re-auth later."
+
+The send gate is structural, not disciplinary: ``send_reply`` refuses unless
+``send_enabled=True``, which must be set alongside a real ``gmail.send`` scope
+and an explicit autonomy grant. The default is draft-only.
+
+``gmail_service`` and ``calendar_service`` are injected so tests can supply
+fakes and avoid any live Google credentials or network calls.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+import base64
+import email.mime.text
+from datetime import datetime, timezone
+from typing import Any
 
 from .base import (
     CalendarEvent,
     DraftRef,
     EmailThread,
+    Provenance,
     SendNotPermitted,
     WorkspaceConnector,
 )
@@ -38,32 +42,288 @@ SCOPES_READONLY = (
 SCOPE_COMPOSE = "https://www.googleapis.com/auth/gmail.compose"
 SCOPE_SEND = "https://www.googleapis.com/auth/gmail.send"
 
+_USER = "me"
+
 
 class DirectOAuthConnector(WorkspaceConnector):
     """Direct Google API access. Send is gated behind an explicit flag that a
     caller sets ONLY alongside the gmail.send scope and an autonomy grant."""
 
-    def __init__(self, *, credentials=None, send_enabled: bool = False):
+    def __init__(
+        self,
+        *,
+        credentials: Any = None,
+        gmail_service: Any = None,
+        calendar_service: Any = None,
+        send_enabled: bool = False,
+    ):
         self._creds = credentials
-        self._send_enabled = send_enabled  # must mirror a real gmail.send grant
+        self._send_enabled = send_enabled
+        self._gmail_svc = gmail_service
+        self._cal_svc = calendar_service
 
-    def list_threads(self, query="is:unread", *, max_results=20) -> list[EmailThread]:
-        raise NotImplementedError("DirectOAuthConnector: implement in Phase 1")
+    # --- service accessors -------------------------------------------------
+
+    def _gmail(self) -> Any:
+        if self._gmail_svc is None:
+            try:
+                from googleapiclient.discovery import build
+            except ImportError as exc:
+                raise ImportError(
+                    "DirectOAuthConnector requires google-api-python-client. "
+                    "`pip install google-api-python-client`."
+                ) from exc
+            self._gmail_svc = build("gmail", "v1", credentials=self._creds)
+        return self._gmail_svc
+
+    def _calendar(self) -> Any:
+        if self._cal_svc is None:
+            try:
+                from googleapiclient.discovery import build
+            except ImportError as exc:
+                raise ImportError(
+                    "DirectOAuthConnector requires google-api-python-client. "
+                    "`pip install google-api-python-client`."
+                ) from exc
+            self._cal_svc = build("calendar", "v3", credentials=self._creds)
+        return self._cal_svc
+
+    # --- read: mail --------------------------------------------------------
+
+    def list_threads(
+        self, query: str = "is:unread", *, max_results: int = 20
+    ) -> list[EmailThread]:
+        res = (
+            self._gmail()
+            .users()
+            .threads()
+            .list(userId=_USER, q=query, maxResults=max_results)
+            .execute()
+        )
+        threads = []
+        for item in res.get("threads", []):
+            detail = (
+                self._gmail()
+                .users()
+                .threads()
+                .get(userId=_USER, id=item["id"], format="metadata")
+                .execute()
+            )
+            threads.append(_thread_from_metadata(detail))
+        return threads
 
     def get_thread(self, thread_id: str) -> EmailThread:
-        raise NotImplementedError("DirectOAuthConnector: implement in Phase 1")
+        detail = (
+            self._gmail()
+            .users()
+            .threads()
+            .get(userId=_USER, id=thread_id, format="full")
+            .execute()
+        )
+        return _thread_from_full(detail)
 
-    def list_events(self, *, time_min: datetime, time_max: datetime) -> list[CalendarEvent]:
-        raise NotImplementedError("DirectOAuthConnector: implement in Phase 1")
+    # --- write: mail -------------------------------------------------------
 
-    def create_draft(self, *, to, subject, body, thread_id=None) -> DraftRef:
-        raise NotImplementedError("DirectOAuthConnector: implement in Phase 1")
+    def create_draft(
+        self, *, to: str, subject: str, body: str, thread_id: str | None = None
+    ) -> DraftRef:
+        message: dict[str, Any] = {"raw": _build_raw(to=to, subject=subject, body=body)}
+        if thread_id:
+            message["threadId"] = thread_id
+        result = (
+            self._gmail()
+            .users()
+            .drafts()
+            .create(userId=_USER, body={"message": message})
+            .execute()
+        )
+        return DraftRef(
+            draft_id=result.get("id", ""),
+            thread_id=result.get("message", {}).get("threadId") or thread_id,
+        )
 
     def send_reply(self, *, draft_id: str) -> None:
-        # Even once implemented, refuse unless send was explicitly enabled.
+        # Even with the service wired, refuse unless send was explicitly enabled.
         if not self._send_enabled:
             raise SendNotPermitted(
                 "DirectOAuthConnector send disabled: requires gmail.send scope "
                 "AND an autonomy grant. Draft-and-human-send is the default."
             )
-        raise NotImplementedError("DirectOAuthConnector send: implement in Phase 1")
+        self._gmail().users().drafts().send(
+            userId=_USER, body={"id": draft_id}
+        ).execute()
+
+    def add_label(self, *, thread_id: str, label: str) -> None:
+        label_id = self._resolve_label_id(label)
+        self._gmail().users().threads().modify(
+            userId=_USER,
+            id=thread_id,
+            body={"addLabelIds": [label_id]},
+        ).execute()
+
+    # --- read: calendar ----------------------------------------------------
+
+    def list_events(
+        self, *, time_min: datetime, time_max: datetime
+    ) -> list[CalendarEvent]:
+        res = (
+            self._calendar()
+            .events()
+            .list(
+                calendarId="primary",
+                timeMin=_to_rfc3339(time_min),
+                timeMax=_to_rfc3339(time_max),
+                singleEvents=True,
+                orderBy="startTime",
+            )
+            .execute()
+        )
+        return [_event_from_google(e) for e in res.get("items", [])]
+
+    def create_hold(self, event: CalendarEvent) -> str:
+        body = {
+            "summary": event.summary,
+            "start": {"dateTime": event.start.isoformat()},
+            "end": {"dateTime": event.end.isoformat()},
+            "status": "tentative",
+            "attendees": [{"email": a} for a in event.attendees],
+        }
+        result = (
+            self._calendar()
+            .events()
+            .insert(calendarId="primary", body=body)
+            .execute()
+        )
+        return result.get("id", "")
+
+    # --- internal ----------------------------------------------------------
+
+    def _resolve_label_id(self, name: str) -> str:
+        """Return the Gmail label id for ``name``, creating it if absent."""
+        res = self._gmail().users().labels().list(userId=_USER).execute()
+        for lbl in res.get("labels", []):
+            if lbl.get("name", "").lower() == name.lower():
+                return lbl["id"]
+        created = (
+            self._gmail()
+            .users()
+            .labels()
+            .create(userId=_USER, body={"name": name})
+            .execute()
+        )
+        return created["id"]
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers (pure, testable without a service)
+# ---------------------------------------------------------------------------
+
+
+def _header(message: dict[str, Any], name: str) -> str:
+    for h in message.get("payload", {}).get("headers", []):
+        if h.get("name", "").lower() == name.lower():
+            return h.get("value", "")
+    return ""
+
+
+def _decode_body(payload: dict[str, Any]) -> str:
+    """Extract the first plain-text body from a Gmail message payload."""
+    data = payload.get("body", {}).get("data")
+    if data:
+        return base64.urlsafe_b64decode(data + "==").decode("utf-8", errors="replace")
+    for part in payload.get("parts", []):
+        mime = part.get("mimeType", "")
+        if mime == "text/plain":
+            data = part.get("body", {}).get("data", "")
+            if data:
+                return base64.urlsafe_b64decode(data + "==").decode(
+                    "utf-8", errors="replace"
+                )
+        if mime.startswith("multipart/"):
+            text = _decode_body(part)
+            if text:
+                return text
+    return ""
+
+
+def _received_at(message: dict[str, Any]) -> datetime | None:
+    raw = message.get("internalDate")
+    if raw:
+        return datetime.fromtimestamp(int(raw) / 1000, tz=timezone.utc)
+    return None
+
+
+def _thread_from_metadata(data: dict[str, Any]) -> EmailThread:
+    """Build an EmailThread from a threads.get(format='metadata') response.
+
+    Uses the thread snippet from the first message; body is not fetched in
+    this format (use ``get_thread`` for the full body)."""
+    messages = data.get("messages") or []
+    first = messages[0] if messages else {}
+    snippet = first.get("snippet", "")
+    return EmailThread(
+        thread_id=data.get("id", ""),
+        subject=_header(first, "subject"),
+        snippet=snippet,
+        from_addr=_header(first, "from"),
+        body=snippet,  # metadata only; full body available via get_thread
+        provenance=Provenance.FETCHED,
+        received_at=_received_at(first),
+        labels=first.get("labelIds", []),
+    )
+
+
+def _thread_from_full(data: dict[str, Any]) -> EmailThread:
+    """Build an EmailThread from a threads.get(format='full') response."""
+    messages = data.get("messages") or []
+    first = messages[0] if messages else {}
+    last = messages[-1] if messages else {}
+    body = _decode_body(last.get("payload", {})) or last.get("snippet", "")
+    return EmailThread(
+        thread_id=data.get("id", ""),
+        subject=_header(first, "subject"),
+        snippet=first.get("snippet", ""),
+        from_addr=_header(first, "from"),
+        body=body,
+        provenance=Provenance.FETCHED,
+        received_at=_received_at(first),
+        labels=first.get("labelIds", []),
+    )
+
+
+def _build_raw(*, to: str, subject: str, body: str) -> str:
+    """Build a base64url-encoded RFC 2822 message suitable for the Drafts API."""
+    msg = email.mime.text.MIMEText(body, "plain", "utf-8")
+    msg["to"] = to
+    msg["subject"] = subject
+    return base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
+
+
+def _to_rfc3339(dt: datetime) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
+def _event_from_google(data: dict[str, Any]) -> CalendarEvent:
+    start = _parse_event_dt(data.get("start", {}))
+    end = _parse_event_dt(data.get("end", {}))
+    attendees = [a["email"] for a in data.get("attendees", []) if "email" in a]
+    return CalendarEvent(
+        event_id=data.get("id", ""),
+        summary=data.get("summary", ""),
+        start=start,
+        end=end,
+        attendees=attendees,
+        external_attendees=any(
+            "@" in a and not a.endswith("@telus.com") for a in attendees
+        ),
+    )
+
+
+def _parse_event_dt(dt_obj: dict[str, Any]) -> datetime:
+    if "dateTime" in dt_obj:
+        return datetime.fromisoformat(dt_obj["dateTime"])
+    if "date" in dt_obj:
+        return datetime.fromisoformat(dt_obj["date"]).replace(tzinfo=timezone.utc)
+    return datetime.min

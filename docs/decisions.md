@@ -105,6 +105,27 @@ when the design doc gets long. Newest first.
   wiring is tested with a fake Bolt app, no live Slack.
 - No-inbound-port transport is the concrete OpenClaw-class mitigation (design 8.1).
 
+## 2026-07 — DirectOAuthConnector (google-api-python-client)
+- **All five interface methods implemented** against the Google REST APIs:
+  `list_threads` (threads.list + threads.get metadata), `get_thread`
+  (threads.get full), `create_draft` (drafts.create with RFC 2822 base64url),
+  `list_events` (events.list), `create_hold` (events.insert tentative).
+  `add_label` resolves label names to IDs and creates the label if absent.
+- **Send gate unchanged.** `send_reply` still raises `SendNotPermitted` unless
+  `send_enabled=True`; the flag must be set alongside a real `gmail.send` scope
+  and an autonomy grant. This is untouched from the stub, per the rule.
+- **`list_threads` uses metadata format** for efficiency (no body data in the
+  list pass); `get_thread` fetches full format to decode the MIME body tree.
+  This means `list_threads` sets `body=snippet`, while `get_thread` decodes
+  the actual plain-text part (recursively through multipart containers).
+- **Services are injected** (`gmail_service=`, `calendar_service=`) so all
+  tests run without credentials or network calls; services are lazy-built from
+  `credentials` only when not injected. `make_connector` passes both kwargs
+  through. `google-api-python-client>=2` added as the `[google]` optional extra.
+- **Provenance is tagged at entry.** `_thread_from_metadata` and
+  `_thread_from_full` both set `provenance=Provenance.FETCHED`; no caller can
+  forget it.
+
 ## 2026-07 — Runtime assembly (app.py)
 - **`AppContext` dataclass** holds the compiled graph, client, store, and
   settings together. It is a context manager that closes the SQLite connection
