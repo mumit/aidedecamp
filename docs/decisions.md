@@ -3,6 +3,77 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — Async Chat card-interaction flow (resolves the republisher gap)
+
+- **The problem**: `GoogleChatChannel.handle_interaction()` must return a
+  synchronous HTTP response (Chat expects the confirmation text back in the
+  response body), which means whatever receives the CARD_CLICKED webhook has
+  to call `Command(resume=...)` on the actual compiled graph — needing the
+  checkpointer, and by extension the memory store (Mem0, which needs the
+  Fuel iX token for embeddings). That's real state, not a stateless forward,
+  so "point the republisher at `handle_interaction`" (the framing this
+  project used until now) doesn't actually satisfy rule 5. Gmail/Slack never
+  hit this: Gmail's republisher only ever forwards to Pub/Sub, and Slack's
+  Socket Mode means the same process holding the graph handles button clicks
+  in-process — there's no separate internet-facing surface for Slack at all.
+- **Options considered and rejected**: (1) a separate "resume service"
+  holding only the checkpointer — traced through, it also needs Mem0/Fuel iX
+  access (the `capture` node writes memory on every resume) and can't share
+  the VM's local SQLite file over a network, forcing a Postgres + networked-
+  Qdrant migration for what's a personal-scale system, and still doesn't
+  fully close the risk (a compromise can forge approve/reject decisions,
+  poisoning memory with fake preference signals even without send access).
+  (2) opening a port on the credential-holding VM itself — the literal thing
+  rule 5 exists to prevent, reopening the OpenClaw-class threat model
+  (design §8.1) for UX convenience. Neither survived scrutiny.
+- **Settled: make Chat interactions asynchronous, same shape as
+  Gmail/Calendar.** The public endpoint (`/chat-interaction` on the
+  republisher) verifies the request is genuinely from Google Chat, forwards
+  the decoded click to Pub/Sub, and returns an immediate placeholder ack.
+  The main process — the sole authority for resuming workflows, already —
+  pulls it, resumes the graph, and posts the real confirmation. Approval
+  authority never leaves the main process; the endpoint's worst case matches
+  the Calendar republisher's already-accepted risk (forward a bogus message,
+  safely re-validated), not a new kind of trust boundary.
+- **Edit stays synchronous.** Edit's initial click never calls
+  `Command(resume=...)` — it only opens a dialog, which needs no state — so
+  it's answered directly by the republisher, no Pub/Sub involved.
+  `ingestion/chat_interactions.py::decode_chat_interaction` returns `None`
+  for edit clicks specifically so the async path can't accidentally try to
+  resume something it shouldn't.
+- **New shared `orchestrator.resume_workflow(graph, thread_id, decision,
+  text)`** replaces three near-duplicate `Command(resume=...)` implementations
+  (`SlackChannel._default_resume`, `GoogleChatChannel._default_resume`, and
+  now `dispatcher.handle_chat_interaction`'s resume_fn) with one. Two
+  duplicates was tolerable; a third wasn't.
+- **`ingestion/chat_interactions.py::decode_chat_interaction`** duplicates
+  (doesn't import) the `adc_approve`/`adc_reject` action-name strings from
+  `channels/blocks.py` — `ingestion/` doesn't depend on `channels/` anywhere
+  else, and dispatcher-facing code deliberately never imports channel code.
+  Kept in sync by a test asserting equality, the same technique already used
+  to keep Slack's and Chat's own action names in sync.
+- **`GoogleChatChannel.handle_interaction()` is retained**, refactored to
+  share `decode_chat_interaction` for its approve/reject parsing, but it's no
+  longer the production path — it's useful for tests and any direct
+  in-process usage, while production goes through the async flow above.
+- **The republisher gained request verification for the first time.** The
+  Calendar route never needed it (a forged calendar notification just causes
+  a harmless extra reconciliation); the Chat interaction route does, since an
+  unverified request could forge an approval. `verify_chat_request` checks a
+  Google-issued bearer JWT's issuer (`chat@system.gserviceaccount.com`) via
+  `google.oauth2.id_token.verify_oauth2_token`. **The exact audience-claim
+  value needs confirming against current Google Chat API docs before
+  production** — implemented to the documented shape, not yet exercised
+  against a live Chat app, flagged the same way this project already flags
+  the Gmail/Calendar quota question as unverified.
+- **Service renamed `deploy/calendar_republisher/` → `deploy/republisher/`**
+  and gained a second route, rather than standing up a second Cloud Run
+  service — both routes share the identical trust model (public, stateless,
+  forwards to Pub/Sub, no credentials), so one service with two routes is
+  less to deploy and monitor than two near-identical ones.
+- **New config**: `chat_interaction_pubsub_topic`/`_subscription`
+  (`ADC_CHAT_INTERACTION_PUBSUB_TOPIC`/`_SUBSCRIPTION`).
+
 ## 2026-07 — Calendar webhook republisher implemented
 
 - **`deploy/calendar_republisher/`** — the piece `docs/deployment.md` §8

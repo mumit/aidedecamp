@@ -195,13 +195,15 @@ restart, matching the workflow `CLAUDE.md` rule 6 describes.
 
 ## 7. Pub/Sub topics and subscriptions
 
-Three ingestion paths, three topic/subscription pairs. Gmail and Chat publish
-directly to their topic (Google's own watch/subscribe APIs do this); Calendar
-has no such option, so its topic is published to by the thin republisher
-(§8), not by Google directly.
+Four ingestion paths, four topic/subscription pairs. Gmail and Chat messages
+publish directly to their topic (Google's own watch/subscribe APIs do this);
+Calendar notifications and Chat card-interactions have no such option, so
+those two topics are published to by the thin republisher (§8), not by
+Google directly — see `docs/decisions.md` for why Chat interactions need
+this same treatment despite Chat's *message* ingestion not needing it.
 
 ```bash
-for name in gmail chat calendar; do
+for name in gmail chat calendar chat-interaction; do
   gcloud pubsub topics create "aidedecamp-${name}"
   gcloud pubsub subscriptions create "aidedecamp-${name}-sub" \
     --topic="aidedecamp-${name}" \
@@ -226,61 +228,92 @@ Map these to config:
 | `aidedecamp-gmail-sub` | `ADC_GMAIL_PUBSUB_SUBSCRIPTION` |
 | `aidedecamp-chat` | `ADC_CHAT_PUBSUB_TOPIC` |
 | `aidedecamp-chat-sub` | `ADC_CHAT_PUBSUB_SUBSCRIPTION` |
+| `aidedecamp-chat-interaction` | `ADC_CHAT_INTERACTION_PUBSUB_TOPIC` |
+| `aidedecamp-chat-interaction-sub` | `ADC_CHAT_INTERACTION_PUBSUB_SUBSCRIPTION` |
 | `aidedecamp-calendar` | `ADC_CALENDAR_PUBSUB_TOPIC` |
 | `aidedecamp-calendar-sub` | `ADC_CALENDAR_PUBSUB_SUBSCRIPTION` |
 
 ---
 
-## 8. The Calendar webhook republisher (Cloud Run)
+## 8. The republisher (Cloud Run) — Calendar webhook + Chat interactions
 
-Calendar push notifications are the one source Google only delivers via a
-direct HTTPS POST (no Pub/Sub option) — design 4.6's flagged exception, and
-the reason rule 5 needs a hop here instead of a flat "no webhooks anywhere."
-This service is intentionally tiny and stateless: validate the notification
-headers, republish onto the `aidedecamp-calendar` topic, return 200. It never
-touches credentials, memory, or the Fuel iX token — if it's compromised, it
-can at most inject a bogus (headers-only) message onto one Pub/Sub topic that
-`Runtime.process_calendar_notification` just re-reconciles from, safely.
+One small, stateless Cloud Run service handles **both** inbound webhooks this
+deployment needs, for the same underlying reason: each needs a synchronous
+HTTP response, so neither can follow the Pub/Sub-pull pattern Gmail/Chat
+messages use. It holds no credentials, no memory, and no Fuel iX token.
 
 **Not part of the installable `aidedecamp` package** — it lives at
-`packages/aidedecamp/deploy/calendar_republisher/` (own `main.py`,
+`packages/aidedecamp/deploy/republisher/` (own `main.py`,
 `requirements.txt`, `Dockerfile`, `test_main.py`), deployed independently,
 the same way `deploy/mem0-compose.yml` is infrastructure rather than
-application code. It's a small Flask app with one route:
+application code.
+
+**`/calendar-webhook`** — design 4.6's flagged exception: Calendar push
+notifications only deliver via HTTPS POST, no Pub/Sub option. No request
+verification is needed here: the notification carries almost no payload (just
+headers), and the main process only ever treats it as "go re-check your sync
+token" — never as a direct command. If this route is abused, the blast
+radius is "the main process runs an extra, harmless reconciliation pass."
 
 1. Accept a POST, read the `X-Goog-Channel-ID` / `X-Goog-Resource-ID` /
    `X-Goog-Resource-State` / `X-Goog-Message-Number` headers (the exact shape
    `ingestion/calendar_sync.py::decode_calendar_headers` expects as input).
 2. Publish `{"channel_id": ..., "resource_id": ..., "resource_state": ...,
    "message_number": ...}` as JSON onto `aidedecamp-calendar`, waiting for
-   publish confirmation (`future.result()`) before acking — losing a
-   notification because we returned 200 before the publish actually landed
-   would be worse than the extra latency of waiting for it.
+   publish confirmation (`future.result()`) before acking.
 3. Return HTTP 200.
+
+**`/chat-interaction`** — Google Chat's approve/reject buttons also need a
+synchronous response, but resuming the paused workflow needs the checkpointer
+and memory store, which this service must never hold (rule 5). So it doesn't
+resume anything: it verifies the request, republishes the decoded click, and
+returns an immediate placeholder ack; `dispatcher.handle_chat_interaction`
+(pulled via `ADC_CHAT_INTERACTION_PUBSUB_SUBSCRIPTION` on the main VM) does
+the actual resume and posts the *real* confirmation back to the space
+afterward. **This route does need request verification** — without it,
+anyone who found this service's public URL could forge an approve/reject
+decision on someone else's pending draft:
+
+1. Verify `Authorization: Bearer <token>` is a JWT genuinely issued by
+   `chat@system.gserviceaccount.com` (`verify_chat_request`, via
+   `google.oauth2.id_token.verify_oauth2_token`). Reject with 403 otherwise.
+   **Confirm the exact audience-claim value against current Google Chat API
+   docs before relying on this in production** — implemented to the
+   documented shape, not yet exercised against a live Chat app.
+2. If the click is the **edit** button: return the dialog-open response
+   directly, synchronously — opening a dialog never touches the graph, so
+   there's nothing to protect by routing it through Pub/Sub.
+3. If the click is **approve/reject**: publish the raw event JSON onto
+   `aidedecamp-chat-interaction`, return `{"text": "⏳ Processing your
+   response..."}` as an immediate placeholder.
+4. Anything else: return 200, do nothing.
 
 Test it (own dependency set, not part of the main `pytest` run):
 
 ```bash
-cd packages/aidedecamp/deploy/calendar_republisher
+cd packages/aidedecamp/deploy/republisher
 pip install -r requirements.txt pytest
 pytest test_main.py
 ```
 
-Deploy it, note its HTTPS URL, and set that as `ADC_CALENDAR_WEBHOOK_ADDRESS`
-— that's the `address` field `ensure_calendar_watch` registers with Google.
+Deploy it once, note its HTTPS URL, and use it for both integrations:
+`ADC_CALENDAR_WEBHOOK_ADDRESS=<url>/calendar-webhook` (the `address` field
+`ensure_calendar_watch` registers with Google), and the Chat app's
+interactivity endpoint (§12) is `<url>/chat-interaction`.
 
 ```bash
-gcloud run deploy aidedecamp-calendar-republisher \
-  --source=packages/aidedecamp/deploy/calendar_republisher \
-  --set-env-vars="CALENDAR_PUBSUB_TOPIC=projects/${PROJECT_ID}/topics/aidedecamp-calendar" \
+gcloud run deploy aidedecamp-republisher \
+  --source=packages/aidedecamp/deploy/republisher \
+  --set-env-vars="CALENDAR_PUBSUB_TOPIC=projects/${PROJECT_ID}/topics/aidedecamp-calendar,CHAT_INTERACTION_PUBSUB_TOPIC=projects/${PROJECT_ID}/topics/aidedecamp-chat-interaction,CHAT_APP_AUDIENCE=<confirm against Chat API docs>" \
   --allow-unauthenticated \
   --region=us-central1
 ```
 
-(`--allow-unauthenticated` because Google's webhook caller isn't a GCP
-identity you can IAM-gate the usual way; validate via the channel token
-Google echoes back instead, if you want request authenticity checking beyond
-"this hit our known URL.")
+(`--allow-unauthenticated` because neither Google's Calendar webhook caller
+nor its Chat interaction caller is a GCP identity you can IAM-gate the usual
+way — `/chat-interaction`'s own JWT check above is the real authentication
+for that route; `/calendar-webhook` deliberately has none, per its own risk
+analysis.)
 
 ---
 
@@ -373,9 +406,13 @@ ADC_GMAIL_PUBSUB_TOPIC=projects/<project>/topics/aidedecamp-gmail
 ADC_GMAIL_PUBSUB_SUBSCRIPTION=projects/<project>/subscriptions/aidedecamp-gmail-sub
 ADC_CHAT_PUBSUB_TOPIC=projects/<project>/topics/aidedecamp-chat
 ADC_CHAT_PUBSUB_SUBSCRIPTION=projects/<project>/subscriptions/aidedecamp-chat-sub
+# Chat card-click interactions (approve/reject only) — the async half of the
+# approval flow the republisher's /chat-interaction route feeds (§8).
+ADC_CHAT_INTERACTION_PUBSUB_TOPIC=projects/<project>/topics/aidedecamp-chat-interaction
+ADC_CHAT_INTERACTION_PUBSUB_SUBSCRIPTION=projects/<project>/subscriptions/aidedecamp-chat-interaction-sub
 ADC_CALENDAR_PUBSUB_TOPIC=projects/<project>/topics/aidedecamp-calendar
 ADC_CALENDAR_PUBSUB_SUBSCRIPTION=projects/<project>/subscriptions/aidedecamp-calendar-sub
-ADC_CALENDAR_WEBHOOK_ADDRESS=https://aidedecamp-calendar-republisher-xxxxx.run.app
+ADC_CALENDAR_WEBHOOK_ADDRESS=https://aidedecamp-republisher-xxxxx.run.app/calendar-webhook
 ADC_CALENDAR_ID=primary
 ```
 
@@ -416,18 +453,22 @@ when its config is present (see `runtime.py`).
 
 1. GCP Console → APIs & Services → Google Chat API → Configuration.
 2. App name, avatar, description. Interactive features: **on**.
-3. Connection settings: since this is Socket-Mode-equivalent for Chat isn't a
-   thing — Chat's card-click events need an HTTP endpoint. Point it at a
-   thin endpoint (can be the same Cloud Run service as the Calendar
-   republisher, or a second small one) that calls
-   `GoogleChatChannel.handle_interaction(event)` and returns its result as
-   the HTTP response body. This endpoint receives interaction events only
-   (button clicks) — it is not the credential-holding process, matching the
-   design's transport contract (`docs/decisions.md`, "Google Chat channel").
+3. Connection settings → HTTP endpoint URL: `<republisher-url>/chat-interaction`
+   (§8's republisher, not the Calendar route). There's no Socket-Mode
+   equivalent for Chat card interactivity, so this has to be a real HTTP
+   endpoint — but it's the republisher's endpoint, not the credential-holding
+   VM's: the republisher verifies the request, republishes approve/reject
+   clicks onto `aidedecamp-chat-interaction`, and answers edit clicks
+   directly. It never touches the checkpointer or memory itself (see
+   `docs/decisions.md` for the full reasoning).
 4. Permissions: whichever spaces/users should be able to add the app.
 5. Note the space id (`spaces/AAAAxxxxxxx`) for `ADC_CHAT_SPACE` — get it via
    the Chat API (`spaces.list`) or from the space's URL once the app is
    added to it.
+6. Confirm the JWT audience value Google Chat's interaction calls will carry,
+   and set it as the republisher's `CHAT_APP_AUDIENCE` env var — this is the
+   one piece of §8's `/chat-interaction` route not yet verified against a
+   live Chat app.
 
 ---
 
@@ -505,9 +546,15 @@ Rough end-to-end smoke test, in order:
 5. Create two overlapping calendar holds → confirm the republisher fires,
    the Pub/Sub message lands on `aidedecamp-calendar-sub`, and a conflict
    notification posts (`dispatcher.handle_calendar_notification`).
-6. Approve a drafted reply → confirm the capture-signal write lands in Mem0
-   (`memory/signals.py`), and that the audit log
+6. Approve a drafted reply from **Slack** → confirm the capture-signal write
+   lands in Mem0 (`memory/signals.py`), and that the audit log
    (`ADC_AUDIT_LOG_PATH`) has a matching `draft_approve` entry.
+7. Approve a drafted reply from **Chat** → click Approve, confirm the card
+   immediately shows "⏳ Processing your response...", then confirm the real
+   "✅ Approved — draft accepted." follows within the pull loop's poll window
+   — this is the async hand-off (`/chat-interaction` → Pub/Sub →
+   `Runtime.process_chat_interaction`) working end to end, not just the
+   synchronous path `handle_interaction` covers in tests.
 
 ---
 

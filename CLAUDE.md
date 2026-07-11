@@ -28,7 +28,9 @@ Dev setup and full test run:
 ```bash
 pip install -e "packages/bearer-openai[dev]"
 pip install -e "packages/aidedecamp[dev]"
-pytest        # 288 tests should pass as a baseline before you change anything
+pytest        # 312 tests should pass as a baseline before you change anything
+              # (the republisher under packages/aidedecamp/deploy/republisher/
+              # has its own separate test suite — see its own docstring)
 ```
 
 Optional extras are lazy-imported so the package loads without them:
@@ -45,8 +47,11 @@ and `credentials.py`).
 - `credentials.py` — Google credential loading (service account / OAuth user /
   ADC), scoped for Gmail/Calendar/Chat.
 - `orchestrator/` — LangGraph. `autonomy.py` (permission matrix), `state.py`,
-  `draft_approve.py` (the canonical retrieve→draft→gate→approve→capture loop),
-  `triage.py` (plain function, not a graph — one `Task.CLASSIFY` call deciding
+  `draft_approve.py` (the canonical retrieve→draft→gate→approve→capture loop;
+  also `resume_workflow(graph, thread_id, decision, text)`, the one shared
+  `Command(resume=...)` invoke used by Slack, Chat, and the async Chat-
+  interaction path — don't reintroduce a fourth copy of this), `triage.py`
+  (plain function, not a graph — one `Task.CLASSIFY` call deciding
   URGENT/ROUTINE/NOISE; see `dispatcher.py` below for where it gates drafting),
   `scheduling.py` (plain function — `detect_conflict`, read-only overlap check;
   no hold-creation/accept-decline action layer built, deliberately — see
@@ -60,27 +65,37 @@ and `credentials.py`).
   `scheduling.detect_conflict`.
 - `channels/` — `slack.py` (Socket Mode: approval buttons + `message.im`
   conversational DMs via `message_fn`, `make_slack_say` for proactive posts) +
-  `gchat.py`/`gchat_cards.py` (Cards v2, thin-door, approvals +
-  `handle_interaction` + `post_text`) + pure `blocks.py` builders shared by both.
+  `gchat.py`/`gchat_cards.py` (Cards v2, thin-door, `post_text`).
+  `GoogleChatChannel.handle_interaction` is retained for tests/direct
+  in-process use, but is **not** the production path for approve/reject — see
+  `dispatcher.handle_chat_interaction` below — plus pure `blocks.py` builders
+  shared by both channels.
 - `ingestion/` — `gmail_watch.py` + `gmail_history.py` (Gmail watch lifecycle,
   Pub/Sub notification reconciliation); `chat_events.py` (Workspace Events
-  subscription lifecycle + message parsing); `calendar_watch.py` +
-  `calendar_sync.py` (Calendar channel lifecycle + sync-token reconciliation —
-  the one source with a real inbound webhook, see rule 5 below); `state.py`
+  subscription lifecycle + message parsing); `chat_interactions.py`
+  (`decode_chat_interaction` — parses a CARD_CLICKED event into
+  approve/reject only; edit is deliberately excluded, see module docstring);
+  `calendar_watch.py` + `calendar_sync.py` (Calendar channel lifecycle +
+  sync-token reconciliation); `state.py`
   (`JsonGmailWatchState`/`JsonChatSubscriptionState`/`JsonCalendarChannelState`/
   `JsonCalendarSyncState` — concrete, file-backed persistence for all four
-  protocols above).
+  protocols above). Calendar *and* Chat card-interactions are the two sources
+  needing a real inbound webhook — see rule 5 below.
 - `dispatcher.py` — the routing seam: turns a decoded Gmail/Calendar
-  notification or a Chat/Slack message into a graph invocation, a
-  conflict-check-and-notify, or a brief/converse reply. Channel-agnostic
-  (`post_approval`/`post_text`/`notify` are injected callables);
-  `handle_chat_message` and `handle_slack_message` share the brief-vs-converse
-  routing via `_respond_to_message`. `handle_gmail_notification` triages every
-  thread first (`triage_fn`, defaults to `orchestrator.triage_thread`) and
-  skips drafting entirely for NOISE — a pure go/no-go gate, no auto-label or
-  other write action. `handle_calendar_notification` is read-only the same
-  way — it calls `notify` on a scheduling conflict, never creates a hold or
-  answers an invite.
+  notification, a Chat card-click, or a Chat/Slack message into a graph
+  invocation, a conflict-check-and-notify, or a brief/converse reply.
+  Channel-agnostic (`post_approval`/`post_text`/`notify`/`resume_fn` are
+  injected callables); `handle_chat_message` and `handle_slack_message` share
+  the brief-vs-converse routing via `_respond_to_message`.
+  `handle_gmail_notification` triages every thread first (`triage_fn`,
+  defaults to `orchestrator.triage_thread`) and skips drafting entirely for
+  NOISE — a pure go/no-go gate, no auto-label or other write action.
+  `handle_calendar_notification` is read-only the same way — it calls
+  `notify` on a scheduling conflict, never creates a hold or answers an
+  invite. `handle_chat_interaction` is the async half of Chat's approve/
+  reject flow (see `docs/decisions.md`) — the republisher forwards a
+  verified, decoded click here over Pub/Sub; this is what actually calls
+  `resume_fn` and posts the real confirmation.
 - `brief.py` — read-only morning brief (first end-to-end deliverable). A plain
   function, not a graph — it has no HITL/interrupt need.
 - `app.py` — runtime assembly (`build_app` → `AppContext`): wires the real
@@ -88,14 +103,16 @@ and `credentials.py`).
 - `runtime.py` — the always-on entrypoint (`build_runtime` → `Runtime`): wires
   `AppContext` + connector + credentials + Slack/Chat channels into one
   process; `process_gmail_notification`/`process_chat_event`/
-  `process_calendar_notification`/`renew_*` are tested wiring,
-  `run`/`run_*_pubsub_loop` are thin live loops (pull subscriptions, no
-  inbound port) needing real GCP/Slack. `__main__.py` calls
+  `process_calendar_notification`/`process_chat_interaction`/`renew_*` are
+  tested wiring, `run`/`run_*_pubsub_loop` are thin live loops (pull
+  subscriptions, no inbound port) needing real GCP/Slack. `__main__.py` calls
   `build_runtime().run()`.
 - `audit/` — `JsonlAuditLog`: structured, queryable reason-for-action log
-  (design 4.7). Wired into `dispatcher.handle_gmail_notification` only — Q&A
-  exchanges (Slack/Chat) aren't audited, which is probably fine (they're not
-  draft/approve/reject actions) but hasn't been explicitly decided.
+  (design 4.7). Wired into `dispatcher.handle_gmail_notification` and
+  `handle_chat_interaction` (a `chat_interaction_resumed` event under the
+  `draft_approve` workflow); Q&A exchanges (Slack/Chat conversational
+  replies) still aren't audited, which is probably fine (they're not
+  draft/approve/reject decisions) but hasn't been explicitly decided.
 
 ## Non-negotiable rules
 
@@ -120,6 +137,13 @@ safety posture; violating one is a bug, not a shortcut.
 5. **No inbound port on the credential-holding process.** Ingestion is
    pull/outbound (Pub/Sub via an external republisher; Slack Socket Mode). Don't
    add a web server that listens on the box holding Google tokens / memory.
+   Two sources need a real inbound webhook (Calendar notifications, Chat
+   card-clicks) — both go through `deploy/republisher/`, a separate, minimal,
+   credential-free Cloud Run service that only verifies (Chat only — see
+   `docs/decisions.md` for why Calendar's route doesn't need to) and forwards
+   to Pub/Sub. If a task seems to need the graph/checkpointer reachable from
+   an HTTP endpoint, that's the sign to make it async through this same
+   pattern, not to open a port on the main process.
 6. **Secrets from env / secrets store, never in code or logs.** A rejected Fuel
    iX token raises `TokenRejectedError` ("needs manual rotation"); don't swallow
    it into a retry loop.
@@ -153,9 +177,10 @@ Fuel iX: `base_url = https://api.fuelix.ai`; models `claude-haiku-4-5`,
 
 `app.py`, `DirectOAuthConnector`, the Google Chat channel, `credentials.py`,
 Chat ingestion, `dispatcher.py`, the audit log, `runtime.py` (the entrypoint),
-Slack conversational Q&A, Calendar ingestion, the triage step, and Calendar
-scheduling-conflict detection are all done (see `docs/decisions.md`). What's
-left:
+Slack conversational Q&A, Calendar ingestion, the triage step, Calendar
+scheduling-conflict detection, `deploy/republisher/` (Calendar webhook +
+Chat interactions, both async), and the async Chat card-interaction flow are
+all done (see `docs/decisions.md`). What's left:
 
 1. **A Calendar write-action layer**, if wanted: creating holds or responding
    to invites automatically. Deliberately not built — there's no well-defined
@@ -167,8 +192,11 @@ left:
    boundary is deliberate, not a shortcut.
 2. **Actually deploy it.** `runtime.py`'s wiring is tested, but `run()` and
    the `run_*_pubsub_loop()` methods have never touched a real GCP project or
-   Slack workspace. See `docs/deployment.md` for the concrete steps,
-   configuration, and GCP resources this needs.
+   Slack workspace, and `deploy/republisher/`'s Chat-interaction JWT
+   verification hasn't been exercised against a live Chat app (confirm the
+   audience-claim value — `docs/deployment.md` §8/§12). See
+   `docs/deployment.md` for the concrete steps, configuration, and GCP
+   resources this needs.
 
 ## Still open (verify before relying on)
 
