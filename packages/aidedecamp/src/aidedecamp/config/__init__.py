@@ -55,6 +55,13 @@ class Settings:
     gmail_pubsub_subscription: str | None = None
     chat_pubsub_topic: str | None = None
     chat_pubsub_subscription: str | None = None
+    # Chat card-click interactions (approve/reject only — edit's dialog-open
+    # click is handled synchronously by the republisher and never reaches
+    # this topic) republished the same way Calendar's webhook is, since Chat
+    # interactivity also requires a synchronous HTTP response the credential-
+    # holding process must never provide directly (rule 5).
+    chat_interaction_pubsub_topic: str | None = None
+    chat_interaction_pubsub_subscription: str | None = None
     # Calendar has no Pub/Sub option (design 4.6) — Google POSTs directly to
     # calendar_webhook_address, a thin external republisher which forwards a
     # decoded notification onto this topic/subscription instead, so this
@@ -94,6 +101,10 @@ class Settings:
             gmail_pubsub_subscription=e.get("ADC_GMAIL_PUBSUB_SUBSCRIPTION"),
             chat_pubsub_topic=e.get("ADC_CHAT_PUBSUB_TOPIC"),
             chat_pubsub_subscription=e.get("ADC_CHAT_PUBSUB_SUBSCRIPTION"),
+            chat_interaction_pubsub_topic=e.get("ADC_CHAT_INTERACTION_PUBSUB_TOPIC"),
+            chat_interaction_pubsub_subscription=e.get(
+                "ADC_CHAT_INTERACTION_PUBSUB_SUBSCRIPTION"
+            ),
             calendar_pubsub_topic=e.get("ADC_CALENDAR_PUBSUB_TOPIC"),
             calendar_pubsub_subscription=e.get("ADC_CALENDAR_PUBSUB_SUBSCRIPTION"),
             calendar_webhook_address=e.get("ADC_CALENDAR_WEBHOOK_ADDRESS"),

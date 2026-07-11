@@ -31,10 +31,9 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from ..ingestion.chat_interactions import decode_chat_interaction
 from .gchat_cards import (
-    ACTION_APPROVE,
     ACTION_EDIT,
-    ACTION_REJECT,
     approval_card,
     brief_card,
 )
@@ -103,34 +102,29 @@ class GoogleChatChannel:
         self._send(space, {"text": text})
 
     def handle_interaction(self, event: dict[str, Any]) -> dict[str, Any] | None:
-        """Process a decoded CARD_CLICKED interaction event from the republisher.
+        """Process a decoded CARD_CLICKED interaction event **synchronously**.
+
+        Kept for tests and any direct in-process usage; production instead
+        goes through the async path (the republisher forwards approve/reject
+        clicks over Pub/Sub to ``dispatcher.handle_chat_interaction`` — see
+        ``docs/decisions.md``), because resuming the graph needs the
+        checkpointer/memory, which the public-facing republisher must never
+        hold (rule 5). This method still handles the edit button directly
+        either way, since opening a dialog never touches the graph.
 
         Returns a Chat response payload (sent back as the HTTP 200 body), or
-        ``None`` if the event is not a recognized approval action.
-
-        The edit action response signals Google Chat to open a dialog; the
-        dialog submit path (which calls ``resume("edited", text)``) is wiring
-        deferred to the dialog implementation, same as Slack's modal.
+        ``None`` if the event is not a recognized action.
         """
         if event.get("type") != "CARD_CLICKED":
             return None
 
         action = event.get("action", {})
         fn = action.get("actionMethodName", "")
-        thread_id = _get_param(action, "thread_id")
-        if not thread_id:
-            return None
-
-        if fn == ACTION_APPROVE:
-            self._resume(thread_id, "approved", None)
-            return {"text": "✅ Approved — draft accepted."}
-
-        if fn == ACTION_REJECT:
-            self._resume(thread_id, "rejected", None)
-            return {"text": "🗑️ Rejected — nothing sent."}
 
         if fn == ACTION_EDIT:  # pragma: no cover — dialog UI deferred
             # The dialog submit will call self._resume(thread_id, "edited", text).
+            if not _get_param(action, "thread_id"):
+                return None
             return {
                 "actionResponse": {
                     "type": "DIALOG",
@@ -138,20 +132,23 @@ class GoogleChatChannel:
                 }
             }
 
-        return None
+        interaction = decode_chat_interaction(event)
+        if interaction is None:
+            return None
+
+        self._resume(interaction.thread_id, interaction.decision, None)
+        if interaction.decision == "approved":
+            return {"text": "✅ Approved — draft accepted."}
+        return {"text": "🗑️ Rejected — nothing sent."}
 
     # --- internals ---------------------------------------------------------
 
     def _default_resume(
         self, thread_id: str, decision: str, text: str | None
     ) -> Any:
-        from langgraph.types import Command
+        from ..orchestrator import resume_workflow
 
-        cfg = {"configurable": {"thread_id": thread_id}}
-        payload: dict[str, Any] = {"decision": decision}
-        if text is not None:
-            payload["text"] = text
-        return self._graph.invoke(Command(resume=payload), cfg)
+        return resume_workflow(self._graph, thread_id, decision, text)
 
 
 # ---------------------------------------------------------------------------

@@ -30,6 +30,15 @@ no credential details — both are injected by the caller.
     created, no invite is answered — see ``orchestrator/scheduling.py`` for
     why that's a deliberate boundary, not an oversight.
 
+``handle_chat_interaction``
+    The async half of Chat's approve/reject flow (see ``docs/decisions.md``).
+    ``event`` has already been verified as genuinely from Google and forwarded
+    by the thin republisher over Pub/Sub — this is what actually calls
+    ``Command(resume=...)`` and posts the real confirmation, since the public
+    webhook endpoint itself must never touch the checkpointer or memory
+    (rule 5). Edit's dialog-open click never reaches here — it's handled
+    synchronously by the republisher, since it never touches the graph.
+
 All collaborators (graph, connector, gmail_service, watch_state, store) are
 injected so the dispatcher is testable offline with fakes.
 """
@@ -46,6 +55,7 @@ from .fuelix import Task, model_for
 from .ingestion.calendar_sync import SyncExpired, SyncState, full_calendar_sync
 from .ingestion.calendar_sync import process_calendar_notification as _reconcile_calendar
 from .ingestion.chat_events import ChatMessage, process_chat_event
+from .ingestion.chat_interactions import decode_chat_interaction
 from .ingestion.gmail_history import HistoryExpired, process_notification
 from .ingestion.gmail_watch import WatchState
 from .orchestrator.scheduling import ConflictResult, detect_conflict
@@ -216,6 +226,54 @@ def handle_calendar_notification(
             )
 
     return conflicts
+
+
+def handle_chat_interaction(
+    app_ctx: AppContext,
+    event: dict[str, Any],
+    *,
+    resume_fn: Callable[[str, str, str | None], Any],
+    post_text: Callable[[str], None],
+    user_id: str,
+    audit_log: AuditLog | None = None,
+) -> None:
+    """Process a decoded Chat card-click event (approve/reject only).
+
+    This is the async half of Chat's approval flow. The public webhook
+    endpoint that received the original CARD_CLICKED event never resumes
+    anything itself — it only verifies the request came from Google and
+    forwards the decoded click here over Pub/Sub, having already returned an
+    immediate placeholder ack ("Processing..."). This function calls
+    ``resume_fn`` (the real ``Command(resume=...)`` invoke) and posts the
+    *actual* confirmation back to the space via ``post_text``.
+
+    Events that don't decode to an approve/reject decision (edit, unknown
+    actions, malformed events) are silently ignored — edit's dialog-open
+    click never reaches this path at all (see ``ingestion/chat_interactions.py``).
+    """
+    interaction = decode_chat_interaction(event)
+    if interaction is None:
+        return
+
+    resume_fn(interaction.thread_id, interaction.decision, None)
+
+    if interaction.decision == "approved":
+        post_text("✅ Approved — draft accepted.")
+    else:
+        post_text("🗑️ Rejected — nothing sent.")
+
+    if audit_log is not None:
+        audit_log.record(
+            thread_id=interaction.thread_id,
+            workflow="draft_approve",
+            events=[{
+                "event": "chat_interaction_resumed",
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "decision": interaction.decision,
+            }],
+            domain="chat",
+            user_id=user_id,
+        )
 
 
 def handle_chat_message(

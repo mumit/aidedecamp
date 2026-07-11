@@ -18,7 +18,7 @@ from .autonomy import (
     default_matrix,
 )
 from .state import DraftApproveState
-from .draft_approve import MAX_ITERATIONS, build_draft_approve_graph
+from .draft_approve import MAX_ITERATIONS, build_draft_approve_graph, resume_workflow
 from .triage import Priority, TriageResult, triage_thread
 from .scheduling import ConflictResult, detect_conflict
 
@@ -30,6 +30,7 @@ __all__ = [
     "default_matrix",
     "DraftApproveState",
     "build_draft_approve_graph",
+    "resume_workflow",
     "MAX_ITERATIONS",
     "Priority",
     "TriageResult",

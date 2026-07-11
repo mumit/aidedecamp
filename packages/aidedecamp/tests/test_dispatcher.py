@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from aidedecamp.dispatcher import (
+    handle_chat_interaction,
     handle_chat_message,
     handle_gmail_notification,
     handle_slack_message,
@@ -718,6 +719,137 @@ def test_calendar_notification_no_audit_call_when_log_absent():
         calendar_sync_state=sync_state,
         connector=connector,
         notify=lambda text: None,
+        user_id="me@example.com",
+    )
+
+
+# ---------------------------------------------------------------------------
+# handle_chat_interaction — the async half of Chat's approve/reject flow
+# ---------------------------------------------------------------------------
+
+
+def _click(fn: str, thread_id: str = "t-1") -> dict:
+    return {
+        "type": "CARD_CLICKED",
+        "action": {
+            "actionMethodName": fn,
+            "parameters": [{"key": "thread_id", "value": thread_id}],
+        },
+    }
+
+
+def test_chat_interaction_approve_resumes_and_posts_confirmation():
+    resumes = []
+    replies = []
+
+    handle_chat_interaction(
+        _fake_app_ctx(),
+        _click("adc_approve", "t-42"),
+        resume_fn=lambda tid, decision, text: resumes.append((tid, decision, text)),
+        post_text=replies.append,
+        user_id="me@example.com",
+    )
+
+    assert resumes == [("t-42", "approved", None)]
+    assert "Approved" in replies[0]
+
+
+def test_chat_interaction_reject_resumes_and_posts_confirmation():
+    resumes = []
+    replies = []
+
+    handle_chat_interaction(
+        _fake_app_ctx(),
+        _click("adc_reject", "t-9"),
+        resume_fn=lambda tid, decision, text: resumes.append((tid, decision, text)),
+        post_text=replies.append,
+        user_id="me@example.com",
+    )
+
+    assert resumes == [("t-9", "rejected", None)]
+    assert "Rejected" in replies[0]
+
+
+def test_chat_interaction_edit_ignored():
+    """Edit's initial click never touches the graph — handled synchronously
+    by the republisher, so it must never reach this async path at all."""
+    resumes = []
+    replies = []
+
+    handle_chat_interaction(
+        _fake_app_ctx(),
+        _click("adc_edit", "t-1"),
+        resume_fn=lambda tid, decision, text: resumes.append((tid, decision, text)),
+        post_text=replies.append,
+        user_id="me@example.com",
+    )
+
+    assert resumes == []
+    assert replies == []
+
+
+def test_chat_interaction_unknown_action_ignored():
+    resumes = []
+    replies = []
+
+    handle_chat_interaction(
+        _fake_app_ctx(),
+        _click("unknown_fn", "t-1"),
+        resume_fn=lambda tid, decision, text: resumes.append((tid, decision, text)),
+        post_text=replies.append,
+        user_id="me@example.com",
+    )
+
+    assert resumes == []
+    assert replies == []
+
+
+def test_chat_interaction_missing_thread_id_ignored():
+    resumes = []
+    event = {
+        "type": "CARD_CLICKED",
+        "action": {"actionMethodName": "adc_approve", "parameters": []},
+    }
+
+    handle_chat_interaction(
+        _fake_app_ctx(),
+        event,
+        resume_fn=lambda tid, decision, text: resumes.append((tid, decision, text)),
+        post_text=lambda text: None,
+        user_id="me@example.com",
+    )
+
+    assert resumes == []
+
+
+def test_chat_interaction_records_audit_event():
+    audit_log = _FakeAuditLog()
+
+    handle_chat_interaction(
+        _fake_app_ctx(),
+        _click("adc_approve", "t-42"),
+        resume_fn=lambda tid, decision, text: None,
+        post_text=lambda text: None,
+        user_id="me@example.com",
+        audit_log=audit_log,
+    )
+
+    assert len(audit_log.records) == 1
+    rec = audit_log.records[0]
+    assert rec["thread_id"] == "t-42"
+    assert rec["workflow"] == "draft_approve"
+    assert rec["domain"] == "chat"
+    assert rec["events"][0]["event"] == "chat_interaction_resumed"
+    assert rec["events"][0]["decision"] == "approved"
+
+
+def test_chat_interaction_no_audit_call_when_log_absent():
+    # Must not raise even though no audit_log is provided.
+    handle_chat_interaction(
+        _fake_app_ctx(),
+        _click("adc_reject", "t-1"),
+        resume_fn=lambda tid, decision, text: None,
+        post_text=lambda text: None,
         user_id="me@example.com",
     )
 

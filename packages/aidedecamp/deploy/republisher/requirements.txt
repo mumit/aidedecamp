@@ -1,3 +1,4 @@
 flask>=3.0
 google-cloud-pubsub>=2
+google-auth>=2
 gunicorn>=21

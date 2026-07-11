@@ -17,6 +17,7 @@ from aidedecamp.orchestrator import (
     Rung,
     build_draft_approve_graph,
     default_matrix,
+    resume_workflow,
 )
 
 langgraph = pytest.importorskip("langgraph")
@@ -156,3 +157,60 @@ def test_audit_trail_accumulates():
     # the full reason-for-action chain is present and ordered
     assert events[:3] == ["retrieved", "drafted", "autonomy_gate"]
     assert "human_decision" in events and "signal_captured" in events
+
+
+# ---------------------------------------------------------------------------
+# resume_workflow — the shared Command(resume=...) invoke (design decision:
+# used by SlackChannel/GoogleChatChannel's default resume_fn, and by
+# dispatcher.handle_chat_interaction's async Chat-interaction path)
+# ---------------------------------------------------------------------------
+
+
+def test_resume_workflow_approves():
+    store = FakeStore()
+    graph = build_draft_approve_graph(client=FakeClient(), store=store)
+    cfg = {"configurable": {"thread_id": "t-resume-approve"}}
+    graph.invoke(_base_state(), cfg)
+
+    out = resume_workflow(graph, "t-resume-approve", "approved")
+
+    assert out["decision"] == "approved"
+    assert out["final_text"]
+
+
+def test_resume_workflow_rejects():
+    store = FakeStore()
+    graph = build_draft_approve_graph(client=FakeClient(), store=store)
+    cfg = {"configurable": {"thread_id": "t-resume-reject"}}
+    graph.invoke(_base_state(), cfg)
+
+    out = resume_workflow(graph, "t-resume-reject", "rejected")
+
+    assert out["decision"] == "rejected"
+    assert out.get("final_text") is None
+
+
+def test_resume_workflow_edits_with_text():
+    store = FakeStore()
+    graph = build_draft_approve_graph(client=FakeClient(), store=store)
+    cfg = {"configurable": {"thread_id": "t-resume-edit"}}
+    graph.invoke(_base_state(), cfg)
+
+    out = resume_workflow(graph, "t-resume-edit", "edited", "Sure, works for me.")
+
+    assert out["final_text"] == "Sure, works for me."
+
+
+def test_resume_workflow_omits_text_key_when_none():
+    """No text -> no 'text' key in the resume payload at all (not text=None),
+    since the approve node reads state.get('proposed_draft') as the fallback
+    when 'text' is absent."""
+    store = FakeStore()
+    graph = build_draft_approve_graph(client=FakeClient(), store=store)
+    cfg = {"configurable": {"thread_id": "t-resume-notext"}}
+    result = graph.invoke(_base_state(), cfg)
+    proposed = result["__interrupt__"][0].value["proposed_draft"]
+
+    out = resume_workflow(graph, "t-resume-notext", "approved", None)
+
+    assert out["final_text"] == proposed

@@ -43,6 +43,7 @@ from .calendar_sync import (
     full_calendar_sync,
     process_calendar_notification,
 )
+from .chat_interactions import ChatInteraction, decode_chat_interaction
 from .state import (
     JsonCalendarChannelState,
     JsonCalendarSyncState,
@@ -77,4 +78,6 @@ __all__ = [
     "JsonChatSubscriptionState",
     "JsonCalendarChannelState",
     "JsonCalendarSyncState",
+    "ChatInteraction",
+    "decode_chat_interaction",
 ]

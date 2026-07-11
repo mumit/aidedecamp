@@ -202,6 +202,26 @@ def build_draft_approve_graph(
     return g.compile(checkpointer=checkpointer)
 
 
+def resume_workflow(
+    graph: Any, thread_id: str, decision: str, text: str | None = None
+) -> Any:
+    """Resume a paused draft-approve workflow with a human decision.
+
+    One implementation of the ``Command(resume=...)`` invoke, shared by every
+    channel's button-click handling (Slack, Chat) and by the async Chat
+    card-interaction path (``dispatcher.handle_chat_interaction``) — this used
+    to be duplicated per channel; a third caller was the point where that
+    stopped being worth it.
+    """
+    from langgraph.types import Command
+
+    cfg = {"configurable": {"thread_id": thread_id}}
+    payload: dict[str, Any] = {"decision": decision}
+    if text is not None:
+        payload["text"] = text
+    return graph.invoke(Command(resume=payload), cfg)
+
+
 def _default_draft_fn(
     client: Any, incoming_summary: str, memories: list[str], domain: str
 ) -> str:

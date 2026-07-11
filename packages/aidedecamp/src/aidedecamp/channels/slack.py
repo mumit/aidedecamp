@@ -101,13 +101,9 @@ class SlackChannel:
     # --- internals --------------------------------------------------------
 
     def _default_resume(self, thread_id: str, decision: str, text: str | None):
-        from langgraph.types import Command
+        from ..orchestrator import resume_workflow
 
-        cfg = {"configurable": {"thread_id": thread_id}}
-        payload: dict[str, Any] = {"decision": decision}
-        if text is not None:
-            payload["text"] = text
-        return self._graph.invoke(Command(resume=payload), cfg)
+        return resume_workflow(self._graph, thread_id, decision, text)
 
     def _ensure_app(self):  # pragma: no cover - requires slack_bolt + env
         if self._app is None:

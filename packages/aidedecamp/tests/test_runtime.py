@@ -780,3 +780,73 @@ def test_renew_calendar_watch_uses_settings_calendar_id_and_address():
     assert result.calendar_id == "primary"
     assert result.resource_id == "res-42"
     assert calendar_service.watch_calls[0]["body"]["address"] == "https://republisher.example.com/hook"
+
+
+# ---------------------------------------------------------------------------
+# process_chat_interaction — the async half of Chat's approve/reject flow
+# ---------------------------------------------------------------------------
+
+
+def _interaction_click(fn: str, thread_id: str = "t-1") -> dict:
+    return {
+        "type": "CARD_CLICKED",
+        "action": {
+            "actionMethodName": fn,
+            "parameters": [{"key": "thread_id", "value": thread_id}],
+        },
+    }
+
+
+def test_process_chat_interaction_noop_when_gchat_none():
+    runtime = _runtime(gchat=None)
+    # Must not raise even though there's no channel to post to.
+    runtime.process_chat_interaction(_interaction_click("adc_approve", "t-1"))
+
+
+def test_process_chat_interaction_resumes_and_posts_confirmation():
+    graph = _FakeGraph()
+    gchat = _FakeGChatChannel()
+    runtime = _runtime(app=_app_ctx(graph=graph), gchat=gchat)
+    runtime.settings = _settings(ADC_CHAT_SPACE="spaces/ABC")
+
+    runtime.process_chat_interaction(_interaction_click("adc_approve", "t-42"))
+
+    assert len(graph.calls) == 1
+    assert gchat.texts == [("spaces/ABC", "✅ Approved — draft accepted.")]
+
+
+def test_process_chat_interaction_reject_posts_rejection_confirmation():
+    graph = _FakeGraph()
+    gchat = _FakeGChatChannel()
+    runtime = _runtime(app=_app_ctx(graph=graph), gchat=gchat)
+    runtime.settings = _settings(ADC_CHAT_SPACE="spaces/ABC")
+
+    runtime.process_chat_interaction(_interaction_click("adc_reject", "t-9"))
+
+    assert gchat.texts == [("spaces/ABC", "🗑️ Rejected — nothing sent.")]
+
+
+def test_process_chat_interaction_records_audit_log():
+    graph = _FakeGraph()
+    audit_log = _FakeAuditLog()
+    gchat = _FakeGChatChannel()
+    runtime = _runtime(app=_app_ctx(graph=graph, audit_log=audit_log), gchat=gchat)
+    runtime.settings = _settings(ADC_CHAT_SPACE="spaces/ABC")
+
+    runtime.process_chat_interaction(_interaction_click("adc_approve", "t-42"))
+
+    assert len(audit_log.records) == 1
+    assert audit_log.records[0]["domain"] == "chat"
+    assert audit_log.records[0]["thread_id"] == "t-42"
+
+
+def test_process_chat_interaction_ignores_edit():
+    graph = _FakeGraph()
+    gchat = _FakeGChatChannel()
+    runtime = _runtime(app=_app_ctx(graph=graph), gchat=gchat)
+    runtime.settings = _settings(ADC_CHAT_SPACE="spaces/ABC")
+
+    runtime.process_chat_interaction(_interaction_click("adc_edit", "t-1"))
+
+    assert graph.calls == []
+    assert gchat.texts == []

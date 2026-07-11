@@ -40,6 +40,7 @@ from .connectors import WorkspaceConnector, make_connector
 from .credentials import load_google_credentials
 from .dispatcher import (
     handle_calendar_notification,
+    handle_chat_interaction,
     handle_chat_message,
     handle_gmail_notification,
     handle_slack_message,
@@ -54,6 +55,7 @@ from .ingestion import (
     ensure_subscription,
     ensure_watch,
 )
+from .orchestrator import resume_workflow
 from .ingestion.calendar_sync import SyncState
 from .ingestion.calendar_watch import ChannelState
 from .ingestion.chat_events import SubscriptionState
@@ -165,6 +167,31 @@ class Runtime:
             audit_log=self.app.audit_log,
         )
 
+    def process_chat_interaction(self, event: dict[str, Any]) -> None:
+        """Process one decoded Chat card-click event (approve/reject only —
+        edit's dialog-open click is handled synchronously by the republisher
+        and never reaches this path). This is the async half of Chat's
+        approval flow (see ``docs/decisions.md``): the public webhook
+        endpoint never touches the checkpointer itself, it only forwards the
+        verified, decoded click here over Pub/Sub."""
+        if self.gchat is None:
+            return
+
+        def _resume_fn(thread_id: str, decision: str, text: str | None) -> Any:
+            return resume_workflow(self.app.graph, thread_id, decision, text)
+
+        def _post_text(text: str) -> None:
+            self.gchat.post_text(self.settings.chat_default_space, text)
+
+        handle_chat_interaction(
+            self.app,
+            event,
+            resume_fn=_resume_fn,
+            post_text=_post_text,
+            user_id=self.settings.user_id,
+            audit_log=self.app.audit_log,
+        )
+
     # --- watch/subscription renewal (testable, called on a daily schedule) --
 
     def renew_gmail_watch(self, *, force: bool = False):
@@ -241,6 +268,31 @@ class Runtime:
                     }
                 )
 
+    def run_chat_interaction_pubsub_loop(self) -> None:  # pragma: no cover
+        """Pull decoded Chat card-click events forever and resume each one.
+        The webhook itself (verified by the thin republisher before it ever
+        publishes) is received outside this process, same as Calendar's —
+        this only pulls the already-verified, already-decoded click off the
+        Pub/Sub subscription."""
+        from google.cloud import pubsub_v1
+
+        subscriber = pubsub_v1.SubscriberClient()
+        subscription = self.settings.chat_interaction_pubsub_subscription
+        while True:
+            response = subscriber.pull(
+                request={"subscription": subscription, "max_messages": 10},
+                timeout=30,
+            )
+            for received in response.received_messages:
+                event = json.loads(received.message.data)
+                self.process_chat_interaction(event)
+                subscriber.acknowledge(
+                    request={
+                        "subscription": subscription,
+                        "ack_ids": [received.ack_id],
+                    }
+                )
+
     def run_calendar_pubsub_loop(self) -> None:  # pragma: no cover
         """Pull decoded Calendar webhook notifications forever and reconcile
         each one. The webhook itself (rule 5's one genuine exception) is
@@ -275,6 +327,10 @@ class Runtime:
             threading.Thread(target=self.run_gmail_pubsub_loop, daemon=True).start()
         if self.settings.chat_pubsub_subscription and self.gchat is not None:
             threading.Thread(target=self.run_chat_pubsub_loop, daemon=True).start()
+        if self.settings.chat_interaction_pubsub_subscription and self.gchat is not None:
+            threading.Thread(
+                target=self.run_chat_interaction_pubsub_loop, daemon=True
+            ).start()
         if self.settings.calendar_pubsub_subscription:
             threading.Thread(target=self.run_calendar_pubsub_loop, daemon=True).start()
 
