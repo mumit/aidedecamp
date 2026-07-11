@@ -2,7 +2,8 @@
 
 Standing context for Claude Code. Read this and `docs/decisions.md` at the start
 of every session before making changes. `docs/design.md` is the deeper reference
-for architecture, memory model, autonomy ladder, and roadmap.
+for architecture, memory model, autonomy ladder, and roadmap. `docs/deployment.md`
+covers the concrete GCP setup for personal and TELUS deployments.
 
 ## What this is
 
@@ -27,7 +28,7 @@ Dev setup and full test run:
 ```bash
 pip install -e "packages/bearer-openai[dev]"
 pip install -e "packages/aidedecamp[dev]"
-pytest        # 270 tests should pass as a baseline before you change anything
+pytest        # 288 tests should pass as a baseline before you change anything
 ```
 
 Optional extras are lazy-imported so the package loads without them:
@@ -46,12 +47,17 @@ and `credentials.py`).
 - `orchestrator/` — LangGraph. `autonomy.py` (permission matrix), `state.py`,
   `draft_approve.py` (the canonical retrieve→draft→gate→approve→capture loop),
   `triage.py` (plain function, not a graph — one `Task.CLASSIFY` call deciding
-  URGENT/ROUTINE/NOISE; see `dispatcher.py` below for where it gates drafting).
+  URGENT/ROUTINE/NOISE; see `dispatcher.py` below for where it gates drafting),
+  `scheduling.py` (plain function — `detect_conflict`, read-only overlap check;
+  no hold-creation/accept-decline action layer built, deliberately — see
+  `docs/decisions.md`).
 - `memory/` — substrate-agnostic `MemoryStore` (`base.py`), Mem0 impl
   (`mem0_store.py`), capture signals (`signals.py`).
 - `connectors/` — swappable `WorkspaceConnector`: `mcp.py` (real, Google managed
   MCP), `direct_oauth.py` (real, google-api-python-client). `make_connector`
-  selects by config.
+  selects by config. `get_event(event_id)` is the single-item counterpart to
+  `list_events` (mirrors `get_thread`/`list_threads`), used by
+  `scheduling.detect_conflict`.
 - `channels/` — `slack.py` (Socket Mode: approval buttons + `message.im`
   conversational DMs via `message_fn`, `make_slack_say` for proactive posts) +
   `gchat.py`/`gchat_cards.py` (Cards v2, thin-door, approvals +
@@ -63,16 +69,18 @@ and `credentials.py`).
   the one source with a real inbound webhook, see rule 5 below); `state.py`
   (`JsonGmailWatchState`/`JsonChatSubscriptionState`/`JsonCalendarChannelState`/
   `JsonCalendarSyncState` — concrete, file-backed persistence for all four
-  protocols above). No action layer wired to Calendar changes yet (no
-  scheduling graph exists).
-- `dispatcher.py` — the routing seam: turns a decoded Gmail notification or a
-  Chat/Slack message into a graph invocation or a brief/converse reply.
-  Channel-agnostic (`post_approval`/`post_text` are injected callables);
+  protocols above).
+- `dispatcher.py` — the routing seam: turns a decoded Gmail/Calendar
+  notification or a Chat/Slack message into a graph invocation, a
+  conflict-check-and-notify, or a brief/converse reply. Channel-agnostic
+  (`post_approval`/`post_text`/`notify` are injected callables);
   `handle_chat_message` and `handle_slack_message` share the brief-vs-converse
-  routing via `_respond_to_message`. `handle_gmail_notification` triages
-  every thread first (`triage_fn`, defaults to `orchestrator.triage_thread`)
-  and skips drafting entirely for NOISE — a pure go/no-go gate, no auto-label
-  or other write action.
+  routing via `_respond_to_message`. `handle_gmail_notification` triages every
+  thread first (`triage_fn`, defaults to `orchestrator.triage_thread`) and
+  skips drafting entirely for NOISE — a pure go/no-go gate, no auto-label or
+  other write action. `handle_calendar_notification` is read-only the same
+  way — it calls `notify` on a scheduling conflict, never creates a hold or
+  answers an invite.
 - `brief.py` — read-only morning brief (first end-to-end deliverable). A plain
   function, not a graph — it has no HITL/interrupt need.
 - `app.py` — runtime assembly (`build_app` → `AppContext`): wires the real
@@ -145,20 +153,22 @@ Fuel iX: `base_url = https://api.fuelix.ai`; models `claude-haiku-4-5`,
 
 `app.py`, `DirectOAuthConnector`, the Google Chat channel, `credentials.py`,
 Chat ingestion, `dispatcher.py`, the audit log, `runtime.py` (the entrypoint),
-Slack conversational Q&A, Calendar ingestion, and the triage step are all done
-(see `docs/decisions.md`). What's left — both are now genuinely the last
-gaps between "tested library" and "running assistant":
+Slack conversational Q&A, Calendar ingestion, the triage step, and Calendar
+scheduling-conflict detection are all done (see `docs/decisions.md`). What's
+left:
 
-1. **A scheduling action layer for Calendar.** Ingestion (`calendar_watch.py`/
-   `calendar_sync.py`, `Runtime.process_calendar_notification`) stops at
-   "here are the changed/cancelled event ids" — there's no graph that reacts
-   to them (propose a hold, flag a conflict, etc.), matching design's
-   unbuilt "scheduling graph."
+1. **A Calendar write-action layer**, if wanted: creating holds or responding
+   to invites automatically. Deliberately not built — there's no well-defined
+   trigger yet (unlike mail, where an incoming thread triggers draft-approve)
+   and it would need its own autonomy-ladder design (rule 3), not something to
+   fold in alongside conflict detection. Conflict detection itself
+   (`orchestrator/scheduling.py`, `dispatcher.handle_calendar_notification`)
+   is done and is read-only by design — see `docs/decisions.md` for why this
+   boundary is deliberate, not a shortcut.
 2. **Actually deploy it.** `runtime.py`'s wiring is tested, but `run()` and
    the `run_*_pubsub_loop()` methods have never touched a real GCP project or
-   Slack workspace — that requires provisioning the Pub/Sub topics/
-   subscriptions (and, for Calendar, the external webhook republisher) design
-   4.6 describes, which is infrastructure work, not code.
+   Slack workspace. See `docs/deployment.md` for the concrete steps,
+   configuration, and GCP resources this needs.
 
 ## Still open (verify before relying on)
 

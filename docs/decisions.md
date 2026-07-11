@@ -3,6 +3,77 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — Personal deployment moves to GCP; `docs/deployment.md` added
+
+- **Personal now runs on its own GCP project + Compute Engine VM**, not the
+  home server design.md §4.6 originally planned — a GCP project became
+  available for personal use, so both deployments are now structurally
+  identical infrastructure (separate GCP projects, same VM shape), not just
+  separate config on different kinds of hardware. The reasons for keeping
+  the two deployments fully separate (governance legibility, blast radius,
+  differing trust levels) are unchanged — only what personal runs *on*
+  changed. `design.md` §4.6 and §7 updated in place to reflect this rather
+  than left stale.
+- **`docs/deployment.md` is new**: the concrete "how to actually run this"
+  guide — GCP project setup, API enablement, the personal-vs-TELUS
+  credential-type split (OAuth user credentials for consumer Gmail vs.
+  service-account-with-domain-wide-delegation-or-per-user-OAuth for
+  Workspace), Secret Manager, Pub/Sub topics/subscriptions, the Calendar
+  webhook republisher, the systemd unit, environment variable reference,
+  first-run bootstrap, and a verification checklist.
+- **Explicitly marked unexercised.** Every step is derived from the code and
+  from Google's documented APIs, but nothing in it has been run against a
+  real GCP project yet — it's a detailed first draft to execute and correct
+  against reality, not a verified runbook. Flagged this way deliberately
+  rather than presenting untested steps as settled procedure.
+- **The Calendar webhook republisher is documented as a design, not
+  implemented.** It's explicitly out of the `aidedecamp` package (a few lines
+  of standalone Cloud Run code — receive the webhook, republish onto
+  Pub/Sub, return 200) and is called out in the guide as the one piece of
+  infrastructure code this repo doesn't contain. Building it is future work,
+  not silently assumed to exist.
+
+## 2026-07 — Scheduling conflict detection (design 1.2, 1.4, 4.2)
+
+- **Deliberately narrower than "scheduling graph."** Design 4.2 names a
+  scheduling graph as one of the small orchestrator graphs; what's built is
+  read-only conflict detection (design 1.4's own example — "a heads-up that
+  two meetings just collided"), not an action layer. The connector interface
+  only exposes `create_hold` (create a NEW tentative event) — there's no
+  accept/decline-an-existing-invite verb, and no well-defined trigger yet for
+  "draft a scheduling proposal" the way an incoming email triggers
+  draft-and-approve. Building an actual write path needs its own design
+  decision about the trigger and how it fits the autonomy ladder (rule 3);
+  folding it in unreviewed alongside conflict detection would have been
+  scope creep into an under-specified feature, so it's explicitly deferred.
+- **`orchestrator/scheduling.py` is a plain function**, `detect_conflict`,
+  same reasoning as `triage.py`/`brief.py`: read-only, no HITL interrupt to
+  checkpoint around. Two events conflict iff their `[start, end)` intervals
+  overlap on the same calendar — `list_events` is already scoped to the
+  deployment's own calendar, so no cross-calendar reasoning is needed.
+- **New connector method: `get_event(event_id) -> CalendarEvent`**, the
+  single-item counterpart to `list_events` (mirroring `get_thread`'s pairing
+  with `list_threads`). Calendar ingestion (`CalendarChanges.event_ids`)
+  deliberately stays thin — just changed ids, no dependency on `connectors/`
+  — so turning an id into the attendees/time details conflict detection
+  needs happens at the connector boundary, the same place provenance tagging
+  already happens. Implemented in both `McpWorkspaceConnector` (new
+  `TOOL_GET_EVENT`) and `DirectOAuthConnector` (`events().get(...)`).
+- **`dispatcher.handle_calendar_notification` is new**, mirroring
+  `handle_gmail_notification`'s shape: it now owns the sync reconciliation
+  (moved from `runtime.py` — see below) *and* the conflict-check-and-notify
+  action, consistent with how Gmail's dispatcher function owns both
+  reconciliation and the draft-approve invocation. For every conflict found,
+  `notify(text)` is called and — when `audit_log` is supplied — the
+  detection is recorded under a `"scheduling"` workflow name, same
+  transparency discipline as triage's `"triage"`-workflow skip record.
+- **`Runtime.process_calendar_notification` is now a thin wrapper** around
+  `handle_calendar_notification`, matching `process_gmail_notification`/
+  `process_chat_event`'s shape instead of calling ingestion functions
+  directly. Its return type changed from `CalendarChanges` to
+  `list[ConflictResult]` — a real, deliberate behavior change (existing
+  tests were updated to match, not just patched around).
+
 ## 2026-07 — Triage step (design 1.2, 4.2) — closes the Task.CLASSIFY gap
 
 - **`orchestrator/triage.py` is a plain function, not a LangGraph graph** —
