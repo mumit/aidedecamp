@@ -44,9 +44,15 @@ from .calendar_sync import (
     process_calendar_notification,
 )
 from .chat_interactions import ChatInteraction, decode_chat_interaction
+from .polling import (
+    calendar_poll_notification,
+    poll_chat_step,
+    poll_gmail_step,
+)
 from .state import (
     JsonCalendarChannelState,
     JsonCalendarSyncState,
+    JsonChatPollState,
     JsonChatSubscriptionState,
     JsonGmailWatchState,
 )
@@ -75,7 +81,11 @@ __all__ = [
     "full_calendar_sync",
     "process_calendar_notification",
     "JsonGmailWatchState",
+    "JsonChatPollState",
     "JsonChatSubscriptionState",
+    "calendar_poll_notification",
+    "poll_chat_step",
+    "poll_gmail_step",
     "JsonCalendarChannelState",
     "JsonCalendarSyncState",
     "ChatInteraction",

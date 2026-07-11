@@ -19,6 +19,17 @@ class Deployment(str, Enum):
     TELUS = "telus"
 
 
+class IngestionMode(str, Enum):
+    """How events arrive. ``POLL`` (the default) drives the same
+    reconciliation code from a timer — outbound-only, zero Pub/Sub, zero
+    republisher, the day-one path. ``PUSH`` is the hardened production
+    posture: Pub/Sub pull subscriptions fed by watches + the republisher.
+    The dispatcher never learns which mode fed it."""
+
+    POLL = "poll"
+    PUSH = "push"
+
+
 class ConnectorMode(str, Enum):
     """How Workspace is reached. Chosen per deployment (design doc 4.3, 4.7):
     the personal side can default to Google's managed MCP servers; the TELUS
@@ -94,6 +105,12 @@ class Settings:
     timezone: str = "UTC"
     brief_time: str = "07:30"
     consolidate_time: str = "02:00"
+    # Ingestion: poll (default, no GCP infra) vs push (Pub/Sub + republisher).
+    ingestion_mode: IngestionMode = IngestionMode.POLL
+    # Poll cadence; floored at 30s (Google quota concern, CLAUDE.md).
+    poll_seconds: int = 120
+    # Chat poll high-water mark (poll mode only).
+    chat_poll_state_path: str = "./chat_poll_state.json"
     # The single identity this deployment acts as (memory/audit user_id, and
     # the Gmail API "me" alias). One deployment = one identity, per design 4.6.
     user_id: str = "me"
@@ -152,6 +169,11 @@ class Settings:
             timezone=e.get("ADC_TIMEZONE", "UTC"),
             brief_time=e.get("ADC_BRIEF_TIME", "07:30"),
             consolidate_time=e.get("ADC_CONSOLIDATE_TIME", "02:00"),
+            ingestion_mode=IngestionMode(e.get("ADC_INGESTION_MODE", "poll")),
+            poll_seconds=max(int(e.get("ADC_POLL_SECONDS", "120")), 30),
+            chat_poll_state_path=_path(
+                "ADC_CHAT_POLL_STATE_PATH", "chat_poll_state.json"
+            ),
             user_id=e.get("ADC_USER_ID", "me"),
             slack_default_channel=e.get("ADC_SLACK_CHANNEL"),
             chat_default_space=e.get("ADC_CHAT_SPACE"),

@@ -38,7 +38,7 @@ from typing import Any, Callable
 
 from .app import AppContext, build_app
 from .brief import assemble_brief
-from .config import Settings
+from .config import IngestionMode, Settings
 from .conversation import JsonConversationLog
 from .connectors import WorkspaceConnector, make_connector
 from .credentials import load_google_credentials
@@ -53,11 +53,15 @@ from .ingestion import (
     HistoryExpired,
     JsonCalendarChannelState,
     JsonCalendarSyncState,
+    JsonChatPollState,
     JsonChatSubscriptionState,
     JsonGmailWatchState,
+    calendar_poll_notification,
     ensure_calendar_watch,
     ensure_subscription,
     ensure_watch,
+    poll_chat_step,
+    poll_gmail_step,
 )
 from .orchestrator import (
     JsonPendingApprovals,
@@ -154,6 +158,8 @@ class Runtime:
     calendar_sync_state: Any = None   # ingestion.calendar_sync.SyncState
     pending: Any = None              # orchestrator.pending.PendingApprovals
     conversation: Any = None         # conversation.ConversationLog
+    chat_service: Any = None         # raw Chat API resource (poll-mode reads)
+    chat_poll_state: Any = None      # ingestion.state.JsonChatPollState
 
     # --- event processing (testable) ---------------------------------------
 
@@ -359,7 +365,10 @@ class Runtime:
             scheduler.add(
                 Job("daily_brief", daily_at(self.settings.brief_time, tz), self.post_brief)
             )
-        scheduler.add(Job("renew_watches", every(hours=24), self.renew_all_watches))
+        if self.settings.ingestion_mode == IngestionMode.PUSH:
+            scheduler.add(
+                Job("renew_watches", every(hours=24), self.renew_all_watches)
+            )
         if self.pending is not None:
             scheduler.add(
                 Job("sweep_pending", every(hours=6), self.sweep_pending_ignored)
@@ -418,6 +427,65 @@ class Runtime:
             address=self.settings.calendar_webhook_address,
             force=force,
         )
+
+    # --- poll-mode ingestion (testable; the timer shell is run_poll_loop) ---
+
+    def poll_once(self) -> dict[str, Any]:
+        """One poll tick across all configured sources (poll mode). Each
+        source synthesizes the same decoded shape push mode delivers, so the
+        dispatcher path is byte-identical — see ``ingestion/polling.py``.
+
+        Returns a per-source summary for logging/tests. Source failures are
+        isolated: one source erroring must not starve the others (the loop
+        shell additionally backs off on repeated whole-tick failures)."""
+        summary: dict[str, Any] = {}
+
+        try:
+            notification = poll_gmail_step(
+                self.gmail_service, self.watch_state, email=self.settings.user_id
+            )
+            if notification is not None:
+                self._handle_gmail_message(notification)
+            summary["gmail"] = "changed" if notification else "idle"
+        except Exception as exc:  # noqa: BLE001 — per-source isolation
+            summary["gmail"] = f"error: {type(exc).__name__}"
+            logger.warning("poll gmail failed (%s)", type(exc).__name__)
+
+        if self.calendar_service is not None:
+            try:
+                conflicts = self.process_calendar_notification(
+                    calendar_poll_notification()
+                )
+                summary["calendar"] = f"{len(conflicts or [])} conflict(s)"
+            except Exception as exc:  # noqa: BLE001
+                summary["calendar"] = f"error: {type(exc).__name__}"
+                logger.warning("poll calendar failed (%s)", type(exc).__name__)
+
+        if (
+            self.chat_service is not None
+            and self.gchat is not None
+            and self.settings.chat_default_space
+            and self.chat_poll_state is not None
+        ):
+            space = self.settings.chat_default_space
+            try:
+                existing = self.chat_poll_state.get(space) or {}
+                events, new_mark = poll_chat_step(
+                    self.chat_service, space=space,
+                    last_seen=existing.get("last_seen"),
+                )
+                for event in events:
+                    self.process_chat_event(event)
+                # High-water mark advances only after successful dispatch —
+                # a crash mid-batch redelivers next tick, never drops.
+                if new_mark:
+                    self.chat_poll_state.put(space, last_seen=new_mark)
+                summary["chat"] = f"{len(events)} message(s)"
+            except Exception as exc:  # noqa: BLE001
+                summary["chat"] = f"error: {type(exc).__name__}"
+                logger.warning("poll chat failed (%s)", type(exc).__name__)
+
+        return summary
 
     # --- supervised pull-loop machinery (testable per-message core) ---------
 
@@ -584,27 +652,74 @@ class Runtime:
             self.process_calendar_notification,
         )
 
+    def run_poll_loop(self) -> None:  # pragma: no cover - thin timer shell
+        """Tick poll_once every ADC_POLL_SECONDS, backing off on whole-tick
+        failure the same way the pull loops do on transport failure."""
+        backoff = BACKOFF_INITIAL_SECONDS
+        stats = LoopStats("poll")
+        logger.info(
+            "poll loop started (every %ss)", self.settings.poll_seconds
+        )
+        while True:
+            try:
+                self.poll_once()
+                stats.record(ok=True)
+                backoff = BACKOFF_INITIAL_SECONDS
+            except Exception as exc:  # noqa: BLE001
+                stats.record(ok=False)
+                logger.warning(
+                    "poll tick failed (%s); backing off %.0fs",
+                    type(exc).__name__, backoff,
+                )
+                time.sleep(backoff)
+                backoff = next_backoff(backoff)
+            beat = stats.maybe_beat()
+            if beat:
+                logger.info(beat)
+            time.sleep(self.settings.poll_seconds)
+
     def run(self) -> None:  # pragma: no cover
-        """Start the always-on process: renew all watches once at startup (a
-        fresh deployment must not wait a day for its first registration),
-        start the scheduler (brief / renewals / sweep / consolidation) and
-        the Gmail/Chat/Calendar pull loops on daemon threads; Slack Socket
-        Mode blocks the main thread (or, absent Slack, the main thread just
-        waits so the daemon threads keep running)."""
-        self.renew_all_watches()
+        """Start the always-on process.
+
+        Push mode: renew all watches once at startup (a fresh deployment
+        must not wait a day for its first registration), then the scheduler
+        plus the Gmail/Chat/Calendar pull loops on daemon threads.
+
+        Poll mode (default): no watches to renew — one supervised timer
+        thread drives all sources. Chat card-click interactions still need
+        the republisher (nothing to poll), so that one pull loop runs in
+        either mode when its subscription is configured; without it, Chat
+        approval buttons won't resolve (Slack's work fully — Socket Mode).
+
+        Slack Socket Mode blocks the main thread either way (or, absent
+        Slack, the main thread just waits so the daemon threads keep
+        running)."""
+        poll_mode = self.settings.ingestion_mode == IngestionMode.POLL
+        if not poll_mode:
+            self.renew_all_watches()
         scheduler = self.build_scheduler()
         threading.Thread(target=scheduler.run_loop, daemon=True).start()
 
-        if self.settings.gmail_pubsub_subscription:
-            threading.Thread(target=self.run_gmail_pubsub_loop, daemon=True).start()
-        if self.settings.chat_pubsub_subscription and self.gchat is not None:
-            threading.Thread(target=self.run_chat_pubsub_loop, daemon=True).start()
+        if poll_mode:
+            threading.Thread(target=self.run_poll_loop, daemon=True).start()
+        else:
+            if self.settings.gmail_pubsub_subscription:
+                threading.Thread(target=self.run_gmail_pubsub_loop, daemon=True).start()
+            if self.settings.chat_pubsub_subscription and self.gchat is not None:
+                threading.Thread(target=self.run_chat_pubsub_loop, daemon=True).start()
+            if self.settings.calendar_pubsub_subscription:
+                threading.Thread(target=self.run_calendar_pubsub_loop, daemon=True).start()
+
         if self.settings.chat_interaction_pubsub_subscription and self.gchat is not None:
             threading.Thread(
                 target=self.run_chat_interaction_pubsub_loop, daemon=True
             ).start()
-        if self.settings.calendar_pubsub_subscription:
-            threading.Thread(target=self.run_calendar_pubsub_loop, daemon=True).start()
+        elif poll_mode and self.gchat is not None:
+            logger.info(
+                "chat approval buttons need the republisher's interaction "
+                "subscription (or push mode); Slack approvals work fully in "
+                "poll mode"
+            )
 
         if self.slack is not None:
             self.slack.start()
@@ -630,6 +745,8 @@ def build_runtime(
     calendar_sync_state: SyncState | None = None,
     pending: Any = None,
     conversation: Any = None,
+    chat_service: Any = None,
+    chat_poll_state: Any = None,
 ) -> Runtime:
     """Assemble a :class:`Runtime` from config and optional overrides.
 
@@ -756,6 +873,23 @@ def build_runtime(
             "workspaceevents", "v1", credentials=resolved_credentials
         )
 
+    resolved_chat_service = chat_service
+    if (
+        resolved_chat_service is None
+        and resolved_credentials is not None
+        and settings.ingestion_mode == IngestionMode.POLL
+        and settings.chat_default_space
+    ):  # pragma: no cover - requires live creds
+        from googleapiclient.discovery import build as _build
+
+        resolved_chat_service = _build(
+            "chat", "v1", credentials=resolved_credentials
+        )
+
+    resolved_chat_poll_state = chat_poll_state or JsonChatPollState(
+        settings.chat_poll_state_path
+    )
+
     return Runtime(
         app=resolved_app,
         settings=settings,
@@ -772,4 +906,6 @@ def build_runtime(
         calendar_sync_state=resolved_calendar_sync_state,
         pending=resolved_pending,
         conversation=resolved_conversation,
+        chat_service=resolved_chat_service,
+        chat_poll_state=resolved_chat_poll_state,
     )

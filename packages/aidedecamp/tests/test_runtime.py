@@ -71,6 +71,7 @@ class _FakeGmailService:
 
     def users(self):
         tids = self._thread_ids
+        profile_hid = getattr(self, "profile_history_id", "999")
 
         class _History:
             def list(self, **kwargs):
@@ -96,6 +97,12 @@ class _FakeGmailService:
                 class _Req:
                     def execute(self_):
                         return {"historyId": "999", "expiration": "99999999999999"}
+                return _Req()
+
+            def getProfile(self, userId):
+                class _Req:
+                    def execute(self_):
+                        return {"emailAddress": userId, "historyId": profile_hid}
                 return _Req()
 
         return _Users()
@@ -881,6 +888,108 @@ def test_process_chat_interaction_reject_posts_rejection_confirmation():
 
 
 # ---------------------------------------------------------------------------
+# poll_once (prompt 09) — timer-driven ingestion through the same dispatcher
+# ---------------------------------------------------------------------------
+
+
+class _FakeChatPollService:
+    def __init__(self, messages=None):
+        self._messages = messages or []
+
+    def spaces(self):
+        outer = self
+
+        class _Messages:
+            def list(self, **kwargs):
+                class _Req:
+                    def execute(self_):
+                        return {"messages": outer._messages}
+                return _Req()
+
+        class _Spaces:
+            def messages(self):
+                return _Messages()
+
+        return _Spaces()
+
+
+class _DictChatPollState:
+    def __init__(self, last_seen=None):
+        self._data = {"spaces/ABC": {"last_seen": last_seen}} if last_seen else {}
+        self.puts: list[str] = []
+
+    def get(self, space):
+        return self._data.get(space)
+
+    def put(self, space, *, last_seen):
+        self._data[space] = {"last_seen": last_seen}
+        self.puts.append(last_seen)
+
+
+def test_poll_once_gmail_dispatches_when_mailbox_advanced():
+    slack = _FakeSlackChannel()
+    runtime = _runtime(slack=slack, slack_say=lambda **kw: None)
+    # profile historyId (999) is ahead of the stored baseline (100)
+
+    summary = runtime.poll_once()
+
+    assert summary["gmail"] == "changed"
+    assert len(slack.approvals) == 1  # same dispatcher path as push mode
+
+
+def test_poll_once_gmail_idle_when_no_change():
+    gmail = _FakeGmailService()
+    gmail.profile_history_id = "100"  # equals the stored baseline
+    slack = _FakeSlackChannel()
+    runtime = _runtime(gmail_service=gmail, slack=slack,
+                       slack_say=lambda **kw: None)
+
+    summary = runtime.poll_once()
+
+    assert summary["gmail"] == "idle"
+    assert slack.approvals == []
+
+
+def test_poll_once_chat_dispatches_and_advances_mark_after_success():
+    gchat = _FakeGChatChannel()
+    msg = {
+        "name": "spaces/ABC/messages/m1",
+        "text": "what's up?",
+        "createTime": "2026-07-10T12:00:00Z",
+        "sender": {"name": "users/1", "type": "HUMAN"},
+        "space": {"name": "spaces/ABC"},
+    }
+    poll_state = _DictChatPollState(last_seen="2026-07-10T11:00:00Z")
+    runtime = _runtime(
+        gchat=gchat,
+        chat_service=_FakeChatPollService([msg]),
+        chat_poll_state=poll_state,
+    )
+    runtime.settings = _settings(ADC_CHAT_SPACE="spaces/ABC")
+
+    summary = runtime.poll_once()
+
+    assert summary["chat"] == "1 message(s)"
+    assert len(gchat.texts) == 1  # conversational reply posted
+    assert poll_state.puts == ["2026-07-10T12:00:00Z"]
+
+
+def test_poll_once_isolates_source_failures():
+    """A broken calendar service must not stop gmail/chat polling."""
+    slack = _FakeSlackChannel()
+    runtime = _runtime(
+        slack=slack, slack_say=lambda **kw: None,
+        calendar_service=object(),  # unusable -> calendar step errors
+    )
+
+    summary = runtime.poll_once()
+
+    assert summary["gmail"] == "changed"
+    assert summary["calendar"].startswith("error:")
+    assert len(slack.approvals) == 1
+
+
+# ---------------------------------------------------------------------------
 # Supervised pull-loop machinery (prompt 06) — the testable per-message core
 # ---------------------------------------------------------------------------
 
@@ -1022,10 +1131,18 @@ def test_logging_setup_configure_is_idempotent():
 
 
 def test_build_scheduler_assembles_expected_jobs():
-    """The standard job set (prompt 05): brief only when a channel can carry
-    it, renewals always, sweep when a registry exists, consolidation always."""
+    """The standard job set (prompts 05 + 09): brief only when a channel can
+    carry it, renewals only in push mode (poll mode has no watches to renew),
+    sweep when a registry exists, consolidation always."""
     runtime = _runtime(slack=_FakeSlackChannel(), slack_say=lambda **kw: None)
     names = [j.name for j in runtime.build_scheduler().jobs]
+    # default mode is poll -> no renew_watches job
+    assert names == ["daily_brief", "sweep_pending", "consolidate"]
+
+    # push mode gets the daily renewal job
+    push = _runtime(slack=_FakeSlackChannel(), slack_say=lambda **kw: None)
+    push.settings = _settings(ADC_INGESTION_MODE="push")
+    names = [j.name for j in push.build_scheduler().jobs]
     assert names == ["daily_brief", "renew_watches", "sweep_pending", "consolidate"]
 
     # No channel configured -> no brief job (nowhere to post it).

@@ -92,7 +92,11 @@ and `credentials.py`).
   approve/reject/edit-submit; the edit dialog's *open* click is deliberately
   excluded, see module docstring);
   `calendar_watch.py` + `calendar_sync.py` (Calendar channel lifecycle +
-  sync-token reconciliation); `state.py`
+  sync-token reconciliation); `polling.py` (poll mode — the default,
+  `ADC_INGESTION_MODE`: timer-driven steps that synthesize the same decoded
+  shapes push delivers, so the dispatcher never learns which mode fed it;
+  zero Pub/Sub/republisher needed except for Chat card-clicks, which can't
+  be polled); `state.py`
   (`JsonGmailWatchState`/`JsonChatSubscriptionState`/`JsonCalendarChannelState`/
   `JsonCalendarSyncState` — concrete, file-backed persistence for all four
   protocols above). Calendar *and* Chat card-interactions are the two sources

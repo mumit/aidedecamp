@@ -3,6 +3,44 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — Polling ingestion mode is the new default (roadmap prompt 09)
+
+- **`ADC_INGESTION_MODE=poll|push`, default `poll`.** Push ingestion needs
+  four Pub/Sub topic+subscription pairs, a deployed Cloud Run republisher,
+  and watch lifecycle management before the first event flows — but every
+  reconciliation primitive was already trigger-agnostic, so a timer can
+  drive all three sources. Polling is outbound-only (exactly as
+  rule-5-clean as pull subscriptions) and deletes all of that from the
+  day-one path. Push stays fully supported and remains the hardened
+  production posture. No deployment existed yet, so changing the default
+  breaks no one.
+- **The dispatcher seam did not move** — `ingestion/polling.py`'s steps
+  synthesize the same decoded shapes push delivers, so `dispatcher.py`
+  never learns which mode fed it: `poll_gmail_step` compares the profile
+  `historyId` to the stored baseline (one cheap `getProfile` per tick;
+  default cadence 120s, floored at 30s per the open Google quota concern)
+  and synthesizes the push-shaped notification only on advance — the
+  baseline still advances inside `process_notification`, so a failed
+  reconcile re-synthesizes next tick; `calendar_poll_notification()` is a
+  labeled no-payload trigger (the handler only ever reconciles the sync
+  token); `poll_chat_step` lists messages past a stored high-water mark
+  (`JsonChatPollState`) and wraps them in Workspace-Events shape — the
+  mark advances **only after successful dispatch**, so a crash mid-batch
+  redelivers rather than drops (mirroring Pub/Sub's redelivery semantics).
+- **First run = baseline now, never replay** (both Gmail and Chat), the
+  same semantic as push mode's initial watch registration.
+- **Runtime**: `poll_once()` (testable, per-source failure isolation) +
+  `run_poll_loop()` (thin supervised timer shell reusing prompt 06's
+  backoff/heartbeat). `run()` branches: poll mode starts one timer thread,
+  skips startup renewals, and `build_scheduler` drops the `renew_watches`
+  job (nothing to renew). **The one caveat**: Chat card-click interactions
+  can't be polled (Google POSTs them), so that single pull loop still runs
+  in either mode when its subscription is configured; without it, Chat
+  approval buttons don't resolve — Slack approvals work fully in poll mode
+  (Socket Mode), and `run()` logs the limitation.
+- **New config**: `ingestion_mode`, `poll_seconds` (`ADC_POLL_SECONDS`),
+  `chat_poll_state_path` (data-dir derived).
+
 ## 2026-07 — CLI: init wizard, doctor, brief, run (roadmap prompt 08)
 
 - **`aidedecamp` console script** (`cli/` package, `[project.scripts]`),

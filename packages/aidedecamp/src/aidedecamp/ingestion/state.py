@@ -115,6 +115,26 @@ class JsonCalendarChannelState:
         _save(self._path, data)
 
 
+class JsonChatPollState:
+    """Persists the Chat poll high-water mark: ``{space: {last_seen}}``.
+
+    ``last_seen`` is the RFC 3339 createTime of the newest message already
+    dispatched (poll mode only — see ``ingestion/polling.py``); an opaque
+    string round-tripped as-is, like the Calendar sync token.
+    """
+
+    def __init__(self, path: str):
+        self._path = path
+
+    def get(self, space: str) -> dict[str, Any] | None:
+        return _load(self._path).get(space)
+
+    def put(self, space: str, *, last_seen: str) -> None:
+        data = _load(self._path)
+        data[space] = {"last_seen": last_seen}
+        _save(self._path, data)
+
+
 class JsonCalendarSyncState:
     """Persists Calendar incremental sync tokens: ``{calendar_id: {sync_token}}``.
 
