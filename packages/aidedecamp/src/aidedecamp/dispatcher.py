@@ -45,8 +45,11 @@ injected so the dispatcher is testable offline with fakes.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
 
 from .app import AppContext
 from .audit.log import AuditLog
@@ -147,6 +150,7 @@ def handle_gmail_notification(
 
         triage = triage_fn(app_ctx.client, incoming_summary)
         if triage.priority == Priority.NOISE:
+            logger.info("gmail thread %s triaged NOISE — skipped", gmail_tid)
             if audit_log is not None:
                 audit_log.record(
                     thread_id=lg_tid,
@@ -188,6 +192,10 @@ def handle_gmail_notification(
         proposed = result.get("proposed_draft") or ""
         rationale: list[str] | None = result.get("retrieved_memories") or None
 
+        logger.info(
+            "gmail thread %s (%s) drafted — approval card posted as %s",
+            gmail_tid, triage.priority.value, lg_tid,
+        )
         post_approval(lg_tid, proposed, rationale)
         if pending is not None:
             pending.register(

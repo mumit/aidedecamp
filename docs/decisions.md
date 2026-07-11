@@ -3,6 +3,35 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — Loop supervision + structured logging (roadmap prompt 06)
+
+- **The silent-thread-death defect is closed.** Every pull loop was a bare
+  `while True` on a daemon thread: one transient network error, one
+  malformed payload into `json.loads`, and that ingestion source was dead
+  until a human noticed mail had gone quiet. The four loops now share one
+  supervised `_pull_loop(name, subscription, handler)`: transport errors
+  back off exponentially (1s → 60s cap via `next_backoff`, reset on
+  success; `DeadlineExceeded` on an empty pull is idleness, not failure),
+  and the per-message body is a plain testable method,
+  `_handle_pulled_message`, per the testable/live split discipline.
+- **Poison messages are acked, not redelivered.** A message whose handler
+  raises (or that isn't JSON) is logged *by Pub/Sub message id — never its
+  payload* (rule 6, pinned by a caplog redaction test), audited under the
+  `"ops"` workflow (`message_failed`), and acked — Pub/Sub redelivery of a
+  deterministic failure is an infinite loop. Exception preserved:
+  `HistoryExpired` still force-renews the Gmail watch (in
+  `_handle_gmail_message`) and counts as handled.
+- **Heartbeat**: `LoopStats` emits one log line per loop every ~5 minutes
+  (pulled/handled/failed since last beat), so "is it alive?" is one
+  `journalctl | grep heartbeat` away.
+- **`logging_setup.configure(level, json_mode)`** — stdlib logging only
+  (a metrics endpoint would be an inbound port, rule 5; logs are the
+  observability surface at this scale). Plain lines by default, one JSON
+  object per line under `ADC_LOG_JSON=1`; `ADC_LOG_LEVEL` sets the level;
+  `__main__.py` wires it. Seam logging added where decisions happen
+  (dispatcher triage skip / card posted, scheduler job failures, loop
+  lifecycle) — identifiers only, never bodies or tokens.
+
 ## 2026-07 — Scheduler: the always-on process finally schedules things (roadmap prompt 05)
 
 - **`scheduler.py`** — a deliberately hand-rolled in-process scheduler (~60

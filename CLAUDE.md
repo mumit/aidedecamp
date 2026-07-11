@@ -130,9 +130,14 @@ and `credentials.py`).
 - `runtime.py` — the always-on entrypoint (`build_runtime` → `Runtime`): wires
   `AppContext` + connector + credentials + Slack/Chat channels into one
   process; `process_gmail_notification`/`process_chat_event`/
-  `process_calendar_notification`/`process_chat_interaction`/`renew_*` are
-  tested wiring, `run`/`run_*_pubsub_loop` are thin live loops (pull
-  subscriptions, no inbound port) needing real GCP/Slack. `__main__.py` calls
+  `process_calendar_notification`/`process_chat_interaction`/`renew_*`/
+  `_handle_pulled_message` (poison messages: logged by Pub/Sub id only,
+  audited under `"ops"`, acked — never redelivered forever, never a payload
+  in the logs) are tested wiring; `run`/`run_*_pubsub_loop` are thin live
+  shells over one shared supervised `_pull_loop` (exponential backoff,
+  ~5-min `LoopStats` heartbeat; pull subscriptions, no inbound port) needing
+  real GCP/Slack. `logging_setup.configure` (stdlib only; `ADC_LOG_LEVEL`,
+  `ADC_LOG_JSON`) is wired in `__main__.py`, which calls
   `build_runtime().run()`.
 - `audit/` — `JsonlAuditLog`: structured, queryable reason-for-action log
   (design 4.7). Wired into `dispatcher.handle_gmail_notification` and

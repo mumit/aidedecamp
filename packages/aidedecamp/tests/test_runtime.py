@@ -880,6 +880,147 @@ def test_process_chat_interaction_reject_posts_rejection_confirmation():
     assert gchat.texts == [("spaces/ABC", "🗑️ Rejected — nothing sent.")]
 
 
+# ---------------------------------------------------------------------------
+# Supervised pull-loop machinery (prompt 06) — the testable per-message core
+# ---------------------------------------------------------------------------
+
+
+def test_malformed_message_is_poison_not_fatal():
+    """Malformed JSON → logged by id, audited, reported unhandled — never a
+    raise (a raise is what used to kill the daemon thread silently)."""
+    audit = _FakeAuditLog()
+    runtime = _runtime(app=_app_ctx(audit_log=audit))
+
+    ok = runtime._handle_pulled_message(
+        "gmail", b"not json{", "msg-123", lambda payload: None
+    )
+
+    assert ok is False
+    event = audit.records[0]["events"][0]
+    assert event["event"] == "message_failed"
+    assert event["message_id"] == "msg-123"
+    assert event["error"] == "malformed_json"
+
+
+def test_raising_handler_is_poison_not_fatal():
+    audit = _FakeAuditLog()
+    runtime = _runtime(app=_app_ctx(audit_log=audit))
+
+    def boom(payload):
+        raise ValueError("deterministic failure")
+
+    ok = runtime._handle_pulled_message("chat", b'{"a": 1}', "msg-9", boom)
+
+    assert ok is False
+    assert audit.records[0]["events"][0]["error"] == "ValueError"
+
+
+def test_successful_handler_reports_handled():
+    runtime = _runtime()
+    seen = []
+    ok = runtime._handle_pulled_message(
+        "chat", b'{"a": 1}', "msg-1", seen.append
+    )
+    assert ok is True
+    assert seen == [{"a": 1}]
+
+
+def test_failure_log_never_contains_payload(caplog):
+    """Rule 6: a poison message is logged by id only — its body (which could
+    contain tokens or mail content) must never enter the log stream."""
+    import logging as _logging
+
+    runtime = _runtime()
+    secret_body = b'{"token": "SECRET-FUELIX-TOKEN-VALUE"}'
+
+    def boom(payload):
+        raise RuntimeError("handler down")
+
+    with caplog.at_level(_logging.DEBUG):
+        runtime._handle_pulled_message("gmail", secret_body, "msg-7", boom)
+        runtime._handle_pulled_message("gmail", b"SECRET-RAW not json", "msg-8", boom)
+
+    assert caplog.records  # something was logged
+    for record in caplog.records:
+        assert "SECRET" not in record.getMessage()
+
+
+def test_gmail_handler_renews_on_history_expired():
+    from aidedecamp.ingestion import HistoryExpired
+
+    runtime = _runtime()
+    renewed = []
+    runtime.renew_gmail_watch = lambda *, force=False: renewed.append(force)
+
+    def expired(payload):
+        raise HistoryExpired("stale baseline")
+
+    runtime.process_gmail_notification = expired
+    runtime._handle_gmail_message({"emailAddress": "me", "historyId": "1"})
+
+    assert renewed == [True]
+
+
+def test_next_backoff_doubles_and_caps():
+    from aidedecamp.runtime import next_backoff
+
+    seq = [1]
+    for _ in range(8):
+        seq.append(next_backoff(seq[-1]))
+    assert seq == [1, 2, 4, 8, 16, 32, 60, 60, 60]
+
+
+def test_loop_stats_heartbeat_cadence_and_reset():
+    from aidedecamp.runtime import LoopStats
+
+    t0 = datetime(2026, 7, 10, 12, 0, tzinfo=timezone.utc)
+    stats = LoopStats("gmail", interval_seconds=300)
+
+    assert stats.maybe_beat(t0) is None  # first call arms the timer
+    stats.record(ok=True)
+    stats.record(ok=True)
+    stats.record(ok=False)
+    assert stats.maybe_beat(t0 + timedelta(seconds=299)) is None
+
+    line = stats.maybe_beat(t0 + timedelta(seconds=301))
+    assert line == "heartbeat gmail: pulled=3 handled=2 failed=1"
+    # counters reset after the beat
+    assert stats.maybe_beat(t0 + timedelta(seconds=602)) == (
+        "heartbeat gmail: pulled=0 handled=0 failed=0"
+    )
+
+
+def test_logging_setup_json_mode_emits_json_lines():
+    import json as _json
+    import logging as _logging
+
+    from aidedecamp.logging_setup import JsonFormatter
+
+    record = _logging.LogRecord(
+        name="aidedecamp.runtime", level=_logging.INFO, pathname=__file__,
+        lineno=1, msg="heartbeat gmail: pulled=%d", args=(3,), exc_info=None,
+    )
+    entry = _json.loads(JsonFormatter().format(record))
+    assert entry["level"] == "INFO"
+    assert entry["logger"] == "aidedecamp.runtime"
+    assert entry["message"] == "heartbeat gmail: pulled=3"
+    assert "ts" in entry
+
+
+def test_logging_setup_configure_is_idempotent():
+    import logging as _logging
+
+    from aidedecamp.logging_setup import configure
+
+    configure(level="WARNING")
+    configure(level="DEBUG", json_mode=True)
+    root = _logging.getLogger()
+    assert len(root.handlers) == 1  # replaced, not stacked
+    assert root.level == _logging.DEBUG
+    # restore something sane for other tests
+    configure(level="WARNING")
+
+
 def test_build_scheduler_assembles_expected_jobs():
     """The standard job set (prompt 05): brief only when a channel can carry
     it, renewals always, sweep when a registry exists, consolidation always."""

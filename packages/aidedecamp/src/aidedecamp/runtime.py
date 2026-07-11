@@ -29,9 +29,60 @@ Mode. No listener socket is ever opened here.
 from __future__ import annotations
 
 import json
+import logging
 import threading
+import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
+
+HEARTBEAT_SECONDS = 300
+BACKOFF_INITIAL_SECONDS = 1
+BACKOFF_MAX_SECONDS = 60
+
+
+def next_backoff(current: float) -> float:
+    """Exponential backoff for pull-transport failures: doubles, capped."""
+    return min(current * 2, BACKOFF_MAX_SECONDS)
+
+
+class LoopStats:
+    """Per-loop counters + periodic heartbeat line, so "is it alive?" is one
+    ``journalctl | grep heartbeat`` away (roadmap prompt 06)."""
+
+    def __init__(self, name: str, interval_seconds: int = HEARTBEAT_SECONDS):
+        self.name = name
+        self._interval = interval_seconds
+        self.pulled = 0
+        self.handled = 0
+        self.failed = 0
+        self._last_beat: datetime | None = None
+
+    def record(self, ok: bool) -> None:
+        self.pulled += 1
+        if ok:
+            self.handled += 1
+        else:
+            self.failed += 1
+
+    def maybe_beat(self, now: datetime | None = None) -> str | None:
+        """A heartbeat line when the interval has elapsed (counters reset),
+        else None. The first call arms the timer without beating."""
+        now = now or datetime.now(timezone.utc)
+        if self._last_beat is None:
+            self._last_beat = now
+            return None
+        if (now - self._last_beat).total_seconds() < self._interval:
+            return None
+        line = (
+            f"heartbeat {self.name}: pulled={self.pulled} "
+            f"handled={self.handled} failed={self.failed}"
+        )
+        self.pulled = self.handled = self.failed = 0
+        self._last_beat = now
+        return line
 
 from .app import AppContext, build_app
 from .brief import assemble_brief
@@ -351,52 +402,146 @@ class Runtime:
             force=force,
         )
 
+    # --- supervised pull-loop machinery (testable per-message core) ---------
+
+    def _handle_gmail_message(self, payload: dict[str, Any]) -> None:
+        """One decoded Gmail notification, preserving the HistoryExpired
+        special case: an expired baseline forces a watch re-registration
+        (which re-baselines it) rather than counting as a failure."""
+        try:
+            self.process_gmail_notification(payload)
+        except HistoryExpired:
+            self.renew_gmail_watch(force=True)
+
+    def _handle_pulled_message(
+        self,
+        name: str,
+        raw_data: bytes,
+        message_id: str,
+        handler: Callable[[dict[str, Any]], Any],
+    ) -> bool:
+        """Decode and dispatch one pulled Pub/Sub message. Never raises.
+
+        Returns True when handled, False for a poison message (malformed
+        payload or a raising handler). Either way the caller acks: Pub/Sub
+        redelivery of a deterministic failure is an infinite loop, so a
+        poison message is logged (by id — never its payload, rule 6),
+        audited under the ops workflow, and dropped.
+        """
+        try:
+            payload = json.loads(raw_data)
+        except (ValueError, UnicodeDecodeError):
+            logger.warning(
+                "%s: dropping malformed message id=%s (not JSON)", name, message_id
+            )
+            self._audit_ops(
+                event="message_failed", loop=name,
+                message_id=message_id, error="malformed_json",
+            )
+            return False
+
+        try:
+            handler(payload)
+            return True
+        except Exception as exc:  # noqa: BLE001 — supervision is the contract
+            logger.warning(
+                "%s: handler failed for message id=%s (%s)",
+                name, message_id, type(exc).__name__, exc_info=True,
+            )
+            self._audit_ops(
+                event="message_failed", loop=name,
+                message_id=message_id, error=type(exc).__name__,
+            )
+            return False
+
+    def _audit_ops(self, *, event: str, **fields: Any) -> None:
+        """Record an operational event so silent drops stay answerable after
+        the fact — best-effort: auditing must never take the loop down."""
+        try:
+            self.app.audit_log.record(
+                thread_id=f"ops:{fields.get('loop', 'runtime')}",
+                workflow="ops",
+                events=[{
+                    "event": event,
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    **fields,
+                }],
+                domain="ops",
+                user_id=self.settings.user_id,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("ops audit record failed", exc_info=True)
+
     # --- live loops (pragma: no cover — need real GCP/Slack) ----------------
+
+    def _pull_loop(
+        self, name: str, subscription: str, handler: Callable[[dict[str, Any]], Any]
+    ) -> None:  # pragma: no cover - thin shell; per-message core tested above
+        """Shared supervised pull loop: transport errors back off
+        exponentially instead of killing the thread; every message is acked
+        (poison ones after logging+audit, via _handle_pulled_message); a
+        heartbeat line fires every ~5 minutes."""
+        from google.cloud import pubsub_v1
+
+        try:
+            from google.api_core.exceptions import DeadlineExceeded
+        except ImportError:  # very old google-api-core
+            DeadlineExceeded = ()  # type: ignore[assignment]
+
+        subscriber = pubsub_v1.SubscriberClient()
+        stats = LoopStats(name)
+        backoff = BACKOFF_INITIAL_SECONDS
+        logger.info("%s: pull loop started (subscription=%s)", name, subscription)
+        while True:
+            try:
+                response = subscriber.pull(
+                    request={"subscription": subscription, "max_messages": 10},
+                    timeout=30,
+                )
+            except DeadlineExceeded:
+                # An empty pull window is normal idleness, not a failure.
+                response = None
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "%s: pull failed (%s); backing off %.0fs",
+                    name, type(exc).__name__, backoff,
+                )
+                time.sleep(backoff)
+                backoff = next_backoff(backoff)
+                continue
+
+            backoff = BACKOFF_INITIAL_SECONDS
+            for received in (response.received_messages if response else []):
+                ok = self._handle_pulled_message(
+                    name,
+                    received.message.data,
+                    getattr(received.message, "message_id", ""),
+                    handler,
+                )
+                stats.record(ok)
+                subscriber.acknowledge(
+                    request={
+                        "subscription": subscription,
+                        "ack_ids": [received.ack_id],
+                    }
+                )
+            beat = stats.maybe_beat()
+            if beat:
+                logger.info(beat)
 
     def run_gmail_pubsub_loop(self) -> None:  # pragma: no cover
         """Pull Gmail Pub/Sub notifications forever and dispatch each one."""
-        from google.cloud import pubsub_v1
-
-        subscriber = pubsub_v1.SubscriberClient()
-        subscription = self.settings.gmail_pubsub_subscription
-        while True:
-            response = subscriber.pull(
-                request={"subscription": subscription, "max_messages": 10},
-                timeout=30,
-            )
-            for received in response.received_messages:
-                notification = json.loads(received.message.data)
-                try:
-                    self.process_gmail_notification(notification)
-                except HistoryExpired:
-                    self.renew_gmail_watch(force=True)
-                subscriber.acknowledge(
-                    request={
-                        "subscription": subscription,
-                        "ack_ids": [received.ack_id],
-                    }
-                )
+        self._pull_loop(
+            "gmail",
+            self.settings.gmail_pubsub_subscription,
+            self._handle_gmail_message,
+        )
 
     def run_chat_pubsub_loop(self) -> None:  # pragma: no cover
         """Pull Chat Workspace Events notifications forever and dispatch each."""
-        from google.cloud import pubsub_v1
-
-        subscriber = pubsub_v1.SubscriberClient()
-        subscription = self.settings.chat_pubsub_subscription
-        while True:
-            response = subscriber.pull(
-                request={"subscription": subscription, "max_messages": 10},
-                timeout=30,
-            )
-            for received in response.received_messages:
-                event = json.loads(received.message.data)
-                self.process_chat_event(event)
-                subscriber.acknowledge(
-                    request={
-                        "subscription": subscription,
-                        "ack_ids": [received.ack_id],
-                    }
-                )
+        self._pull_loop(
+            "chat", self.settings.chat_pubsub_subscription, self.process_chat_event
+        )
 
     def run_chat_interaction_pubsub_loop(self) -> None:  # pragma: no cover
         """Pull decoded Chat card-click events forever and resume each one.
@@ -404,24 +549,11 @@ class Runtime:
         publishes) is received outside this process, same as Calendar's —
         this only pulls the already-verified, already-decoded click off the
         Pub/Sub subscription."""
-        from google.cloud import pubsub_v1
-
-        subscriber = pubsub_v1.SubscriberClient()
-        subscription = self.settings.chat_interaction_pubsub_subscription
-        while True:
-            response = subscriber.pull(
-                request={"subscription": subscription, "max_messages": 10},
-                timeout=30,
-            )
-            for received in response.received_messages:
-                event = json.loads(received.message.data)
-                self.process_chat_interaction(event)
-                subscriber.acknowledge(
-                    request={
-                        "subscription": subscription,
-                        "ack_ids": [received.ack_id],
-                    }
-                )
+        self._pull_loop(
+            "chat_interaction",
+            self.settings.chat_interaction_pubsub_subscription,
+            self.process_chat_interaction,
+        )
 
     def run_calendar_pubsub_loop(self) -> None:  # pragma: no cover
         """Pull decoded Calendar webhook notifications forever and reconcile
@@ -429,24 +561,11 @@ class Runtime:
         received and republished by an external thin service, not this
         process — this only pulls the republished, already-decoded
         notification off the Pub/Sub subscription."""
-        from google.cloud import pubsub_v1
-
-        subscriber = pubsub_v1.SubscriberClient()
-        subscription = self.settings.calendar_pubsub_subscription
-        while True:
-            response = subscriber.pull(
-                request={"subscription": subscription, "max_messages": 10},
-                timeout=30,
-            )
-            for received in response.received_messages:
-                notification = json.loads(received.message.data)
-                self.process_calendar_notification(notification)
-                subscriber.acknowledge(
-                    request={
-                        "subscription": subscription,
-                        "ack_ids": [received.ack_id],
-                    }
-                )
+        self._pull_loop(
+            "calendar",
+            self.settings.calendar_pubsub_subscription,
+            self.process_calendar_notification,
+        )
 
     def run(self) -> None:  # pragma: no cover
         """Start the always-on process: renew all watches once at startup (a
