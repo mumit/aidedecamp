@@ -20,6 +20,7 @@ from .autonomy import (
 from .state import DraftApproveState
 from .draft_approve import MAX_ITERATIONS, build_draft_approve_graph
 from .triage import Priority, TriageResult, triage_thread
+from .scheduling import ConflictResult, detect_conflict
 
 __all__ = [
     "Action",
@@ -33,4 +34,6 @@ __all__ = [
     "Priority",
     "TriageResult",
     "triage_thread",
+    "ConflictResult",
+    "detect_conflict",
 ]

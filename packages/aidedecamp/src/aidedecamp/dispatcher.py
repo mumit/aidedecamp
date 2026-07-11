@@ -23,6 +23,13 @@ no credential details — both are injected by the caller.
     ``SlackChannel``'s registered handler before this is ever called (there is
     no separate ingestion path for Slack the way Gmail/Chat need Pub/Sub).
 
+``handle_calendar_notification``
+    Reconciles a decoded Calendar webhook notification, checks each changed
+    event for a scheduling conflict, and calls ``notify`` with a plain-text
+    heads-up for each conflict found (design 1.4). Read-only: no hold is
+    created, no invite is answered — see ``orchestrator/scheduling.py`` for
+    why that's a deliberate boundary, not an oversight.
+
 All collaborators (graph, connector, gmail_service, watch_state, store) are
 injected so the dispatcher is testable offline with fakes.
 """
@@ -36,9 +43,12 @@ from .app import AppContext
 from .audit.log import AuditLog
 from .connectors.base import WorkspaceConnector
 from .fuelix import Task, model_for
+from .ingestion.calendar_sync import SyncExpired, SyncState, full_calendar_sync
+from .ingestion.calendar_sync import process_calendar_notification as _reconcile_calendar
 from .ingestion.chat_events import ChatMessage, process_chat_event
 from .ingestion.gmail_history import HistoryExpired, process_notification
 from .ingestion.gmail_watch import WatchState
+from .orchestrator.scheduling import ConflictResult, detect_conflict
 from .orchestrator.triage import Priority, TriageResult, triage_thread
 
 
@@ -141,6 +151,71 @@ def handle_gmail_notification(
         submitted.append(lg_tid)
 
     return submitted
+
+
+def handle_calendar_notification(
+    app_ctx: AppContext,
+    notification: dict[str, Any],
+    *,
+    calendar_service: Any,
+    calendar_sync_state: SyncState,
+    connector: WorkspaceConnector,
+    notify: Callable[[str], None],
+    user_id: str,
+    calendar_id: str = "primary",
+    audit_log: AuditLog | None = None,
+) -> list[ConflictResult]:
+    """Process a decoded Calendar webhook notification (design 1.2, 1.4, 4.2).
+
+    Reconciles via the stored sync-token baseline (falling back to a full
+    resync on :class:`~ingestion.SyncExpired` — no baseline, or an expired
+    410 token; see ``calendar_sync.py`` for why this recovery differs from
+    Gmail's watch-renewal), then checks each changed event for a scheduling
+    conflict. For every conflict found, ``notify(text)`` is called with a
+    plain-text heads-up, and — when ``audit_log`` is supplied — the
+    detection is recorded under a ``"scheduling"`` workflow name.
+
+    This is read-only: no hold is created, no invite is answered. See
+    ``orchestrator/scheduling.py``'s module docstring for why that action
+    layer isn't built yet.
+
+    Returns the list of conflicts detected (empty if none).
+    """
+    try:
+        changes = _reconcile_calendar(calendar_service, calendar_sync_state, calendar_id)
+    except SyncExpired:
+        changes = full_calendar_sync(calendar_service, calendar_sync_state, calendar_id)
+
+    conflicts: list[ConflictResult] = []
+    for event_id in changes.event_ids:
+        try:
+            event = connector.get_event(event_id)
+        except Exception:  # noqa: BLE001
+            continue
+
+        conflict = detect_conflict(connector, event)
+        if conflict is None:
+            continue
+
+        conflicts.append(conflict)
+        notify(
+            f'Scheduling conflict: "{event.summary}" overlaps with '
+            f'"{conflict.conflicting_with.summary}".'
+        )
+        if audit_log is not None:
+            audit_log.record(
+                thread_id=f"calendar:{calendar_id}:{event.event_id}",
+                workflow="scheduling",
+                events=[{
+                    "event": "conflict_detected",
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "conflicting_event_id": conflict.conflicting_with.event_id,
+                }],
+                domain="calendar",
+                user_id=user_id,
+            )
+
+    return conflicts
 
 
 def handle_chat_message(

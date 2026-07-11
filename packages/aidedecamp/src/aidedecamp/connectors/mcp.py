@@ -40,6 +40,7 @@ TOOL_SEARCH_THREADS = "search_threads"
 TOOL_GET_THREAD = "get_thread"
 TOOL_CREATE_DRAFT = "create_draft"
 TOOL_LIST_EVENTS = "list_events"
+TOOL_GET_EVENT = "get_event"
 TOOL_ADD_LABEL = "modify_labels"
 
 
@@ -78,6 +79,10 @@ class McpWorkspaceConnector(WorkspaceConnector):
             {"time_min": time_min.isoformat(), "time_max": time_max.isoformat()},
         )
         return [self._to_event(e) for e in res.get("events", [])]
+
+    def get_event(self, event_id: str) -> CalendarEvent:
+        res = self._call(CALENDAR_SERVER, TOOL_GET_EVENT, {"event_id": event_id})
+        return self._to_event(res)
 
     def create_draft(
         self, *, to: str, subject: str, body: str, thread_id: str | None = None

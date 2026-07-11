@@ -112,6 +112,7 @@ class FakeCalendar:
         self.calls: list[tuple] = []
         self._events_list: dict = {"items": []}
         self._events_insert: dict = {"id": "ev1"}
+        self._events_get: dict = {}
 
     def events(self):
         return _FakeEvents(self)
@@ -124,6 +125,10 @@ class _FakeEvents:
     def list(self, **kw):
         self._c.calls.append(("events.list", kw))
         return _Exec(self._c._events_list)
+
+    def get(self, **kw):
+        self._c.calls.append(("events.get", kw))
+        return _Exec(self._c._events_get)
 
     def insert(self, **kw):
         self._c.calls.append(("events.insert", kw))
@@ -397,6 +402,36 @@ def test_list_events_empty_result():
     cal._events_list = {"items": []}
     conn = _conn(calendar=cal)
     assert conn.list_events(time_min=_NOW, time_max=_LATER) == []
+
+
+# ---------------------------------------------------------------------------
+# get_event
+# ---------------------------------------------------------------------------
+
+
+def test_get_event_returns_calendar_event():
+    cal = FakeCalendar()
+    cal._events_get = {
+        "id": "e1",
+        "summary": "1:1",
+        "start": {"dateTime": _NOW.isoformat()},
+        "end": {"dateTime": _LATER.isoformat()},
+    }
+    conn = _conn(calendar=cal)
+    event = conn.get_event("e1")
+    assert event.event_id == "e1"
+    assert event.summary == "1:1"
+    assert event.start == _NOW
+
+
+def test_get_event_passes_event_id_and_calendar_id():
+    cal = FakeCalendar()
+    cal._events_get = {"id": "e1", "start": {"dateTime": _NOW.isoformat()}, "end": {"dateTime": _LATER.isoformat()}}
+    conn = _conn(calendar=cal)
+    conn.get_event("e1")
+    _, kw = cal.calls[0]
+    assert kw["eventId"] == "e1"
+    assert kw["calendarId"] == "primary"
 
 
 # ---------------------------------------------------------------------------

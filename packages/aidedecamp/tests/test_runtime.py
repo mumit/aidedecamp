@@ -10,7 +10,7 @@ project and Slack workspace and are excluded by design, same as
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import ModuleType
 from unittest.mock import patch
 
@@ -53,6 +53,12 @@ class _FakeConnector:
 
     def list_events(self, *a, **kw):
         return self._events
+
+    def get_event(self, event_id):
+        for e in self._events:
+            if getattr(e, "event_id", None) == event_id:
+                return e
+        raise KeyError(event_id)
 
     def create_draft(self, *a, **kw): ...
 
@@ -646,39 +652,71 @@ class _FakeCalendarSyncState:
         self._data[calendar_id] = {"sync_token": sync_token}
 
 
-def test_process_calendar_notification_reconciles_with_baseline():
-    from aidedecamp.ingestion.calendar_sync import CalendarChanges
+def _cal_event(event_id, start_offset_min=0, duration_min=30, summary="Meeting"):
+    from aidedecamp.connectors.base import CalendarEvent
 
+    base = datetime(2026, 7, 10, 9, 0, tzinfo=timezone.utc)
+    start = base + timedelta(minutes=start_offset_min)
+    end = start + timedelta(minutes=duration_min)
+    return CalendarEvent(event_id=event_id, summary=summary, start=start, end=end)
+
+
+def test_process_calendar_notification_reconciles_with_baseline():
+    e1 = _cal_event("e1")
+    connector = _FakeConnector(events=[e1])
     sync_state = _FakeCalendarSyncState({"primary": {"sync_token": "old-token"}})
     calendar_service = _FakeCalendarEventsService(pages=[
         {"items": [{"id": "e1"}], "nextSyncToken": "new-token"}
     ])
     runtime = _runtime(
-        calendar_service=calendar_service, calendar_sync_state=sync_state,
+        connector=connector, calendar_service=calendar_service, calendar_sync_state=sync_state,
     )
     runtime.settings = _settings(ADC_CALENDAR_ID="primary")
 
     result = runtime.process_calendar_notification({"resource_state": "exists"})
 
-    assert isinstance(result, CalendarChanges)
-    assert result.event_ids == ["e1"]
+    assert result == []  # e1 is alone in the window -> no conflict
     assert sync_state.get("primary")["sync_token"] == "new-token"
 
 
+def test_process_calendar_notification_notifies_on_conflict():
+    e1 = _cal_event("e1", 0, duration_min=60, summary="Client call")
+    e2 = _cal_event("e2", 15, duration_min=30, summary="Standup")
+    connector = _FakeConnector(events=[e1, e2])
+    sync_state = _FakeCalendarSyncState({"primary": {"sync_token": "old-token"}})
+    calendar_service = _FakeCalendarEventsService(pages=[
+        {"items": [{"id": "e1"}], "nextSyncToken": "new-token"}
+    ])
+    slack_calls = []
+    runtime = _runtime(
+        connector=connector, calendar_service=calendar_service, calendar_sync_state=sync_state,
+        slack_say=lambda **kw: slack_calls.append(kw),
+    )
+    runtime.settings = _settings(ADC_CALENDAR_ID="primary")
+
+    result = runtime.process_calendar_notification({"resource_state": "exists"})
+
+    assert len(result) == 1
+    assert result[0].conflicting_with.event_id == "e2"
+    assert len(slack_calls) == 1
+    assert "Client call" in slack_calls[0]["text"]
+
+
 def test_process_calendar_notification_full_syncs_on_expired():
+    e1 = _cal_event("e1")
+    connector = _FakeConnector(events=[e1])
     sync_state = _FakeCalendarSyncState()  # no baseline -> SyncExpired
     calendar_service = _FakeCalendarEventsService(pages=[
         {"items": [{"id": "e1"}], "nextSyncToken": "fresh-token"}
     ])
     runtime = _runtime(
-        calendar_service=calendar_service, calendar_sync_state=sync_state,
+        connector=connector, calendar_service=calendar_service, calendar_sync_state=sync_state,
     )
     runtime.settings = _settings(ADC_CALENDAR_ID="primary")
 
     result = runtime.process_calendar_notification({"resource_state": "sync"})
 
-    assert result.event_ids == ["e1"]
-    assert result.next_sync_token == "fresh-token"
+    assert result == []
     assert sync_state.get("primary")["sync_token"] == "fresh-token"
 
 

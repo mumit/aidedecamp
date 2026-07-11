@@ -44,6 +44,8 @@ class FakeMcp:
             return {"draft_id": "d99"}
         if tool == "list_events":
             return {"events": []}
+        if tool == "get_event":
+            return {"event_id": "e1", "summary": "Sync", "start": "2026-07-10T09:00:00", "end": "2026-07-10T09:30:00"}
         return {}
 
 
@@ -105,3 +107,12 @@ def test_add_label_low_risk_action():
     conn = McpWorkspaceConnector(fake)
     conn.add_label(thread_id="t1", label="Followup")
     assert any(c[1] == "modify_labels" for c in fake.calls)
+
+
+def test_get_event_returns_calendar_event():
+    fake = FakeMcp()
+    conn = McpWorkspaceConnector(fake)
+    event = conn.get_event("e1")
+    assert event.event_id == "e1"
+    assert event.summary == "Sync"
+    assert any(c[1] == "get_event" for c in fake.calls)

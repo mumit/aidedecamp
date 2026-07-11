@@ -38,19 +38,21 @@ from .brief import assemble_brief
 from .config import Settings
 from .connectors import WorkspaceConnector, make_connector
 from .credentials import load_google_credentials
-from .dispatcher import handle_chat_message, handle_gmail_notification, handle_slack_message
+from .dispatcher import (
+    handle_calendar_notification,
+    handle_chat_message,
+    handle_gmail_notification,
+    handle_slack_message,
+)
 from .ingestion import (
     HistoryExpired,
     JsonCalendarChannelState,
     JsonCalendarSyncState,
     JsonChatSubscriptionState,
     JsonGmailWatchState,
-    SyncExpired,
     ensure_calendar_watch,
     ensure_subscription,
     ensure_watch,
-    full_calendar_sync,
-    process_calendar_notification as _reconcile_calendar_notification,
 )
 from .ingestion.calendar_sync import SyncState
 from .ingestion.calendar_watch import ChannelState
@@ -135,29 +137,33 @@ class Runtime:
 
     def process_calendar_notification(self, notification: dict[str, Any]):
         """Reconcile one decoded Calendar webhook notification (already
-        validated and republished by the thin republisher, per rule 5) into
-        changed/cancelled event ids.
+        validated and republished by the thin republisher, per rule 5),
+        check each changed event for a scheduling conflict, and notify every
+        configured channel about any conflicts found.
 
         ``notification`` is whatever ``decode_calendar_headers`` produced.
-        On :class:`~ingestion.SyncExpired` (no baseline, or an expired 410
-        sync token) this performs a full resync itself and returns the
-        result — unlike Gmail, where renewing the watch happens to also
-        re-baseline historyId, Calendar's sync token is entirely independent
-        of the channel/watch lifecycle and can only be re-obtained via a full
-        ``events.list()`` pass.
-
-        There is no draft/action step yet (no scheduling graph exists) — this
-        is the same ingestion boundary as ``gmail_history.process_notification``,
-        just without a further dispatcher-level routing step to call.
+        Recovery from an expired/missing sync token (a full resync, not a
+        watch renewal — see ``dispatcher.handle_calendar_notification``'s
+        docstring for why those differ) happens inside the dispatcher call.
         """
-        try:
-            return _reconcile_calendar_notification(
-                self.calendar_service, self.calendar_sync_state, self.settings.calendar_id
-            )
-        except SyncExpired:
-            return full_calendar_sync(
-                self.calendar_service, self.calendar_sync_state, self.settings.calendar_id
-            )
+
+        def _notify(text: str) -> None:
+            if self.slack_say is not None:
+                self.slack_say(text=text)
+            if self.gchat is not None and self.settings.chat_default_space:
+                self.gchat.post_text(self.settings.chat_default_space, text)
+
+        return handle_calendar_notification(
+            self.app,
+            notification,
+            calendar_service=self.calendar_service,
+            calendar_sync_state=self.calendar_sync_state,
+            connector=self.connector,
+            notify=_notify,
+            user_id=self.settings.user_id,
+            calendar_id=self.settings.calendar_id,
+            audit_log=self.app.audit_log,
+        )
 
     # --- watch/subscription renewal (testable, called on a daily schedule) --
 

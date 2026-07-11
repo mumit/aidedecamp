@@ -180,6 +180,15 @@ class DirectOAuthConnector(WorkspaceConnector):
         )
         return [_event_from_google(e) for e in res.get("items", [])]
 
+    def get_event(self, event_id: str) -> CalendarEvent:
+        detail = (
+            self._calendar()
+            .events()
+            .get(calendarId="primary", eventId=event_id)
+            .execute()
+        )
+        return _event_from_google(detail)
+
     def create_hold(self, event: CalendarEvent) -> str:
         body = {
             "summary": event.summary,

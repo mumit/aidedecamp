@@ -108,6 +108,14 @@ class WorkspaceConnector(ABC):
     ) -> list[CalendarEvent]:
         """List calendar events in a window."""
 
+    @abstractmethod
+    def get_event(self, event_id: str) -> CalendarEvent:
+        """Fetch one calendar event by id (the single-item counterpart to
+        ``list_events``, mirroring ``get_thread``'s pairing with
+        ``list_threads``). Used to turn a changed-event-id from Calendar
+        ingestion into the details needed for scheduling logic (attendees,
+        time), without ingestion itself depending on this interface."""
+
     # --- write (safe default: draft, don't send) ---
 
     @abstractmethod

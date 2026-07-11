@@ -6,7 +6,7 @@ draft-approve workflow so no langgraph is needed for the dispatcher tests.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pytest
@@ -522,6 +522,204 @@ def test_multiple_threads_mixed_triage_only_drafts_non_noise():
     )
 
     assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# handle_calendar_notification
+# ---------------------------------------------------------------------------
+
+from aidedecamp.connectors.base import CalendarEvent
+from aidedecamp.dispatcher import handle_calendar_notification
+
+
+def _cal_event(event_id, start_offset_min, duration_min=30, summary="Meeting"):
+    base = datetime(2026, 7, 10, 9, 0, tzinfo=timezone.utc)
+    start = base + timedelta(minutes=start_offset_min)
+    end = start + timedelta(minutes=duration_min)
+    return CalendarEvent(event_id=event_id, summary=summary, start=start, end=end)
+
+
+class _FakeCalendarConnector:
+    """Minimal connector fake exposing only get_event/list_events, the two
+    methods handle_calendar_notification's scheduling path uses."""
+
+    def __init__(self, events_by_id: dict, nearby: list | None = None):
+        self._events_by_id = events_by_id
+        self._nearby = nearby if nearby is not None else list(events_by_id.values())
+
+    def get_event(self, event_id):
+        return self._events_by_id[event_id]
+
+    def list_events(self, *, time_min, time_max):
+        return self._nearby
+
+
+class _FakeCalendarSyncState:
+    def __init__(self, initial=None):
+        self._data = dict(initial or {})
+
+    def get(self, calendar_id):
+        return self._data.get(calendar_id)
+
+    def put(self, calendar_id, *, sync_token):
+        self._data[calendar_id] = {"sync_token": sync_token}
+
+
+class _FakeCalendarEventsService:
+    def __init__(self, pages):
+        self._pages = pages
+        self._i = 0
+
+    def events(self):
+        svc = self
+
+        class _Events:
+            def list(self, **kwargs):
+                class _Req:
+                    def execute(self_):
+                        page = svc._pages[svc._i]
+                        svc._i += 1
+                        return page
+                return _Req()
+        return _Events()
+
+
+def test_calendar_notification_notifies_on_conflict():
+    e1 = _cal_event("e1", 0, duration_min=60, summary="Client call")
+    e2 = _cal_event("e2", 15, duration_min=30, summary="Standup")
+    connector = _FakeCalendarConnector({"e1": e1, "e2": e2}, nearby=[e1, e2])
+    sync_state = _FakeCalendarSyncState({"primary": {"sync_token": "old"}})
+    calendar_service = _FakeCalendarEventsService(pages=[
+        {"items": [{"id": "e1"}], "nextSyncToken": "new"}
+    ])
+    notifications = []
+
+    result = handle_calendar_notification(
+        _fake_app_ctx(), {"resource_state": "exists"},
+        calendar_service=calendar_service,
+        calendar_sync_state=sync_state,
+        connector=connector,
+        notify=notifications.append,
+        user_id="me@example.com",
+    )
+
+    assert len(result) == 1
+    assert result[0].conflicting_with.event_id == "e2"
+    assert len(notifications) == 1
+    assert "Client call" in notifications[0]
+    assert "Standup" in notifications[0]
+
+
+def test_calendar_notification_no_notify_when_no_conflict():
+    e1 = _cal_event("e1", 0, duration_min=30)
+    connector = _FakeCalendarConnector({"e1": e1}, nearby=[e1])
+    sync_state = _FakeCalendarSyncState({"primary": {"sync_token": "old"}})
+    calendar_service = _FakeCalendarEventsService(pages=[
+        {"items": [{"id": "e1"}], "nextSyncToken": "new"}
+    ])
+    notifications = []
+
+    result = handle_calendar_notification(
+        _fake_app_ctx(), {"resource_state": "exists"},
+        calendar_service=calendar_service,
+        calendar_sync_state=sync_state,
+        connector=connector,
+        notify=notifications.append,
+        user_id="me@example.com",
+    )
+
+    assert result == []
+    assert notifications == []
+
+
+def test_calendar_notification_skips_failed_event_fetch():
+    connector = _FakeCalendarConnector({}, nearby=[])  # get_event raises KeyError
+    sync_state = _FakeCalendarSyncState({"primary": {"sync_token": "old"}})
+    calendar_service = _FakeCalendarEventsService(pages=[
+        {"items": [{"id": "e1"}], "nextSyncToken": "new"}
+    ])
+    notifications = []
+
+    result = handle_calendar_notification(
+        _fake_app_ctx(), {"resource_state": "exists"},
+        calendar_service=calendar_service,
+        calendar_sync_state=sync_state,
+        connector=connector,
+        notify=notifications.append,
+        user_id="me@example.com",
+    )
+
+    assert result == []
+    assert notifications == []
+
+
+def test_calendar_notification_full_syncs_on_expired():
+    e1 = _cal_event("e1", 0)
+    connector = _FakeCalendarConnector({"e1": e1}, nearby=[e1])
+    sync_state = _FakeCalendarSyncState()  # no baseline -> SyncExpired
+    calendar_service = _FakeCalendarEventsService(pages=[
+        {"items": [{"id": "e1"}], "nextSyncToken": "fresh"}
+    ])
+
+    result = handle_calendar_notification(
+        _fake_app_ctx(), {"resource_state": "sync"},
+        calendar_service=calendar_service,
+        calendar_sync_state=sync_state,
+        connector=connector,
+        notify=lambda text: None,
+        user_id="me@example.com",
+    )
+
+    assert result == []  # no conflict, but no exception either
+    assert sync_state.get("primary")["sync_token"] == "fresh"
+
+
+def test_calendar_notification_records_audit_event():
+    e1 = _cal_event("e1", 0, duration_min=60, summary="Client call")
+    e2 = _cal_event("e2", 15, duration_min=30, summary="Standup")
+    connector = _FakeCalendarConnector({"e1": e1, "e2": e2}, nearby=[e1, e2])
+    sync_state = _FakeCalendarSyncState({"primary": {"sync_token": "old"}})
+    calendar_service = _FakeCalendarEventsService(pages=[
+        {"items": [{"id": "e1"}], "nextSyncToken": "new"}
+    ])
+    audit_log = _FakeAuditLog()
+
+    handle_calendar_notification(
+        _fake_app_ctx(), {"resource_state": "exists"},
+        calendar_service=calendar_service,
+        calendar_sync_state=sync_state,
+        connector=connector,
+        notify=lambda text: None,
+        user_id="me@example.com",
+        audit_log=audit_log,
+    )
+
+    assert len(audit_log.records) == 1
+    rec = audit_log.records[0]
+    assert rec["workflow"] == "scheduling"
+    assert rec["domain"] == "calendar"
+    assert rec["events"][0]["event"] == "conflict_detected"
+    assert rec["events"][0]["conflicting_event_id"] == "e2"
+
+
+def test_calendar_notification_no_audit_call_when_log_absent():
+    e1 = _cal_event("e1", 0, duration_min=60)
+    e2 = _cal_event("e2", 15, duration_min=30)
+    connector = _FakeCalendarConnector({"e1": e1, "e2": e2}, nearby=[e1, e2])
+    sync_state = _FakeCalendarSyncState({"primary": {"sync_token": "old"}})
+    calendar_service = _FakeCalendarEventsService(pages=[
+        {"items": [{"id": "e1"}], "nextSyncToken": "new"}
+    ])
+
+    # Must not raise even though no audit_log is provided.
+    handle_calendar_notification(
+        _fake_app_ctx(), {"resource_state": "exists"},
+        calendar_service=calendar_service,
+        calendar_sync_state=sync_state,
+        connector=connector,
+        notify=lambda text: None,
+        user_id="me@example.com",
+    )
 
 
 # ---------------------------------------------------------------------------
