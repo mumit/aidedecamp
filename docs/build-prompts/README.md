@@ -29,6 +29,13 @@ a milestone; cross-milestone dependencies are noted at the top of each file.
 | 14 | `14-memory-informed-triage.md` | M4 | — |
 | 15 | `15-quiet-thread-nudges.md` | M5 Proactive | 05 |
 | 16 | `16-calendar-actions-design.md` | M5 | 12 |
+| 17 | `17-principal-allowlist.md` | M6 Stabilization | — |
+| 18 | `18-email-safety.md` | M6 | — |
+| 19 | `19-live-policy-rungs.md` | M6 | — |
+| 20 | `20-resume-audit.md` | M6 | 17 |
+| 21 | `21-freshness-idempotency.md` | M6 | — |
+| 22 | `22-verified-consolidation.md` | M6 | — |
+| 23 | `23-calendar-bootstrap.md` | M6 | — |
 
 House rules every prompt inherits (do not skip):
 

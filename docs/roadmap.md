@@ -6,13 +6,18 @@ working plan — the phases there remain the long-term arc; this document is the
 concrete, ordered execution plan for what's next, with ready-to-run build
 prompts in `docs/build-prompts/`.*
 
-> **Execution status (2026-07): all 16 prompts are implemented** — one commit
+> **Execution status (2026-07): prompts 01–16 are implemented** — one commit
 > per prompt, 504 tests passing (from the 312 baseline), every defect in §1's
-> table closed, each prompt's decisions recorded in `docs/decisions.md`. What
-> remains is what no prompt can do from a dev box: **actually deploy it** and
-> hold the Phase-0 "a week without babysitting" bar (`docs/deployment.md`
-> Track A is the 15-minute path), then the design.md phase 4-7 tail (Graphiti
-> migration, browser audit surface, voice, presence-aware routing).
+> table closed, each prompt's decisions recorded in `docs/decisions.md`.
+>
+> **Then an independent review (GPT-5.6 Sol) found 8 cross-cutting defects**
+> the prompt-by-prompt strategy missed — production-path issues at the joints
+> between prompts (identity, rung semantics, the audit pipeline, email
+> envelopes). All 8 verified against this codebase. They are **M6 below
+> (prompts 17–23), and nothing beyond read-only + PROPOSE may run against a
+> real account until M6 lands.** After that: deploy (Track A in
+> `docs/deployment.md`), hold the Phase-0 bar, then the design.md phase 4–7
+> tail.
 
 ---
 
@@ -165,6 +170,33 @@ draft was already different."
 - Then, per the original arc: Graphiti migration (design Phase 4 tail),
   browser audit/correct surface (Phase 5), voice (Phase 6), presence-aware
   routing (Phase 7).
+
+### M6 — Stabilization *(prompts 17–23; from the 2026-07 external review)*
+
+An independent review of the completed M1–M5 work found defects that unit
+tests against fakes structurally cannot catch — each prompt's seams were
+tested, the joints between them were not. Verified findings → fixes:
+
+| # | Prompt | Fixes | Review finding |
+|---|---|---|---|
+| 17 | `17-principal-allowlist.md` | Deny-by-default human allowlists on every Slack/Chat surface; actor-bound resumes | #1 (P0): transport authenticated, human never |
+| 18 | `18-email-safety.md` | SENT/DRAFT filtering; reply envelope = latest inbound sender + Reply-To; never draft to the owner | #3 (P0): reacts to own mail; follow-ups addressed to the owner |
+| 19 | `19-live-policy-rungs.md` | mtime-reloaded matrix at the gate; interrupt-branching (no phantom cards); ACT_NOTIFY notifies-after, AUTONOMOUS silent | #2 (P0): revocations need a restart; rung semantics half-built |
+| 20 | `20-resume-audit.md` | resume_workflow writes post-resume events (correct domain, actor); end-to-end pipeline test, zero synthetic entries | #4 (P1): graduation evidence never captured in production |
+| 21 | `21-freshness-idempotency.md` | Retry-then-audit fetches; source-snapshot freshness check at apply; honest sweep status | #5+#6 (P1): silent loss; stale cards act on changed sources |
+| 22 | `22-verified-consolidation.md` | Verify add() before any delete; abort batch on write failure; journal every mutation | #7 (P1): consolidation can erase evidence |
+| 23 | `23-calendar-bootstrap.md` | Rebaseline without dispatching; symmetric-pair dedupe; per-run offer cap | #8 (P2): bootstrap flood of hold proposals |
+
+The reviewer's fuller "action kernel" proposal (transactional inbox/outbox,
+single-use approval tokens, principal tables in SQLite WAL) is recorded as an
+option in the M6 decisions entry rather than adopted: for a single-principal
+personal deployment, these seven fixes land the same guarantees inside the
+existing seams. **Tripwire for revisiting**: multi-user use, or running
+ACT_NOTIFY grants in production at meaningful volume.
+
+**Felt as:** "a stranger in my Slack workspace gets politely refused, a
+revocation bites immediately, and a week-old card can't touch a thread that
+moved on."
 
 ---
 
