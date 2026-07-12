@@ -76,6 +76,7 @@ def approval_card(
     domain: str,
     proposed_draft: str,
     rationale: list[str] | None = None,
+    title: str | None = None,
 ) -> dict[str, Any]:
     """Return a Google Chat cardsV2 message payload for a draft-approval request.
 
@@ -130,7 +131,7 @@ def approval_card(
                 "cardId": f"adc_approval:{thread_id}",
                 "card": {
                     "header": {
-                        "title": f"Draft reply ({domain})",
+                        "title": title or f"Draft reply ({domain})",
                         "subtitle": "Approve before it goes out",
                     },
                     "sections": [{"widgets": widgets}],

@@ -3,6 +3,38 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — Quiet-thread follow-up nudges (roadmap prompt 15)
+
+- **Design 3.3's fourth interaction pattern exists**: "you haven't heard
+  back in N days — want a follow-up drafted?" A nudge is deliberately **an
+  approval card for a FOLLOW_UP draft-approve workflow** — the normal gate →
+  interrupt → card flow does everything else: approval materializes the
+  Gmail draft via the apply node, edits feed correction capture, ignored
+  cards decay via the pending sweep, dedupe via the pending registry. No
+  new approval surface, no new autonomy path (rule 3 — the nudge offers;
+  only the human approval acts).
+- **`Action.FOLLOW_UP` is used, not `DRAFT_REPLY`** (the build prompt left
+  this open; decided for honesty to the matrix's action-type granularity —
+  "may propose follow-ups" and "may propose replies" are separately
+  grantable/revocable). `default_matrix()` grants FOLLOW_UP/MAIL at
+  PROPOSE; a test pins that the workflow interrupts absent a higher grant.
+- **Candidates reuse `brief.find_quiet_threads`** (the single source of
+  quiet-thread truth, as the brief-v2 entry demanded) filtered through
+  `JsonNudgeState` cooldowns: at most once per thread per
+  `ADC_NUDGE_COOLDOWN_DAYS` (7), hard-capped at 3 per run — a proactive
+  feature that spams is worse than none (design 8.1's Lindy critique). The
+  cooldown records only after a successful card post, so a crashed run
+  retries rather than silently burning a thread's nudge budget.
+- **Cards read as nudges**: `approval_blocks`/`approval_card` (and both
+  channels' `post_approval`) gained an optional `title` — "Follow-up nudge
+  — no reply in 5d: <subject>" instead of a reply-draft out of nowhere.
+- **Scheduling**: daily at `ADC_NUDGE_TIME` (default 14:00 local —
+  deliberately not brief time: the brief lists quiet threads, the nudge is
+  the afternoon "want me to act?" follow-through), only when a channel is
+  configured AND `user_id` is a real address (quiet-thread detection needs
+  one). Audited under a `"followup"` workflow (`nudge_offered` + the
+  workflow's own events).
+
 ## 2026-07 — Memory-informed triage (roadmap prompt 14)
 
 - **Closes the original triage entry's "fast-follow, not done" flag**:

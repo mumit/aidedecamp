@@ -64,6 +64,7 @@ from .ingestion import (
     poll_gmail_step,
 )
 from .orchestrator import (
+    JsonNudgeState,
     JsonPendingApprovals,
     make_connector_apply_fn,
     resume_workflow,
@@ -161,6 +162,7 @@ class Runtime:
     chat_service: Any = None         # raw Chat API resource (poll-mode reads)
     chat_poll_state: Any = None      # ingestion.state.JsonChatPollState
     memory_ui: dict = field(default_factory=dict)  # memory-command UI state
+    nudge_state: Any = None          # orchestrator.followup.NudgeState
 
     # --- event processing (testable) ---------------------------------------
 
@@ -353,6 +355,46 @@ class Runtime:
         )
         return report
 
+    def post_follow_up_nudges(self, *, now: Any = None) -> list:
+        """Daily: offer follow-up drafts for quiet threads (design 3.3).
+        Each nudge is a normal FOLLOW_UP draft-approve workflow whose card
+        carries a nudge title — approval materializes the Gmail draft via
+        the standard apply node; nothing new can act autonomously (rule 3).
+        Needs a real user address to detect quiet threads; no-op without one.
+        """
+        user = self.settings.user_id
+        if "@" not in user or self.nudge_state is None:
+            return []
+
+        def _post_approval(thread_id, draft, rationale, *, title=None):  # noqa: ANN001
+            if self.slack is not None and self.slack_say is not None:
+                self.slack.post_approval(
+                    self.slack_say, thread_id=thread_id, domain="mail",
+                    proposed_draft=draft, rationale=rationale, title=title,
+                )
+            if self.gchat is not None and self.settings.chat_default_space:
+                self.gchat.post_approval(
+                    self.settings.chat_default_space, thread_id=thread_id,
+                    domain="mail", proposed_draft=draft, rationale=rationale,
+                    title=title,
+                )
+
+        from .orchestrator import run_follow_up_nudges
+
+        return run_follow_up_nudges(
+            self.app,
+            self.connector,
+            self.nudge_state,
+            user_email=user,
+            user_id=user,
+            post_approval=_post_approval,
+            pending=self.pending,
+            audit_log=self.app.audit_log,
+            now=now,
+            min_age_days=self.settings.nudge_min_age_days,
+            cooldown_days=self.settings.nudge_cooldown_days,
+        )
+
     def post_autonomy_digest(self) -> list:
         """Weekly: post track-record graduation suggestions to the default
         channels (information only — a human makes any grant via the CLI,
@@ -408,6 +450,14 @@ class Runtime:
             scheduler.add(
                 Job("autonomy_digest", every(hours=24 * 7), self.post_autonomy_digest)
             )
+            if "@" in self.settings.user_id and self.nudge_state is not None:
+                scheduler.add(
+                    Job(
+                        "follow_up_nudges",
+                        daily_at(self.settings.nudge_time, tz),
+                        self.post_follow_up_nudges,
+                    )
+                )
         return scheduler
 
     def sweep_pending_ignored(self, *, now: Any = None) -> int:
@@ -775,6 +825,7 @@ def build_runtime(
     conversation: Any = None,
     chat_service: Any = None,
     chat_poll_state: Any = None,
+    nudge_state: Any = None,
 ) -> Runtime:
     """Assemble a :class:`Runtime` from config and optional overrides.
 
@@ -815,6 +866,7 @@ def build_runtime(
 
     resolved_pending = pending or JsonPendingApprovals(settings.pending_state_path)
     _memory_ui: dict = {}
+    resolved_nudge_state = nudge_state or JsonNudgeState(settings.nudge_state_path)
     resolved_conversation = conversation or JsonConversationLog(
         settings.conversation_state_path,
         max_turns=settings.converse_window_turns,
@@ -940,4 +992,5 @@ def build_runtime(
         chat_service=resolved_chat_service,
         chat_poll_state=resolved_chat_poll_state,
         memory_ui=_memory_ui,
+        nudge_state=resolved_nudge_state,
     )

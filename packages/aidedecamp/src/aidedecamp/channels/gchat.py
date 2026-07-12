@@ -84,13 +84,16 @@ class GoogleChatChannel:
         domain: str,
         proposed_draft: str,
         rationale: list[str] | None = None,
+        title: str | None = None,
     ) -> None:
-        """Post a draft-approval card to a Chat space for a paused workflow."""
+        """Post a draft-approval card to a Chat space for a paused workflow.
+        ``title`` overrides the header so a nudge reads as a nudge."""
         self._send(
             space,
             approval_card(
                 thread_id=thread_id,
                 domain=domain,
+                title=title,
                 proposed_draft=proposed_draft,
                 rationale=rationale,
             ),

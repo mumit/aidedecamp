@@ -114,6 +114,12 @@ class Settings:
     # Persisted autonomy grants (the permission matrix). Written only by
     # explicit grant/revoke operations, loaded by build_app.
     autonomy_state_path: str = "./autonomy_grants.json"
+    # Follow-up nudges (quiet threads): afternoon offer time, quiet-age
+    # threshold, per-thread cooldown, and the cooldown record.
+    nudge_time: str = "14:00"
+    nudge_min_age_days: int = 4
+    nudge_cooldown_days: int = 7
+    nudge_state_path: str = "./nudge_state.json"
     # The single identity this deployment acts as (memory/audit user_id, and
     # the Gmail API "me" alias). One deployment = one identity, per design 4.6.
     user_id: str = "me"
@@ -181,6 +187,10 @@ class Settings:
             autonomy_state_path=_path(
                 "ADC_AUTONOMY_STATE_PATH", "autonomy_grants.json"
             ),
+            nudge_time=e.get("ADC_NUDGE_TIME", "14:00"),
+            nudge_min_age_days=int(e.get("ADC_NUDGE_MIN_AGE_DAYS", "4")),
+            nudge_cooldown_days=int(e.get("ADC_NUDGE_COOLDOWN_DAYS", "7")),
+            nudge_state_path=_path("ADC_NUDGE_STATE_PATH", "nudge_state.json"),
             user_id=e.get("ADC_USER_ID", "me"),
             slack_default_channel=e.get("ADC_SLACK_CHANNEL"),
             chat_default_space=e.get("ADC_CHAT_SPACE"),

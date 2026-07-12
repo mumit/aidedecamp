@@ -73,6 +73,10 @@ and `credentials.py`).
   resume path), `triage.py`
   (plain function, not a graph — one `Task.CLASSIFY` call deciding
   URGENT/ROUTINE/NOISE; see `dispatcher.py` below for where it gates drafting),
+  `followup.py` (quiet-thread nudges: candidates from
+  `brief.find_quiet_threads` + `JsonNudgeState` cooldowns, hard-capped 3/run;
+  each nudge is a normal FOLLOW_UP draft-approve workflow — no new approval
+  surface or autonomy path; scheduled daily at `ADC_NUDGE_TIME`),
   `scheduling.py` (plain function — `detect_conflict`, read-only overlap check;
   triage v2 is memory-informed: the dispatcher's default path feeds it the
   store + sender so past reactions inform the call — parse failures still

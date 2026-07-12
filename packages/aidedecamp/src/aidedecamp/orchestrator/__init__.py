@@ -25,6 +25,11 @@ from .draft_approve import (
     make_connector_apply_fn,
     resume_workflow,
 )
+from .followup import (
+    JsonNudgeState,
+    find_nudge_candidates,
+    run_follow_up_nudges,
+)
 from .grants import (
     GraduationSuggestion,
     JsonPermissionMatrixStore,
@@ -56,6 +61,9 @@ __all__ = [
     "make_connector_apply_fn",
     "resume_workflow",
     "MAX_ITERATIONS",
+    "JsonNudgeState",
+    "find_nudge_candidates",
+    "run_follow_up_nudges",
     "GraduationSuggestion",
     "JsonPermissionMatrixStore",
     "TrackRecord",

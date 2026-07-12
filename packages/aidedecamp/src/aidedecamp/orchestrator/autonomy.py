@@ -90,4 +90,8 @@ def default_matrix() -> PermissionMatrix:
     m = m.grant(Action.DRAFT_REPLY, Domain.CHAT, Rung.PROPOSE)
     m = m.grant(Action.DRAFT_REPLY, Domain.SLACK, Rung.PROPOSE)
     m = m.grant(Action.CREATE_HOLD, Domain.CALENDAR, Rung.PROPOSE)
+    # Follow-up nudges are their own action type (not DRAFT_REPLY) — honest
+    # to the matrix's action-type granularity: "may propose follow-ups" and
+    # "may propose replies" are separately grantable/revocable.
+    m = m.grant(Action.FOLLOW_UP, Domain.MAIL, Rung.PROPOSE)
     return m

@@ -63,6 +63,7 @@ def approval_blocks(
     domain: str,
     proposed_draft: str,
     rationale: list[str] | None = None,
+    title: str | None = None,
 ) -> list[dict[str, Any]]:
     """Render a draft-approval card.
 
@@ -73,12 +74,13 @@ def approval_blocks(
     if rationale:
         why = "\n".join(f"• {r}" for r in rationale[:3])
 
+    header = title or f"Draft reply ({domain})"
     blocks: list[dict[str, Any]] = [
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"*Draft reply* ({domain}) — approve before it goes out:",
+                "text": f"*{header}* — approve before it goes out:",
             },
         },
         {

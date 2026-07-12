@@ -82,14 +82,18 @@ class SlackChannel:
         )
 
     def post_approval(self, say: Callable[..., Any], *, thread_id: str, domain: str,
-                      proposed_draft: str, rationale: list[str] | None = None) -> None:
-        """Post a draft-approval card for a paused workflow."""
+                      proposed_draft: str, rationale: list[str] | None = None,
+                      title: str | None = None) -> None:
+        """Post a draft-approval card for a paused workflow. ``title``
+        overrides the header line so a nudge reads as a nudge, not a
+        reply-draft out of nowhere."""
         say(
             blocks=approval_blocks(
                 thread_id=thread_id,
                 domain=domain,
                 proposed_draft=proposed_draft,
                 rationale=rationale,
+                title=title,
             ),
             text="A draft needs your approval",
         )

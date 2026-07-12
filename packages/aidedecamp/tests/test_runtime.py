@@ -1150,10 +1150,18 @@ def test_build_scheduler_assembles_expected_jobs():
         "autonomy_digest",
     ]
 
+    # A real user address + nudge state -> the daily nudge job appears.
+    nudging = _runtime(slack=_FakeSlackChannel(), slack_say=lambda **kw: None,
+                       nudge_state=object())
+    nudging.settings = _settings(ADC_USER_ID="me@example.com")
+    names = [j.name for j in nudging.build_scheduler().jobs]
+    assert "follow_up_nudges" in names
+
     # No channel configured -> no brief job (nowhere to post it).
     quiet = _runtime()
     names = [j.name for j in quiet.build_scheduler().jobs]
     assert "daily_brief" not in names
+    assert "follow_up_nudges" not in names  # user_id "me" can't detect quiet
 
     # No registry -> no sweep job.
     no_pending = _runtime(pending=None)
