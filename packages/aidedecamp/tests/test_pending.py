@@ -153,6 +153,25 @@ def test_sweep_respects_custom_max_age(tmp_path):
     assert swept == 1
 
 
+def test_sweep_marks_ignored_not_resolved(tmp_path):
+    """Prompt 21: the registry's status is honest — expired-unanswered is
+    'ignored', distinct from a human's 'resolved'."""
+    import json as _json
+
+    path = tmp_path / "pending.json"
+    reg = JsonPendingApprovals(str(path))
+    reg.register(lg_tid="gmail:t1:100", source_ref="t1", domain="mail", posted_at=T0)
+
+    sweep_ignored(reg, FakeStore(), user_id="u1", now=T0 + timedelta(hours=49))
+
+    raw = _json.loads(path.read_text())
+    assert raw["gmail:t1:100"]["status"] == "ignored"
+    # a late human click still flips it to resolved
+    reg.resolve("gmail:t1:100")
+    raw = _json.loads(path.read_text())
+    assert raw["gmail:t1:100"]["status"] == "resolved"
+
+
 def test_resolved_entry_never_swept(tmp_path):
     reg = _registry(tmp_path)
     store = FakeStore()

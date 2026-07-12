@@ -34,6 +34,9 @@ class _FakeThread:
         self.snippet = body[:20]
         self.labels = []
         self.received_at = None
+        self.last_message_at = None
+        self.last_from_addr = ""
+        self.reply_to = "counterparty@x.com"
         from aidedecamp.connectors.base import Provenance
         self.provenance = Provenance.FETCHED
 
@@ -445,12 +448,16 @@ def test_gmail_notification_no_audit_calls_when_log_absent():
 
 
 def test_gmail_notification_audit_skipped_for_failed_thread_fetch():
-    audit_log = _FakeAuditLog()
+    """Prompt 21 flips this test's original contract: a failed fetch used to
+    be a bare silent continue; now it retries, then leaves an ops
+    thread_fetch_failed audit event — never a silent loss, and never a
+    draft_approve record for a thread that was never drafted."""
     graph = _FakeGraph()
-    app = _fake_app_ctx(graph=graph, audit_log=audit_log)
-    connector = _FakeConnector({})  # get_thread raises for all
+    app = _fake_app_ctx(graph=graph)
+    connector = _FakeConnector({})  # get_thread raises for everything
     gmail = _FakeGmail(["t1"])
     watch_state = _FakeWatchState(history_id="100")
+    audit_log = _FakeAuditLog()
 
     handle_gmail_notification(
         app, {"emailAddress": "me@example.com", "historyId": "602"},
@@ -461,7 +468,10 @@ def test_gmail_notification_audit_skipped_for_failed_thread_fetch():
         audit_log=audit_log,
     )
 
-    assert audit_log.records == []
+    assert graph.calls == []  # nothing drafted
+    events = [e["event"] for rec in audit_log.records for e in rec["events"]]
+    assert events == ["thread_fetch_failed"]
+    assert audit_log.records[0]["workflow"] == "ops"
 
 
 # ---------------------------------------------------------------------------
@@ -551,6 +561,61 @@ def test_interrupted_run_still_posts_card():
         user_id="me@example.com",
     )
     assert len(approvals) == 1
+
+
+def test_transient_fetch_failure_retries_and_succeeds():
+    """Prompt 21: two blips then success -> the thread is processed
+    normally, no failure audit."""
+
+    class _FlakyConnector:
+        def __init__(self, thread, fail_times):
+            self._thread = thread
+            self._fails = fail_times
+
+        def get_thread(self, thread_id):
+            if self._fails > 0:
+                self._fails -= 1
+                raise ConnectionError("blip")
+            return self._thread
+
+    graph = _FakeGraph()
+    audit = _FakeAuditLog()
+    approvals = []
+
+    result = handle_gmail_notification(
+        _fake_app_ctx(graph=graph),
+        {"emailAddress": "me@example.com", "historyId": "200"},
+        gmail_service=_FakeGmail(["t1"]),
+        watch_state=_FakeWatchState(history_id="100"),
+        connector=_FlakyConnector(_FakeThread("t1"), fail_times=2),
+        post_approval=lambda *a, **kw: approvals.append(a),
+        user_id="me@example.com",
+        audit_log=audit,
+    )
+
+    assert len(result) == 1
+    assert len(approvals) == 1
+    events = [e["event"] for rec in audit.records for e in rec["events"]]
+    assert "thread_fetch_failed" not in events
+
+
+def test_gmail_state_carries_source_snapshot():
+    graph = _FakeGraph()
+    from datetime import datetime as _dt, timezone as _tz
+
+    thread = _FakeThread("t1")
+    thread.last_message_at = _dt(2026, 7, 10, 9, 0, tzinfo=_tz.utc)
+    handle_gmail_notification(
+        _fake_app_ctx(graph=graph),
+        {"emailAddress": "me@example.com", "historyId": "200"},
+        gmail_service=_FakeGmail(["t1"]),
+        watch_state=_FakeWatchState(history_id="100"),
+        connector=_FakeConnector({"t1": thread}),
+        post_approval=lambda *a, **kw: None,
+        user_id="me@example.com",
+    )
+    snapshot = graph.calls[0]["state"]["source_snapshot"]
+    assert snapshot == "2026-07-10T09:00:00+00:00"
 
 
 def test_default_triage_gets_store_and_sender():

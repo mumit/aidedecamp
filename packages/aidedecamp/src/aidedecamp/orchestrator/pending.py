@@ -37,7 +37,8 @@ from ..memory.base import MemoryStore
 from ..memory.signals import ActionSignal, capture_action_signal
 
 STATUS_PENDING = "pending"
-STATUS_RESOLVED = "resolved"
+STATUS_RESOLVED = "resolved"   # a human answered the card
+STATUS_IGNORED = "ignored"     # the sweep expired it (still resumable)
 
 
 @dataclass
@@ -106,6 +107,15 @@ class JsonPendingApprovals:
             data[lg_tid]["status"] = STATUS_RESOLVED
             self._save(data)
 
+    def mark_ignored(self, lg_tid: str) -> None:
+        """The sweep's honest label: expired unanswered, not human-resolved
+        (prompt 21) — the workflow itself stays resumable, and a late click
+        is protected by the apply-time freshness check, not by this flag."""
+        data = self._load()
+        if lg_tid in data:
+            data[lg_tid]["status"] = STATUS_IGNORED
+            self._save(data)
+
     def pending(self) -> list[PendingApproval]:
         return [
             PendingApproval(
@@ -158,7 +168,8 @@ def sweep_ignored(
     for entry in registry.pending():
         if now - entry.posted_at < max_age:
             continue
-        registry.resolve(entry.lg_tid)
+        mark = getattr(registry, "mark_ignored", registry.resolve)
+        mark(entry.lg_tid)
         capture_action_signal(
             store,
             user_id=user_id,

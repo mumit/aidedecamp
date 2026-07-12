@@ -57,6 +57,10 @@ class DraftApproveState(TypedDict, total=False):
     hold_start: Optional[str]
     hold_end: Optional[str]
     hold_summary: Optional[str]
+    # Freshness precondition (prompt 21): what the source looked like when
+    # this was proposed — mail: the thread's last_message_at ISO; calendar:
+    # the conflicted event's start ISO. Apply refuses when it changed.
+    source_snapshot: Optional[str]
 
     # --- accumulator: append-only, survives resume ---
     audit_events: Annotated[list[dict[str, Any]], operator.add]

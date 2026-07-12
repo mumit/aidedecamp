@@ -3,6 +3,36 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — Freshness, retries, honest at-least-once (roadmap prompt 21, review findings #5 + #6)
+
+- **Nothing is silently lost anymore.** A failing `get_thread`/`get_event`
+  used to be a bare `continue`; it now retries twice inline
+  (`_fetch_with_retry`), then records an `"ops"` `thread_fetch_failed`/
+  `event_fetch_failed` audit event + warning log — every loss is
+  queryable. (A test that pinned the old silent behavior was flipped to
+  pin the new contract.)
+- **Stale cards can't act on changed sources.** Every proposal carries a
+  `source_snapshot` (mail/follow-ups: the thread's `last_message_at` ISO;
+  calendar holds: the conflicted event's `start` ISO). At apply time the
+  source is re-fetched and compared: a thread that gained messages, or an
+  event that moved, raises `SourceChangedError` → the apply node records
+  `apply_error="source_changed"` (an `apply_skipped` audit event, not a
+  failure) and the confirmation says the source changed and nothing was
+  created — re-review. Cards without a snapshot (pre-M6) proceed,
+  back-compat; every new proposal carries one.
+- **The sweep's status is honest**: expired-unanswered entries are now
+  `"ignored"`, distinct from a human's `"resolved"` (a late click still
+  flips to resolved). The workflow stays resumable by design — the
+  apply-time freshness check is what protects a late click, not the flag.
+- **Cursor semantics recorded, not moved**: advancing the Gmail cursor
+  only after dispatch would trade silent loss for poison-thread infinite
+  reprocessing. The direction is at-least-once + idempotency (the
+  pending-registry dedupe remains the duplicate-card guard). The
+  reviewer's fuller **action kernel** (transactional inbox/outbox,
+  single-use actor-bound approval tokens, SQLite WAL) stays a recorded
+  option — **tripwire: multi-user use, or ACT_NOTIFY grants running in
+  production at meaningful volume.**
+
 ## 2026-07 — Resume-time audit: the earning evidence gets written (roadmap prompt 20, review finding #4)
 
 - **The gap, honestly**: the graph produced `human_decision`/`applied`/

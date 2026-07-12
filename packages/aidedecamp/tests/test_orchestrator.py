@@ -469,6 +469,121 @@ def test_calendar_apply_without_slot_is_noop():
 
 
 # ---------------------------------------------------------------------------
+# Freshness at apply (prompt 21): stale cards must not act on changed sources
+# ---------------------------------------------------------------------------
+
+from datetime import datetime as _dt, timezone as _tz  # noqa: E402
+
+
+def test_stale_mail_apply_refused_with_source_changed():
+    """The thread gained a message after the card was posted: apply
+    refuses, the confirmation says so, nothing is created."""
+
+    class _Conn(_FakeConnector):
+        def get_thread(self, tid):
+            return type("T", (), {
+                "subject": "Redline", "from_addr": "a@x.com",
+                "last_from_addr": "a@x.com", "reply_to": "a@x.com",
+                "last_message_at": _dt(2026, 7, 10, 12, 0, tzinfo=_tz.utc),
+            })()
+
+    conn = _Conn()
+    graph = build_draft_approve_graph(
+        client=FakeClient(), store=FakeStore(),
+        apply_fn=make_connector_apply_fn(conn),
+    )
+    cfg = {"configurable": {"thread_id": "t-stale"}}
+    graph.invoke(_base_state(
+        source_snapshot="2026-07-10T09:00:00+00:00",  # older than the thread
+    ), cfg)
+    out = graph.invoke(Command(resume={"decision": "approved"}), cfg)
+
+    assert out.get("applied_ref") is None
+    assert out["apply_error"] == "source_changed"
+    assert conn.drafts == []
+    text = apply_confirmation("approved", out)
+    assert "changed since this card was posted" in text
+    assert "re-review" in text.lower()
+
+
+def test_fresh_mail_apply_proceeds():
+    class _Conn(_FakeConnector):
+        def get_thread(self, tid):
+            return type("T", (), {
+                "subject": "Redline", "from_addr": "a@x.com",
+                "last_from_addr": "a@x.com", "reply_to": "a@x.com",
+                "last_message_at": _dt(2026, 7, 10, 9, 0, tzinfo=_tz.utc),
+            })()
+
+    conn = _Conn()
+    graph = build_draft_approve_graph(
+        client=FakeClient(), store=FakeStore(),
+        apply_fn=make_connector_apply_fn(conn),
+    )
+    cfg = {"configurable": {"thread_id": "t-fresh"}}
+    graph.invoke(_base_state(
+        source_snapshot="2026-07-10T09:00:00+00:00",  # unchanged
+    ), cfg)
+    out = graph.invoke(Command(resume={"decision": "approved"}), cfg)
+
+    assert out["applied_ref"] == "d-99"
+
+
+def test_no_snapshot_proceeds_for_backcompat():
+    conn = _FakeConnector()
+    graph = build_draft_approve_graph(
+        client=FakeClient(), store=FakeStore(),
+        apply_fn=make_connector_apply_fn(conn),
+    )
+    cfg = {"configurable": {"thread_id": "t-nosnap"}}
+    graph.invoke(_base_state(), cfg)  # no source_snapshot in state
+    out = graph.invoke(Command(resume={"decision": "approved"}), cfg)
+    assert out["applied_ref"] == "d-99"
+
+
+def test_moved_event_hold_apply_refused():
+    """The conflicted meeting was rescheduled after the card was posted:
+    the hold must not be created against a resolved conflict."""
+
+    class _Conn(_FakeConnector):
+        def __init__(self):
+            self.holds = []
+
+        def get_event(self, event_id):
+            return type("E", (), {
+                "start": _dt(2026, 7, 10, 15, 0, tzinfo=_tz.utc),
+            })()
+
+        def create_hold(self, event):
+            self.holds.append(event)
+            return "hold-x"
+
+    conn = _Conn()
+    graph = build_draft_approve_graph(
+        client=FakeClient(), store=FakeStore(),
+        apply_fn=make_connector_apply_fn(conn),
+    )
+    cfg = {"configurable": {"thread_id": "t-hold-stale"}}
+    graph.invoke(
+        {
+            "user_id": "u1", "domain": "calendar", "action": "create_hold",
+            "incoming_ref": "e1", "incoming_summary": "conflict",
+            "hold_start": "2026-07-10T14:00:00+00:00",
+            "hold_end": "2026-07-10T14:30:00+00:00",
+            "source_snapshot": "2026-07-10T10:00:00+00:00",  # event has moved
+            "audit_events": [], "iteration_count": 0,
+        },
+        cfg,
+    )
+    out = graph.invoke(Command(resume={"decision": "approved"}), cfg)
+
+    assert out["apply_error"] == "source_changed"
+    assert conn.holds == []
+    text = apply_confirmation("approved", out)
+    assert "meeting changed" in text
+
+
+# ---------------------------------------------------------------------------
 # apply_confirmation — honest channel text (rule 4: never claim "sending")
 # ---------------------------------------------------------------------------
 

@@ -44,6 +44,11 @@ from .state import DraftApproveState
 MAX_ITERATIONS = 10
 
 
+class SourceChangedError(Exception):
+    """The source (thread/event) changed after the card was posted; a stale
+    approval must not act on it (review finding #6)."""
+
+
 def _audit(event: str, **fields: Any) -> dict[str, Any]:
     """A single structured reason-for-action entry (design 4.7)."""
     from datetime import datetime, timezone
@@ -196,6 +201,15 @@ def build_draft_approve_graph(
             }
         try:
             ref = apply_fn(dict(state))
+        except SourceChangedError as exc:
+            return {
+                "applied_ref": None,
+                "apply_error": "source_changed",
+                "audit_events": [
+                    _audit("apply_skipped", reason="source_changed",
+                           detail=str(exc))
+                ],
+            }
         except Exception as exc:  # noqa: BLE001 — honesty over crash, see docstring
             return {
                 "applied_ref": None,
@@ -369,6 +383,7 @@ def make_connector_apply_fn(
         if not thread_ref or not final_text:
             return None
         thread = connector.get_thread(thread_ref)
+        _check_freshness_mail(thread, state.get("source_snapshot"))
         to = (
             getattr(thread, "reply_to", "")
             or getattr(thread, "last_from_addr", "")
@@ -401,6 +416,15 @@ def _apply_calendar_hold(connector: Any, state: dict[str, Any]) -> str | None:
     start_raw, end_raw = state.get("hold_start"), state.get("hold_end")
     if not start_raw or not end_raw:
         return None
+    snapshot = state.get("source_snapshot")
+    source_ref = state.get("incoming_ref")
+    if snapshot and source_ref:
+        current = connector.get_event(source_ref)
+        if current.start.isoformat() != snapshot:
+            raise SourceChangedError(
+                f"event {source_ref} moved from {snapshot} to "
+                f"{current.start.isoformat()} since the card was posted"
+            )
     hold = SimpleNamespace(
         event_id="",
         summary=state.get("hold_summary") or "HOLD",
@@ -410,6 +434,18 @@ def _apply_calendar_hold(connector: Any, state: dict[str, Any]) -> str | None:
         external_attendees=False,
     )
     return connector.create_hold(hold)
+
+
+def _check_freshness_mail(thread: Any, snapshot: str | None) -> None:
+    """A thread that gained messages after the card was posted is stale —
+    the human approved a reply to a conversation that has since moved on."""
+    if not snapshot:
+        return  # older cards carry no snapshot; proceed (back-compat)
+    last = getattr(thread, "last_message_at", None)
+    if last is not None and last.isoformat() > snapshot:
+        raise SourceChangedError(
+            f"thread changed at {last.isoformat()} (card snapshot {snapshot})"
+        )
 
 
 def _noop_apply_fn(state: dict[str, Any]) -> str | None:
@@ -432,6 +468,12 @@ def apply_confirmation(decision: str, result: Any = None) -> str:
     state = result if isinstance(result, dict) else {}
     is_calendar = state.get("domain") == "calendar"
     thing = "tentative calendar hold" if is_calendar else "Gmail draft"
+    if state.get("apply_error") == "source_changed":
+        source = "meeting" if is_calendar else "thread"
+        return (
+            f"{prefix} — but the {source} changed since this card was "
+            f"posted, so nothing was created. Please re-review."
+        )
     if state.get("apply_error"):
         return (
             f"{prefix} — your decision was recorded, but creating the "

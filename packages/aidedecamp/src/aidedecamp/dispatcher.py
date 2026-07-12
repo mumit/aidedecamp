@@ -71,6 +71,21 @@ from .orchestrator.triage import Priority, TriageResult, triage_thread
 _default_triage = triage_thread
 
 
+FETCH_RETRIES = 2
+
+
+def _fetch_with_retry(fetch: Callable[[], Any], retries: int = FETCH_RETRIES) -> Any:
+    """Immediate bounded retries for source fetches — transient API blips
+    must not silently lose a thread/event (review finding #5)."""
+    last_exc: Exception | None = None
+    for _ in range(retries + 1):
+        try:
+            return fetch()
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+    raise last_exc  # type: ignore[misc]
+
+
 def _auto_rung(result: dict[str, Any]) -> int | None:
     """The rung the gate auto-applied at, or None if the run interrupted
     for a human (or the result carries no gate event — fakes/back-compat:
@@ -200,8 +215,25 @@ def handle_gmail_notification(
                 continue
 
         try:
-            thread = connector.get_thread(gmail_tid)
-        except Exception:  # noqa: BLE001
+            thread = _fetch_with_retry(lambda: connector.get_thread(gmail_tid))
+        except Exception as exc:  # noqa: BLE001 — audited, never silent (finding #5)
+            logger.warning(
+                "gmail thread %s fetch failed after retries (%s)",
+                gmail_tid, type(exc).__name__,
+            )
+            if audit_log is not None:
+                audit_log.record(
+                    thread_id=f"gmail:{gmail_tid}:{changes.new_history_id}",
+                    workflow="ops",
+                    events=[{
+                        "event": "thread_fetch_failed",
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                        "gmail_thread_id": gmail_tid,
+                        "error": type(exc).__name__,
+                    }],
+                    domain="ops",
+                    user_id=user_id,
+                )
             continue
 
         # Unique checkpoint id: prefix + Gmail thread id + notification epoch.
@@ -239,6 +271,13 @@ def handle_gmail_notification(
             # The Gmail thread id — what the apply step materializes the
             # approved draft against (create_draft on this thread).
             "incoming_ref": gmail_tid,
+            # Freshness precondition: apply refuses if the thread gains
+            # messages after this card was proposed (prompt 21).
+            "source_snapshot": (
+                thread.last_message_at.isoformat()
+                if getattr(thread, "last_message_at", None) is not None
+                else None
+            ),
             "user_id": user_id,
             "action": "draft_reply",
             "domain": "mail",
@@ -334,8 +373,25 @@ def handle_calendar_notification(
     conflicts: list[ConflictResult] = []
     for event_id in changes.event_ids:
         try:
-            event = connector.get_event(event_id)
-        except Exception:  # noqa: BLE001
+            event = _fetch_with_retry(lambda: connector.get_event(event_id))
+        except Exception as exc:  # noqa: BLE001 — audited, never silent
+            logger.warning(
+                "calendar event %s fetch failed after retries (%s)",
+                event_id, type(exc).__name__,
+            )
+            if audit_log is not None:
+                audit_log.record(
+                    thread_id=f"calendar:{calendar_id}:{event_id}",
+                    workflow="ops",
+                    events=[{
+                        "event": "event_fetch_failed",
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                        "event_id": event_id,
+                        "error": type(exc).__name__,
+                    }],
+                    domain="ops",
+                    user_id=user_id,
+                )
             continue
 
         conflict = detect_conflict(connector, event)
@@ -416,6 +472,7 @@ def _offer_resolution_hold(
         "hold_start": start.isoformat(),
         "hold_end": end.isoformat(),
         "hold_summary": f"HOLD: {event.summary}",
+        "source_snapshot": event.start.isoformat(),
         "iteration_count": 0,
         "audit_events": [],
     }

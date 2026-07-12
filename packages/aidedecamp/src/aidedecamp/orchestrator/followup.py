@@ -157,6 +157,11 @@ def run_follow_up_nudges(
         state = {
             "incoming_summary": incoming_summary,
             "incoming_ref": thread.thread_id,
+            "source_snapshot": (
+                thread.last_message_at.isoformat()
+                if thread.last_message_at is not None
+                else None
+            ),
             "user_id": user_id,
             "action": "follow_up",
             "domain": "mail",
