@@ -29,6 +29,7 @@ Mode. No listener socket is ever opened here.
 from __future__ import annotations
 
 import json
+import inspect
 import logging
 import threading
 import time
@@ -414,12 +415,20 @@ class Runtime:
         implementation is currently a no-op report; this gives it its cadence
         so the real pass (roadmap prompt 13) lands with a caller already in
         place. The report is audited either way."""
+        consolidate = self.app.store.consolidate
         try:
+            params = inspect.signature(consolidate).parameters.values()
+            accepts_audit = any(
+                p.name == "audit_log" or p.kind == inspect.Parameter.VAR_KEYWORD
+                for p in params
+            )
+        except (TypeError, ValueError):
+            accepts_audit = False
+        if accepts_audit:
             report = self.app.store.consolidate(
                 user_id=self.settings.user_id, audit_log=self.app.audit_log
             )
-        except TypeError:
-            # substrates predating the audit_log kwarg
+        else:
             report = self.app.store.consolidate(user_id=self.settings.user_id)
         from datetime import datetime, timezone as _tz
 

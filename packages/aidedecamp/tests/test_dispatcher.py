@@ -1380,6 +1380,24 @@ def test_chat_interaction_authorized_actor_passes():
     assert resumes == ["t-42"]
 
 
+def test_chat_interaction_internal_typeerror_is_not_retried():
+    calls = []
+
+    def resume(tid, decision, text, *, actor=None):
+        calls.append((tid, actor))
+        raise TypeError("raised inside resume")
+
+    event = _click("adc_approve", "t-42")
+    event["user"] = {"name": "users/owner"}
+    with pytest.raises(TypeError, match="inside resume"):
+        handle_chat_interaction(
+            _fake_app_ctx(), event, resume_fn=resume,
+            post_text=lambda t: None, user_id="me@example.com",
+            allowed_actors=frozenset({"users/owner"}),
+        )
+    assert calls == [("t-42", "users/owner")]
+
+
 def test_chat_message_unauthorized_sender_refused():
     replies = []
     client = _FakeClient()

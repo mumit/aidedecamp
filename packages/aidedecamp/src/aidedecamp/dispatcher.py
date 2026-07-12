@@ -46,6 +46,7 @@ injected so the dispatcher is testable offline with fakes.
 from __future__ import annotations
 
 import logging
+import inspect
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -75,6 +76,17 @@ FETCH_RETRIES = 2
 # Hold offers per calendar notification — a conflict-heavy day still gets
 # every notification, but never a wall of cards (mirrors the nudge cap).
 MAX_HOLD_OFFERS_PER_RUN = 3
+
+
+def _accepts_keyword(fn: Callable[..., Any], name: str) -> bool:
+    """Inspect compatibility before execution; never retry on body errors."""
+    try:
+        params = inspect.signature(fn).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(
+        p.name == name or p.kind == inspect.Parameter.VAR_KEYWORD for p in params
+    )
 
 
 def _fetch_with_retry(fetch: Callable[[], Any], retries: int = FETCH_RETRIES) -> Any:
@@ -660,13 +672,12 @@ def handle_chat_interaction(
             )
         return
 
-    try:
+    if _accepts_keyword(resume_fn, "actor"):
         result = resume_fn(
             interaction.thread_id, interaction.decision, interaction.text,
             actor=interaction.actor,
         )
-    except TypeError:
-        # injected resume_fns with the plain 3-arg contract still work
+    else:
         result = resume_fn(
             interaction.thread_id, interaction.decision, interaction.text
         )

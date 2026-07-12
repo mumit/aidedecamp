@@ -3,6 +3,17 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — Compatibility is inspected, never inferred from execution errors
+
+- Actor-aware Chat resume and audit-aware consolidation support older injected
+  collaborators by inspecting their callable signatures before invocation.
+  Catching `TypeError` around execution was removed: a body can raise that
+  exception after an external action or memory mutation, and retrying with a
+  legacy signature could repeat the side effect.
+- Unknown/uninspectable callables take the legacy contract. Once execution
+  begins, every exception represents that single attempt and is never used as
+  feature detection.
+
 ## 2026-07 — Single-use, actor-attributed approval claims
 
 - `resume_workflow` claims a managed pending approval before invoking the graph.

@@ -1266,6 +1266,23 @@ def test_run_consolidation_audits_report():
     assert rec["events"][0]["event"] == "consolidation_ran"
 
 
+def test_consolidation_internal_typeerror_is_not_retried():
+    class _Store(_FakeMemoryStore):
+        def __init__(self):
+            super().__init__()
+            self.calls = 0
+
+        def consolidate(self, *, user_id, audit_log=None):
+            self.calls += 1
+            raise TypeError("raised inside consolidation")
+
+    store = _Store()
+    runtime = _runtime(app=_app_ctx(store=store))
+    with pytest.raises(TypeError, match="inside consolidation"):
+        runtime.run_consolidation()
+    assert store.calls == 1
+
+
 def test_weekly_autonomy_digest_posts_suggestions_to_channels():
     """The digest posts earned-graduation suggestions (information only —
     grants stay CLI-only, prompt 12) to every configured channel."""
