@@ -350,6 +350,32 @@ def test_build_runtime_wires_slack_message_fn_to_converse():
     assert replies == ["here's your answer"]
 
 
+def test_slack_actor_uses_canonical_principal_memory_id():
+    class _Store(_FakeMemoryStore):
+        def __init__(self):
+            super().__init__()
+            self.user_ids = []
+
+        def search(self, query, *, user_id, limit=5):
+            self.user_ids.append(user_id)
+            return []
+
+    store = _Store()
+    settings = _settings(
+        SLACK_BOT_TOKEN="xoxb-token", ADC_USER_ID="owner@example.com"
+    )
+    app = _app_ctx(client=_FakeClient(), store=store)
+    runtime = build_runtime(
+        settings, app=app, connector=_FakeConnector(),
+        gmail_service=_FakeGmailService(), chat_events_service=object(),
+        calendar_service=object(),
+    )
+
+    runtime.slack._message("what's next?", "U-SLACK-OWNER", lambda text: None)
+
+    assert store.user_ids == ["owner@example.com"]
+
+
 def test_build_runtime_wires_slack_message_fn_to_brief():
     settings = _settings(SLACK_BOT_TOKEN="xoxb-token")
     connector = _FakeConnector(threads={"t1": _FakeThread()}, events=[])

@@ -240,6 +240,10 @@ safety posture; violating one is a bug, not a shortcut.
    safe by construction. Slack channels and Google Chat spaces require
    `ADC_ACK_DESTINATION_VISIBILITY=1` after membership is verified; allowlists
    prevent actions, not reading.
+9. **Channel identity is not principal identity.** Slack/Chat actor ids
+   authorize an entry point; accepted requests use the deployment `user_id`
+   for durable and conversational memory. Multi-user support needs an
+   explicit identity mapping, not raw transport ids as storage namespaces.
 
 ## Conventions
 

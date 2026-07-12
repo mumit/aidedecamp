@@ -1027,7 +1027,10 @@ def build_runtime(
             handle_slack_message(
                 resolved_app,
                 text=text,
-                user_id=user_id,
+                # Slack's id authenticated the actor in SlackChannel. Durable
+                # memory belongs to the deployment principal, the same id used
+                # by Gmail, Chat, consolidation, and scheduled work.
+                user_id=settings.user_id,
                 post_text=post_text,
                 brief_fn=lambda: _assemble_runtime_brief(
                     resolved_connector, resolved_app, settings

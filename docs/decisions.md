@@ -3,6 +3,18 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — Channel actors authorize; the principal owns memory
+
+- Slack and Google Chat actor ids remain transport-specific authorization
+  evidence. Once accepted, both channels use the deployment's configured
+  `user_id` for durable memory and conversational context.
+- This preserves the project's one-principal-per-deployment boundary: the
+  same person does not acquire disconnected memory histories merely because
+  Slack calls them `U...` while Google APIs call them `me`.
+- Multi-user support would require an explicit principal mapping and separate
+  authorization, memory, audit, and conversation namespaces. Passing raw
+  channel actor ids into storage is not that mapping.
+
 ## 2026-07 — Autonomy persistence fails closed
 
 - Grant/revoke writes now flush and atomically replace the policy file. The
