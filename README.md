@@ -93,20 +93,33 @@ each step.
 
 ## Status
 
-Read-only + rung-2 (propose, wait for approval) is built end to end: Fuel iX
-client and task-shape model routing, per-deployment config, the autonomy
-permission matrix, LangGraph draft-and-approve orchestration, Mem0-backed
-memory (capture/consolidate/retrieve), triage (urgent/routine/noise), Gmail +
-Calendar + Google Chat + Slack ingestion and channels, Calendar
-scheduling-conflict detection (read-only), the structured audit log, and the
-`runtime.py` entrypoint that wires all of it into one process. 312 tests,
-all offline (no live credentials or network calls required to run the suite).
+Everything through the 2026-07 roadmap (`docs/roadmap.md`, all 16 build
+prompts) is built and tested — 504 offline tests, no live credentials needed
+for the suite:
 
-What's deliberately not built: a Calendar write-action layer (creating holds,
-responding to invites — no well-defined trigger yet, and it needs its own
-autonomy-ladder decision), and an actual live deployment (nothing has run
-against a real GCP project yet). See `CLAUDE.md`'s "Next steps" and "Still
-open" sections for the current, maintained list.
+- **The full interaction loop**: triage (memory-informed) → draft → approval
+  card (Slack + Google Chat) → approve/edit/reject — approving creates the
+  Gmail draft, editing captures the correction diff as a learning signal,
+  ignoring decays into a signal too. Follow-up nudges for quiet threads and
+  conflict-triggered calendar hold proposals ride the same loop.
+- **It runs itself**: scheduler (brief, renewals, sweeps, consolidation,
+  weekly autonomy digest), supervised ingestion loops with backoff and
+  heartbeats, structured logging. Poll mode (default) needs zero GCP
+  infrastructure; push mode is the hardened posture.
+- **Learning you can see and steer**: `aidedecamp memory list/forget/
+  remember` (and the same in chat), a persisted autonomy matrix with
+  `aidedecamp autonomy grant/revoke/record` and audit-derived graduation
+  suggestions, a real nightly consolidation pass, and a memory-quality
+  regression set (design §2.4).
+- **Setup in ~15 minutes**: `aidedecamp init` wizard, `doctor` validation,
+  the compose stack, and the quickstart above.
+
+What's deliberately not built: invite accept/decline and rescheduling (each
+needs its own decisions entry first — see `docs/decisions.md`, "Calendar
+write actions"), the Graphiti migration, the browser surface, and voice
+(design.md phases 4–7). **Nothing has run against a live account yet** —
+the Phase-0 "a genuinely useful brief for a week without babysitting" bar
+is unverified until someone deploys it. See `CLAUDE.md`'s "Next steps".
 
 ## Security posture (read before running anything that touches real data)
 

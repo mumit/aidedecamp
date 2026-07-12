@@ -6,6 +6,14 @@ working plan — the phases there remain the long-term arc; this document is the
 concrete, ordered execution plan for what's next, with ready-to-run build
 prompts in `docs/build-prompts/`.*
 
+> **Execution status (2026-07): all 16 prompts are implemented** — one commit
+> per prompt, 504 tests passing (from the 312 baseline), every defect in §1's
+> table closed, each prompt's decisions recorded in `docs/decisions.md`. What
+> remains is what no prompt can do from a dev box: **actually deploy it** and
+> hold the Phase-0 "a week without babysitting" bar (`docs/deployment.md`
+> Track A is the 15-minute path), then the design.md phase 4-7 tail (Graphiti
+> migration, browser audit surface, voice, presence-aware routing).
+
 ---
 
 ## 1. Review summary
