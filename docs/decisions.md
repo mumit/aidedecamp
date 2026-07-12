@@ -3,6 +3,45 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — Calendar write actions: the design decision (roadmap prompt 16, phase 1)
+
+Written *before* the implementation, per the build prompt's own rule: phase 2
+must not exceed what this entry settles.
+
+- **Trigger: detected conflicts only.** Of the two now-well-defined
+  candidates — (a) a detected conflict offers a *resolution hold*, (b) an
+  incoming invite offers accept/decline — **only (a) is built**. It reuses
+  `create_hold`, an existing connector verb on both implementations, and has
+  the clearest user value ("these two collided — want a hold at 2pm to
+  rebook one?"). (b) requires a new RSVP API surface
+  (accept/decline-an-existing-invite verb) and its own semantics —
+  **deferred again, explicitly**, along with rescheduling and negotiating
+  times with counterparties. Scope creep now has a written decision to
+  argue with.
+- **Autonomy shape**: the flow enters through the standard draft-approve
+  graph — `Action.CREATE_HOLD` on `Domain.CALENDAR`, already at PROPOSE in
+  `default_matrix()`, so the gate interrupts for human approval absent a
+  higher grant. ACT_NOTIFY graduation would mean auto-creating the
+  *tentative* hold and notifying — tentative holds are reversible, the
+  canonical rung-3 property — but graduation excludes events with external
+  attendees (design 3.2's own example of domain scoping); that exclusion
+  is enforced at proposal time by only ever creating holds titled `HOLD:`
+  with no attendees invited.
+- **Mechanics**: the chosen slot rides in graph state
+  (`hold_start`/`hold_end`/`hold_summary`, ISO strings — pointers, not
+  parsed back out of prose), so approval materializes exactly the slot the
+  human saw, regardless of how the model phrased the proposal text. The
+  apply step grows a calendar branch calling `create_hold`; the shared
+  confirmation becomes domain-aware ("tentative hold created on your
+  calendar", never "draft created in Gmail" for a calendar decision).
+- **No kill-switch setting**: an absent grant already gates
+  nothing-happens-without-approval; parallel toggles would dilute the
+  matrix as the single source of authority (rule 3). Hold-proposal cards
+  post only when the caller provides `post_approval` (the runtime does).
+- **`create_hold` only**: no event mutation, no attendee invitations on the
+  hold, no RSVP calls; holds are created tentative (both connectors already
+  do).
+
 ## 2026-07 — Quiet-thread follow-up nudges (roadmap prompt 15)
 
 - **Design 3.3's fourth interaction pattern exists**: "you haven't heard

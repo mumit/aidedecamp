@@ -77,12 +77,14 @@ and `credentials.py`).
   `brief.find_quiet_threads` + `JsonNudgeState` cooldowns, hard-capped 3/run;
   each nudge is a normal FOLLOW_UP draft-approve workflow — no new approval
   surface or autonomy path; scheduled daily at `ADC_NUDGE_TIME`),
-  `scheduling.py` (plain function — `detect_conflict`, read-only overlap check;
-  triage v2 is memory-informed: the dispatcher's default path feeds it the
-  store + sender so past reactions inform the call — parse failures still
-  default ROUTINE, never NOISE;
-  no hold-creation/accept-decline action layer built, deliberately — see
-  `docs/decisions.md`).
+  `scheduling.py` (`detect_conflict`, read-only overlap check, plus
+  `propose_free_slots` — the same-day rebooking math behind conflict-
+  triggered hold offers; the offer itself is a CREATE_HOLD draft-approve
+  workflow, slot carried in state, gated at PROPOSE; invite accept/decline
+  stays deferred — see `docs/decisions.md`). Triage v2 is memory-informed:
+  the dispatcher's default path feeds it the store + sender so past
+  reactions inform the call — parse failures still default ROUTINE, never
+  NOISE.
 - `memory/` — substrate-agnostic `MemoryStore` (`base.py`), Mem0 impl
   (`mem0_store.py` — includes the real nightly `consolidate` pass: one
   `Task.CONSOLIDATE` call, strict-JSON plan, conservative apply — malformed
@@ -267,14 +269,15 @@ with one ready-to-run build prompt per item in `docs/build-prompts/`. The two
 long-standing items below remain true and are folded into that plan (roadmap
 M2/M3 and prompt 16 respectively):
 
-1. **A Calendar write-action layer**, if wanted: creating holds or responding
-   to invites automatically. Deliberately not built — there's no well-defined
-   trigger yet (unlike mail, where an incoming thread triggers draft-approve)
-   and it would need its own autonomy-ladder design (rule 3), not something to
-   fold in alongside conflict detection. Conflict detection itself
-   (`orchestrator/scheduling.py`, `dispatcher.handle_calendar_notification`)
-   is done and is read-only by design — see `docs/decisions.md` for why this
-   boundary is deliberate, not a shortcut.
+1. **Calendar write actions — the conflict-triggered slice is built** (see
+   `docs/decisions.md`, "Calendar write actions"): a detected conflict now
+   offers a resolution hold via a standard CREATE_HOLD draft-approve
+   workflow (`scheduling.propose_free_slots` computes same-day slots; the
+   chosen slot rides in graph state; approval materializes a tentative,
+   attendee-free hold through the apply node). **Still deliberately
+   deferred**: invite accept/decline (needs a new RSVP connector verb),
+   rescheduling, and negotiating times with counterparties — each needs its
+   own decisions entry before code (rule 3).
 2. **Actually deploy it.** `runtime.py`'s wiring is tested, but `run()` and
    the `run_*_pubsub_loop()` methods have never touched a real GCP project or
    Slack workspace. `deploy/republisher/`'s Chat-interaction JWT verification

@@ -62,7 +62,7 @@ from .ingestion.chat_interactions import decode_chat_interaction
 from .ingestion.gmail_history import HistoryExpired, process_notification
 from .ingestion.gmail_watch import WatchState
 from .orchestrator.draft_approve import apply_confirmation
-from .orchestrator.scheduling import ConflictResult, detect_conflict
+from .orchestrator.scheduling import ConflictResult, detect_conflict, propose_free_slots
 from .orchestrator.triage import Priority, TriageResult, triage_thread
 
 
@@ -231,6 +231,8 @@ def handle_calendar_notification(
     user_id: str,
     calendar_id: str = "primary",
     audit_log: AuditLog | None = None,
+    post_approval: Callable[..., None] | None = None,
+    pending: Any = None,
 ) -> list[ConflictResult]:
     """Process a decoded Calendar webhook notification (design 1.2, 1.4, 4.2).
 
@@ -242,9 +244,13 @@ def handle_calendar_notification(
     plain-text heads-up, and — when ``audit_log`` is supplied — the
     detection is recorded under a ``"scheduling"`` workflow name.
 
-    This is read-only: no hold is created, no invite is answered. See
-    ``orchestrator/scheduling.py``'s module docstring for why that action
-    layer isn't built yet.
+    Detection itself stays read-only: ``notify`` fires for every conflict
+    and nothing is written. When ``post_approval`` is supplied (the runtime
+    supplies it), each conflict additionally OFFERS a resolution hold — a
+    standard CREATE_HOLD draft-approve workflow whose card proposes the
+    first same-day free slot; only human approval materializes the tentative
+    hold via the apply node (see docs/decisions.md, "Calendar write
+    actions"). No slot free -> notify-only fallback, no card.
 
     Returns the list of conflicts detected (empty if none).
     """
@@ -282,7 +288,95 @@ def handle_calendar_notification(
                 user_id=user_id,
             )
 
+        if post_approval is not None:
+            _offer_resolution_hold(
+                app_ctx, connector, conflict,
+                post_approval=post_approval, pending=pending,
+                audit_log=audit_log, user_id=user_id,
+            )
+
     return conflicts
+
+
+def _offer_resolution_hold(
+    app_ctx: AppContext,
+    connector: WorkspaceConnector,
+    conflict: ConflictResult,
+    *,
+    post_approval: Callable[..., None],
+    pending: Any,
+    audit_log: AuditLog | None,
+    user_id: str,
+) -> str | None:
+    """Offer one hold proposal for a detected conflict (prompt 16, phase 2).
+
+    The chosen slot rides in graph state (hold_start/hold_end) so approval
+    materializes exactly what the card showed. Gated at CREATE_HOLD/CALENDAR
+    (PROPOSE by default -> the graph interrupts; only a deliberate grant
+    could ever skip that). Returns the workflow id, or None when the day has
+    no free slot (notify-only fallback).
+    """
+    event = conflict.event
+    slots = propose_free_slots(connector, event)
+    if not slots:
+        return None
+    start, end = slots[0]
+
+    if pending is not None and hasattr(pending, "get_pending_for_source"):
+        if pending.get_pending_for_source(event.event_id) is not None:
+            return None  # a card for this event is already live
+
+    lg_tid = f"calendar:hold:{event.event_id}:{start:%Y%m%d%H%M}"
+    incoming_summary = (
+        f'"{event.summary}" ({event.start:%H:%M}-{event.end:%H:%M}) overlaps '
+        f'with "{conflict.conflicting_with.summary}". Propose a short message '
+        f"suggesting the meeting be rebooked into the free {start:%H:%M}-"
+        f"{end:%H:%M} slot the same day; a tentative hold will be created "
+        "there on approval."
+    )
+    state = {
+        "incoming_summary": incoming_summary,
+        "incoming_ref": event.event_id,
+        "user_id": user_id,
+        "action": "create_hold",
+        "domain": "calendar",
+        "hold_start": start.isoformat(),
+        "hold_end": end.isoformat(),
+        "hold_summary": f"HOLD: {event.summary}",
+        "iteration_count": 0,
+        "audit_events": [],
+    }
+    result = app_ctx.graph.invoke(state, {"configurable": {"thread_id": lg_tid}})
+
+    if audit_log is not None:
+        audit_log.record(
+            thread_id=lg_tid,
+            workflow="scheduling",
+            events=[{
+                "event": "hold_offered",
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "event_id": event.event_id,
+                "slot": f"{start.isoformat()}/{end.isoformat()}",
+            }] + list(result.get("audit_events", [])),
+            domain="calendar",
+            user_id=user_id,
+        )
+
+    post_approval(
+        lg_tid,
+        result.get("proposed_draft") or "",
+        result.get("retrieved_memories") or None,
+        title=(
+            f"Scheduling conflict — proposed hold {start:%H:%M}-{end:%H:%M}: "
+            f"{event.summary}"
+        ),
+    )
+    if pending is not None:
+        pending.register(
+            lg_tid=lg_tid, source_ref=event.event_id, domain="calendar",
+            posted_at=datetime.now(timezone.utc),
+        )
+    return lg_tid
 
 
 def handle_chat_interaction(

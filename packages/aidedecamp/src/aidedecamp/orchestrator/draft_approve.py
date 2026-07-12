@@ -300,6 +300,8 @@ def make_connector_apply_fn(connector: Any) -> Callable[[dict[str, Any]], str | 
     """
 
     def apply(state: dict[str, Any]) -> str | None:
+        if state.get("domain") == "calendar":
+            return _apply_calendar_hold(connector, state)
         if state.get("domain") != "mail":
             return None
         thread_ref = state.get("incoming_ref")
@@ -321,6 +323,28 @@ def make_connector_apply_fn(connector: Any) -> Callable[[dict[str, Any]], str | 
     return apply
 
 
+def _apply_calendar_hold(connector: Any, state: dict[str, Any]) -> str | None:
+    """Materialize an approved hold proposal: a NEW tentative event at the
+    exact slot carried in state (never re-derived from the proposal prose),
+    no attendees invited — the reversible, external-attendee-free shape the
+    calendar-actions decision allows (docs/decisions.md, prompt 16)."""
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    start_raw, end_raw = state.get("hold_start"), state.get("hold_end")
+    if not start_raw or not end_raw:
+        return None
+    hold = SimpleNamespace(
+        event_id="",
+        summary=state.get("hold_summary") or "HOLD",
+        start=datetime.fromisoformat(start_raw),
+        end=datetime.fromisoformat(end_raw),
+        attendees=[],
+        external_attendees=False,
+    )
+    return connector.create_hold(hold)
+
+
 def _noop_apply_fn(state: dict[str, Any]) -> str | None:
     """Default apply: nothing to materialize (dev/tests without a connector)."""
     return None
@@ -339,13 +363,19 @@ def apply_confirmation(decision: str, result: Any = None) -> str:
 
     prefix = "✏️ Edited" if decision == "edited" else "✅ Approved"
     state = result if isinstance(result, dict) else {}
+    is_calendar = state.get("domain") == "calendar"
+    thing = "tentative calendar hold" if is_calendar else "Gmail draft"
     if state.get("apply_error"):
         return (
-            f"{prefix} — your decision was recorded, but creating the Gmail "
-            f"draft failed ({state['apply_error']})."
+            f"{prefix} — your decision was recorded, but creating the "
+            f"{thing} failed ({state['apply_error']})."
         )
     if state.get("applied_ref"):
-        return f"{prefix} — draft created in Gmail."
+        return (
+            f"{prefix} — tentative hold created on your calendar."
+            if is_calendar
+            else f"{prefix} — draft created in Gmail."
+        )
     return f"{prefix}."
 
 

@@ -48,8 +48,15 @@ class DraftApproveState(TypedDict, total=False):
     proposed_draft: Optional[str]    # what the assistant proposes
     final_text: Optional[str]        # what the human approved/edited (if any)
     decision: Optional[Decision]
-    applied_ref: Optional[str]       # external ref apply produced (Gmail draft id)
+    applied_ref: Optional[str]       # external ref apply produced (Gmail draft
+                                     # id, or a calendar hold id)
     apply_error: Optional[str]       # exception class name if apply failed
+    # Calendar hold proposals only (prompt 16): the exact slot the human is
+    # approving rides in state as ISO strings — never parsed back out of the
+    # proposal prose — so apply materializes precisely what the card showed.
+    hold_start: Optional[str]
+    hold_end: Optional[str]
+    hold_summary: Optional[str]
 
     # --- accumulator: append-only, survives resume ---
     audit_events: Annotated[list[dict[str, Any]], operator.add]

@@ -342,6 +342,91 @@ def test_connector_apply_fn_noop_outside_mail_or_without_ref():
 
 
 # ---------------------------------------------------------------------------
+# Calendar hold apply (prompt 16): approval materializes the exact slot
+# ---------------------------------------------------------------------------
+
+
+def test_calendar_hold_end_to_end_conflict_card_approve_hold():
+    """Conflict → CREATE_HOLD workflow → interrupt (PROPOSE gate) → approve →
+    create_hold called with exactly the slot the card showed."""
+
+    class _HoldConnector(_FakeConnector):
+        def __init__(self):
+            self.holds: list = []
+
+        def create_hold(self, event):
+            self.holds.append(event)
+            return "hold-123"
+
+    conn = _HoldConnector()
+    graph = build_draft_approve_graph(
+        client=FakeClient(), store=FakeStore(),
+        apply_fn=make_connector_apply_fn(conn),
+    )
+    cfg = {"configurable": {"thread_id": "t-hold"}}
+    paused = graph.invoke(
+        {
+            "user_id": "u1", "domain": "calendar", "action": "create_hold",
+            "incoming_ref": "e1",
+            "incoming_summary": "two meetings collided; propose the 14:00 slot",
+            "hold_start": "2026-07-10T14:00:00+00:00",
+            "hold_end": "2026-07-10T14:30:00+00:00",
+            "hold_summary": "HOLD: Client call",
+            "audit_events": [], "iteration_count": 0,
+        },
+        cfg,
+    )
+    assert "__interrupt__" in paused  # CREATE_HOLD is PROPOSE by default
+
+    out = graph.invoke(Command(resume={"decision": "approved"}), cfg)
+
+    assert out["applied_ref"] == "hold-123"
+    hold = conn.holds[0]
+    assert hold.summary == "HOLD: Client call"
+    assert hold.start.isoformat() == "2026-07-10T14:00:00+00:00"
+    assert hold.attendees == []  # never invites anyone (decisions entry)
+    assert apply_confirmation("approved", out) == (
+        "✅ Approved — tentative hold created on your calendar."
+    )
+
+
+def test_calendar_hold_rejected_creates_nothing():
+    class _HoldConnector(_FakeConnector):
+        def __init__(self):
+            self.holds: list = []
+
+        def create_hold(self, event):
+            self.holds.append(event)
+            return "hold-x"
+
+    conn = _HoldConnector()
+    graph = build_draft_approve_graph(
+        client=FakeClient(), store=FakeStore(),
+        apply_fn=make_connector_apply_fn(conn),
+    )
+    cfg = {"configurable": {"thread_id": "t-hold-rej"}}
+    graph.invoke(
+        {
+            "user_id": "u1", "domain": "calendar", "action": "create_hold",
+            "incoming_ref": "e1", "incoming_summary": "conflict",
+            "hold_start": "2026-07-10T14:00:00+00:00",
+            "hold_end": "2026-07-10T14:30:00+00:00",
+            "audit_events": [], "iteration_count": 0,
+        },
+        cfg,
+    )
+    graph.invoke(Command(resume={"decision": "rejected"}), cfg)
+
+    assert conn.holds == []
+
+
+def test_calendar_apply_without_slot_is_noop():
+    conn = _FakeConnector()
+    apply = make_connector_apply_fn(conn)
+    assert apply({"domain": "calendar", "final_text": "some prose"}) is None
+
+
+# ---------------------------------------------------------------------------
 # apply_confirmation — honest channel text (rule 4: never claim "sending")
 # ---------------------------------------------------------------------------
 

@@ -742,6 +742,116 @@ def test_calendar_notification_notifies_on_conflict():
     assert "Standup" in notifications[0]
 
 
+def test_conflict_offers_resolution_hold_when_post_approval_given():
+    """Prompt 16 phase 2: a conflict with a free same-day slot starts a
+    CREATE_HOLD workflow (slot in state, not prose) and posts a titled card."""
+    e1 = _cal_event("e1", 60, duration_min=30, summary="Client call")  # 10:00
+    e2 = _cal_event("e2", 75, duration_min=30, summary="Standup")
+    connector = _FakeCalendarConnector({"e1": e1, "e2": e2}, nearby=[e1, e2])
+    sync_state = _FakeCalendarSyncState({"primary": {"sync_token": "old"}})
+    calendar_service = _FakeCalendarEventsService(pages=[
+        {"items": [{"id": "e1"}], "nextSyncToken": "new"}
+    ])
+    graph = _FakeGraph(proposed="Shall I hold 08:00 for the client call?")
+    app = _fake_app_ctx(graph=graph)
+    posted: list[dict] = []
+    pending_reg: list[dict] = []
+
+    class _Pending:
+        def get_pending_for_source(self, ref):
+            return None
+
+        def register(self, **kw):
+            pending_reg.append(kw)
+
+    handle_calendar_notification(
+        app, {"resource_state": "exists"},
+        calendar_service=calendar_service,
+        calendar_sync_state=sync_state,
+        connector=connector,
+        notify=lambda text: None,
+        user_id="me@example.com",
+        post_approval=lambda tid, draft, rationale, *, title=None: posted.append(
+            {"tid": tid, "draft": draft, "title": title}
+        ),
+        pending=_Pending(),
+    )
+
+    # the workflow carried the exact slot and the CREATE_HOLD action
+    state = graph.calls[0]["state"]
+    assert state["action"] == "create_hold"
+    assert state["domain"] == "calendar"
+    assert state["incoming_ref"] == "e1"
+    # free day before 10:00 -> the first slot is 08:00-08:30
+    assert state["hold_start"].endswith("08:00:00+00:00")
+    assert state["hold_end"].endswith("08:30:00+00:00")
+    assert state["hold_summary"] == "HOLD: Client call"
+    # the card reads as a hold proposal
+    assert len(posted) == 1
+    assert posted[0]["title"].startswith("Scheduling conflict — proposed hold 08:00")
+    # registered for dedupe/ignore-sweep
+    assert pending_reg[0]["source_ref"] == "e1"
+    assert pending_reg[0]["domain"] == "calendar"
+
+
+def test_conflict_with_packed_day_stays_notify_only():
+    e1 = _cal_event("e1", 0, duration_min=60, summary="Client call")
+    e2 = _cal_event("e2", 15, duration_min=30)
+    wall = CalendarEvent(
+        event_id="wall", summary="Offsite",
+        start=datetime(2026, 7, 10, 8, 0, tzinfo=timezone.utc),
+        end=datetime(2026, 7, 10, 18, 0, tzinfo=timezone.utc),
+    )
+    connector = _FakeCalendarConnector(
+        {"e1": e1, "e2": e2}, nearby=[e1, e2, wall]
+    )
+    sync_state = _FakeCalendarSyncState({"primary": {"sync_token": "old"}})
+    calendar_service = _FakeCalendarEventsService(pages=[
+        {"items": [{"id": "e1"}], "nextSyncToken": "new"}
+    ])
+    graph = _FakeGraph()
+    notifications: list[str] = []
+    posted: list = []
+
+    handle_calendar_notification(
+        _fake_app_ctx(graph=graph), {"resource_state": "exists"},
+        calendar_service=calendar_service,
+        calendar_sync_state=sync_state,
+        connector=connector,
+        notify=notifications.append,
+        user_id="me@example.com",
+        post_approval=lambda *a, **kw: posted.append(a),
+    )
+
+    assert len(notifications) == 1  # still notified
+    assert posted == []             # but no card: nowhere to rebook
+    assert graph.calls == []        # and no workflow started
+
+
+def test_no_hold_offer_without_post_approval():
+    """Without a channel to carry the card, detection stays exactly the
+    read-only behavior it always was."""
+    e1 = _cal_event("e1", 60, duration_min=30)
+    e2 = _cal_event("e2", 75, duration_min=30)
+    connector = _FakeCalendarConnector({"e1": e1, "e2": e2}, nearby=[e1, e2])
+    sync_state = _FakeCalendarSyncState({"primary": {"sync_token": "old"}})
+    calendar_service = _FakeCalendarEventsService(pages=[
+        {"items": [{"id": "e1"}], "nextSyncToken": "new"}
+    ])
+    graph = _FakeGraph()
+
+    handle_calendar_notification(
+        _fake_app_ctx(graph=graph), {"resource_state": "exists"},
+        calendar_service=calendar_service,
+        calendar_sync_state=sync_state,
+        connector=connector,
+        notify=lambda text: None,
+        user_id="me@example.com",
+    )
+
+    assert graph.calls == []
+
+
 def test_calendar_notification_no_notify_when_no_conflict():
     e1 = _cal_event("e1", 0, duration_min=30)
     connector = _FakeCalendarConnector({"e1": e1}, nearby=[e1])

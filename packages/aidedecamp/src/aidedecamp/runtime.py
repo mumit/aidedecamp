@@ -244,6 +244,22 @@ class Runtime:
             if self.gchat is not None and self.settings.chat_default_space:
                 self.gchat.post_text(self.settings.chat_default_space, text)
 
+        def _post_approval(thread_id, draft, rationale, *, title=None):  # noqa: ANN001
+            if self.slack is not None and self.slack_say is not None:
+                self.slack.post_approval(
+                    self.slack_say, thread_id=thread_id, domain="calendar",
+                    proposed_draft=draft, rationale=rationale, title=title,
+                )
+            if self.gchat is not None and self.settings.chat_default_space:
+                self.gchat.post_approval(
+                    self.settings.chat_default_space, thread_id=thread_id,
+                    domain="calendar", proposed_draft=draft,
+                    rationale=rationale, title=title,
+                )
+
+        has_channel = (self.slack is not None and self.slack_say is not None) or (
+            self.gchat is not None and self.settings.chat_default_space
+        )
         return handle_calendar_notification(
             self.app,
             notification,
@@ -254,6 +270,8 @@ class Runtime:
             user_id=self.settings.user_id,
             calendar_id=self.settings.calendar_id,
             audit_log=self.app.audit_log,
+            post_approval=_post_approval if has_channel else None,
+            pending=self.pending,
         )
 
     def process_chat_interaction(self, event: dict[str, Any]) -> None:
