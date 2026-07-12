@@ -77,7 +77,12 @@ and `credentials.py`).
   no hold-creation/accept-decline action layer built, deliberately — see
   `docs/decisions.md`).
 - `memory/` — substrate-agnostic `MemoryStore` (`base.py`), Mem0 impl
-  (`mem0_store.py`), capture signals (`signals.py`), transparency commands
+  (`mem0_store.py` — includes the real nightly `consolidate` pass: one
+  `Task.CONSOLIDATE` call, strict-JSON plan, conservative apply — malformed
+  response mutates nothing, unknown ids never deleted; the design-2.4 eval
+  set in `tests/test_memory_quality.py` + `memory_quality_scenarios.json`
+  must be extended when memory behavior changes), capture signals
+  (`signals.py`), transparency commands
   (`commands.py`: list/resolve/forget/remember — the engine behind the chat
   grammar and `aidedecamp memory`; chat-side routing runs only on user DMs,
   never on fetched content, and forget is two-step).

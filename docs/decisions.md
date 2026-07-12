@@ -3,6 +3,39 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — Real consolidation pass + memory-quality regression set (roadmap prompt 13)
+
+- **`Mem0Store.consolidate` is no longer a no-op.** The scheduled deep pass
+  (design 2.2's third leg, with a caller since prompt 05) now: gathers raw
+  action signals (`infer=False`, stored verbatim precisely so this pass
+  could reason over ground truth) and existing facts, capped at 200 each (a
+  backlog must never produce a mega-prompt); makes **one**
+  `Task.CONSOLIDATE` call (Sonnet 5 — correctness compounds, design 4.5)
+  demanding strict JSON (`promotions`/`merges`/`supersessions`, each citing
+  the ids it absorbs/supersedes); and applies conservatively.
+- **The conservative-apply contract, pinned by tests**: a malformed model
+  response mutates *nothing* (a botched consolidation that mangles memory
+  is far worse than a skipped night — the report says so and moves on);
+  deletions happen only for ids the model explicitly cited AND that
+  verifiably exist — never on ambiguity. Supersession is add-new (+
+  `metadata.supersedes` breadcrumb) + delete-old, and the report notes that
+  true bi-temporal validity windows await the Graphiti migration (Phase 4).
+  The consolidation prompt frames all memory text as data, never
+  instructions (rule 2 — some of it originated in untrusted mail).
+- **The client rides into the store**: `Mem0Store(config, client=…)`,
+  wired by `build_app` — without one, consolidate degrades to an honest
+  no-op report.
+- **The design-2.4 memory eval set exists**: `test_memory_quality.py` +
+  `memory_quality_scenarios.json`, LoCoMo/LongMemEval-style categories —
+  single-session recall, multi-session recall, preference recall, and
+  **knowledge update** (Priya→Marcus ownership change: post-consolidation
+  retrieval returns Marcus, the Priya fact is gone, the breadcrumb points
+  back). Offline by default against a mem0-shaped fake substrate *under the
+  real `Mem0Store` adapter* (the pipeline is the code under test, not
+  embedding quality); a live variant (real Mem0/Qdrant/Fuel iX) runs behind
+  `ADC_LIVE_MEMORY_EVAL=1`, manual only. Extend the scenario file whenever
+  `memory/`, `signals.py`, or the consolidation prompt changes.
+
 ## 2026-07 — Autonomy: persistence, grant/revoke, earned graduation (roadmap prompt 12)
 
 - **The earning mechanism finally exists.** "Autonomy is earned, not

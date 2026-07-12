@@ -1,0 +1,46 @@
+{
+  "_comment": "Memory-quality regression scenarios (design 2.4, LoCoMo/LongMemEval-style categories). Extend this file whenever memory/, signals.py, or the consolidation prompt changes behavior: seed memories (optionally split across sessions), ask the query, assert the expectation. The knowledge-update category is procedural (needs a consolidation run) and lives in test_memory_quality.py directly.",
+  "scenarios": [
+    {
+      "category": "single_session_recall",
+      "name": "fact stated once is retrievable",
+      "sessions": [["Dana is the user's manager"]],
+      "query": "who is the user's manager",
+      "expect_contains": "Dana"
+    },
+    {
+      "category": "single_session_recall",
+      "name": "project fact retrievable by project name",
+      "sessions": [["Priya is the PM for Project Falcon"]],
+      "query": "Falcon",
+      "expect_contains": "Priya"
+    },
+    {
+      "category": "multi_session_recall",
+      "name": "facts from different sessions both retrievable",
+      "sessions": [
+        ["The user never takes calls before 9am"],
+        ["The user prefers Friday afternoons kept free of meetings"]
+      ],
+      "query": "calls before 9am",
+      "expect_contains": "9am"
+    },
+    {
+      "category": "multi_session_recall",
+      "name": "later session does not shadow earlier facts",
+      "sessions": [
+        ["Marcus leads the contract redline"],
+        ["Sam owns the Q3 budget review"]
+      ],
+      "query": "contract redline",
+      "expect_contains": "Marcus"
+    },
+    {
+      "category": "preference_recall",
+      "name": "correction-derived preference retrievable at draft time",
+      "sessions": [["Prefers short replies without throat-clearing to external vendors"]],
+      "query": "how should replies to vendors be written",
+      "expect_contains": "short replies"
+    }
+  ]
+}

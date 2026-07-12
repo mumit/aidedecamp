@@ -122,7 +122,11 @@ def build_app(
     else:
         resolved_checkpointer = checkpointer
 
-    resolved_store: MemoryStore = store or Mem0Store(build_mem0_config())
+    # The client rides into the store for the nightly consolidation pass
+    # (Task.CONSOLIDATE on the strong model — design 2.2).
+    resolved_store: MemoryStore = store or Mem0Store(
+        build_mem0_config(), client=resolved_client
+    )
     resolved_audit_log: AuditLog = audit_log or JsonlAuditLog(settings.audit_log_path)
 
     graph = build_draft_approve_graph(
