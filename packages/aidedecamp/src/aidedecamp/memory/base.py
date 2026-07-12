@@ -95,14 +95,18 @@ class MemoryStore(ABC):
     def delete(self, memory_id: str) -> None:
         """Remove one memory by id (user correcting a wrong fact)."""
 
-    def consolidate(self, *, user_id: str) -> "ConsolidationReport":
+    def consolidate(
+        self, *, user_id: str, audit_log: Any = None
+    ) -> "ConsolidationReport":
         """Scheduled maintenance pass (design 2.2): dedupe near-identical
         memories and supersede stale facts rather than overwriting them.
 
         Default implementation is a no-op that reports nothing changed;
         substrates override with real logic. Runs on a schedule, not inline,
         and is routed to the most capable model because correctness here
-        compounds over time."""
+        compounds over time. ``audit_log`` (optional) journals every applied
+        mutation so "what did last night's pass do to my memory" is a
+        query, not archaeology."""
         return ConsolidationReport(user_id=user_id, ran_at=_now())
 
 

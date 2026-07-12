@@ -90,7 +90,9 @@ and `credentials.py`).
 - `memory/` — substrate-agnostic `MemoryStore` (`base.py`), Mem0 impl
   (`mem0_store.py` — includes the real nightly `consolidate` pass: one
   `Task.CONSOLIDATE` call, strict-JSON plan, conservative apply — malformed
-  response mutates nothing, unknown ids never deleted; the design-2.4 eval
+  response mutates nothing, unknown ids never deleted, and every delete is
+  preceded by a VERIFIED replacement write (empty add result aborts the
+  batch); mutations are journaled to the audit log; the design-2.4 eval
   set in `tests/test_memory_quality.py` + `memory_quality_scenarios.json`
   must be extended when memory behavior changes), capture signals
   (`signals.py`), transparency commands

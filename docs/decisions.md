@@ -3,6 +3,32 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — Verified, journaled consolidation (roadmap prompt 22, review finding #7)
+
+- **Write → verify → delete, per item.** The consolidation pass called
+  `add()` fire-and-forget and then deleted every absorbed memory — a
+  substrate whose write quietly no-ops (Mem0's own extraction can decide
+  nothing is worth storing, or a write can partially fail) erased the
+  source evidence while writing nothing. Every mutation now verifies the
+  replacement `add` produced at least one record **before** any delete;
+  the ordering means a crash between verify and delete leaves a harmless
+  duplicate (the next pass merges it), never a loss.
+- **An unverified write aborts the whole batch** — a substrate that isn't
+  writing is a systemic condition, not an item-level one; the remaining
+  mutations wait for the next nightly run's fresh plan. The abort is noted
+  in the report (`write_unverified`) and journaled
+  (`consolidation_aborted`).
+- **Every applied mutation is journaled** under the `"memory"` workflow
+  (`consolidation_promoted`/`_merged`/`_superseded`, carrying the new ids
+  and the deleted ids) — "what did last night's pass do to my memory" is
+  now a query. `consolidate` gained an optional `audit_log` kwarg (base
+  signature too); `Runtime.run_consolidation` passes the real log, with a
+  TypeError fallback for substrates predating the kwarg. Journal failures
+  never abort consolidation (best-effort); write-verification failures
+  abort, hard.
+- The existing conservative-apply contract (malformed plan → nothing;
+  unknown ids → never deleted) is untouched and still pinned by its tests.
+
 ## 2026-07 — Freshness, retries, honest at-least-once (roadmap prompt 21, review findings #5 + #6)
 
 - **Nothing is silently lost anymore.** A failing `get_thread`/`get_event`

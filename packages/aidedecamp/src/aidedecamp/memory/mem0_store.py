@@ -188,7 +188,9 @@ class Mem0Store(MemoryStore):
     def delete(self, memory_id: str) -> None:
         self._memory.delete(memory_id=memory_id)
 
-    def consolidate(self, *, user_id: str) -> ConsolidationReport:
+    def consolidate(
+        self, *, user_id: str, audit_log: Any = None
+    ) -> ConsolidationReport:
         """The scheduled deep pass (design 2.2, roadmap prompt 13): promote
         repeated raw action signals into durable preferences, merge
         near-duplicates, supersede contradicted facts.
@@ -197,10 +199,16 @@ class Mem0Store(MemoryStore):
         JSON; a malformed response mutates NOTHING (a botched consolidation
         that mangles memory is far worse than a skipped night). Deletions
         happen only for ids the model explicitly listed AND that verifiably
-        exist. Mem0 has no validity windows, so supersession here is
-        add-new + delete-old with a ``supersedes`` breadcrumb — true
-        bi-temporal supersession is the Graphiti migration's job (design
-        Phase 4), and the report says so.
+        exist — and (prompt 22) only after the replacement ``add`` verifiably
+        produced records: an empty add result aborts the whole batch, since
+        a substrate that isn't writing is a systemic condition, not an
+        item-level one. Order per item is write → verify → delete, so a
+        crash leaves a harmless duplicate (the next pass merges it), never a
+        loss. Every applied mutation is journaled to ``audit_log``. Mem0 has
+        no validity windows, so supersession here is add-new + delete-old
+        with a ``supersedes`` breadcrumb — true bi-temporal supersession is
+        the Graphiti migration's job (design Phase 4), and the report says
+        so.
         """
         report = ConsolidationReport(user_id=user_id, ran_at=_now())
         if self._client is None:
@@ -227,33 +235,93 @@ class Mem0Store(MemoryStore):
             )
             return report
 
-        for item in plan.get("promotions", []) + plan.get("merges", []):
+        def _journal(event: str, **fields: Any) -> None:
+            """Best-effort journaling — never aborts consolidation."""
+            if audit_log is None:
+                return
+            try:
+                from datetime import datetime, timezone
+
+                audit_log.record(
+                    thread_id="memory:consolidation",
+                    workflow="memory",
+                    events=[{
+                        "event": event,
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                        **fields,
+                    }],
+                    domain="memory",
+                    user_id=user_id,
+                )
+            except Exception:  # noqa: BLE001
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "consolidation journal write failed", exc_info=True
+                )
+
+        def _verified_add(text: str, metadata: dict[str, Any]) -> list[str] | None:
+            """Write, then VERIFY records exist before any delete may
+            follow. None = unverified write -> the caller aborts the batch
+            (review finding #7: add() was fire-and-forget, so a no-op write
+            still erased the absorbed source evidence)."""
+            written = self.add(text, user_id=user_id, metadata=metadata, infer=False)
+            ids = [r.id for r in (written or []) if getattr(r, "id", None)]
+            return ids or None
+
+        aborted = False
+        for kind, item in (
+            [("promoted", i) for i in plan.get("promotions", [])]
+            + [("merged", i) for i in plan.get("merges", [])]
+        ):
             text = item.get("text")
             if not text or not isinstance(text, str):
                 continue
-            self.add(
-                text, user_id=user_id,
-                metadata={"signal": "consolidated"}, infer=False,
-            )
+            new_ids = _verified_add(text, {"signal": "consolidated"})
+            if new_ids is None:
+                report.notes.append(
+                    f"write_unverified: substrate returned no records for "
+                    f"{kind} — batch aborted, nothing deleted for this or "
+                    "later items"
+                )
+                _journal("consolidation_aborted", reason="write_unverified")
+                aborted = True
+                break
+            deleted = []
             for absorbed in item.get("absorbs", []):
                 if absorbed in known_ids:
                     self.delete(absorbed)
                     known_ids.discard(absorbed)
+                    deleted.append(absorbed)
                     report.merged += 1
-
-        for item in plan.get("supersessions", []):
-            text = item.get("text")
-            old_id = item.get("supersedes")
-            if not text or old_id not in known_ids:
-                continue  # never delete on ambiguity
-            self.add(
-                text, user_id=user_id,
-                metadata={"signal": "consolidated", "supersedes": old_id},
-                infer=False,
+            _journal(
+                f"consolidation_{kind}",
+                new_ids=new_ids, deleted_ids=deleted, text=text[:120],
             )
-            self.delete(old_id)
-            known_ids.discard(old_id)
-            report.superseded += 1
+
+        if not aborted:
+            for item in plan.get("supersessions", []):
+                text = item.get("text")
+                old_id = item.get("supersedes")
+                if not text or old_id not in known_ids:
+                    continue  # never delete on ambiguity
+                new_ids = _verified_add(
+                    text, {"signal": "consolidated", "supersedes": old_id}
+                )
+                if new_ids is None:
+                    report.notes.append(
+                        "write_unverified: substrate returned no records for "
+                        "supersession — batch aborted, old fact retained"
+                    )
+                    _journal("consolidation_aborted", reason="write_unverified")
+                    break
+                self.delete(old_id)
+                known_ids.discard(old_id)
+                report.superseded += 1
+                _journal(
+                    "consolidation_superseded",
+                    new_ids=new_ids, deleted_ids=[old_id], text=text[:120],
+                )
 
         report.notes.append(
             "supersession is add+delete with a breadcrumb; validity windows "

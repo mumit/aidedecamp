@@ -296,3 +296,136 @@ def test_live_knowledge_update():  # pragma: no cover - live services
     store.consolidate(user_id=user)
     results = store.search("who is the PM for Project Falcon", user_id=user)
     assert any("Marcus" in r.text for r in results)
+
+
+# ---------------------------------------------------------------------------
+# Verified, journaled mutations (prompt 22, review finding #7)
+# ---------------------------------------------------------------------------
+
+
+class SilentlyFailingMemory(FakeMemory):
+    """A substrate whose add() quietly writes nothing — the exact failure
+    that used to erase absorbed evidence."""
+
+    def add(self, payload, *, user_id, metadata=None, infer=True):
+        return {"results": []}
+
+
+class RecordingAuditLog:
+    def __init__(self):
+        self.records: list[dict] = []
+
+    def record(self, **kwargs):
+        self.records.append(kwargs)
+
+
+def test_unverified_write_aborts_batch_and_deletes_nothing():
+    fake = SilentlyFailingMemory()
+    store = Mem0Store(memory=fake)
+    # seed via the working parent implementation
+    FakeMemory.add(fake, "[rejected] mail: one", user_id="u1",
+                   metadata={"signal": "action"})
+    FakeMemory.add(fake, "[rejected] mail: two", user_id="u1",
+                   metadata={"signal": "action"})
+    ids = list(fake.items)
+    audit = RecordingAuditLog()
+    store._client = CannedClient(json.dumps({
+        "promotions": [
+            {"text": "first promotion", "absorbs": [ids[0]]},
+            {"text": "second promotion", "absorbs": [ids[1]]},
+        ],
+        "merges": [], "supersessions": [],
+    }))
+
+    report = store.consolidate(user_id="u1", audit_log=audit)
+
+    # nothing deleted — the batch aborted on the FIRST unverified write
+    assert set(fake.items) == set(ids)
+    assert report.merged == 0
+    assert any("write_unverified" in n for n in report.notes)
+    events = [e["event"] for rec in audit.records for e in rec["events"]]
+    assert events == ["consolidation_aborted"]
+
+
+def test_supersession_write_failure_retains_old_fact():
+    fake = SilentlyFailingMemory()
+    store = Mem0Store(memory=fake)
+    old = FakeMemory.add(fake, "Priya is the PM", user_id="u1")
+    old_id = old["results"][0]["id"]
+    store._client = CannedClient(json.dumps({
+        "promotions": [], "merges": [],
+        "supersessions": [{"text": "Marcus is the PM", "supersedes": old_id}],
+    }))
+
+    report = store.consolidate(user_id="u1")
+
+    assert old_id in fake.items  # the old fact survives an unverified write
+    assert report.superseded == 0
+
+
+def test_applied_mutations_are_journaled():
+    fake = FakeMemory()
+    store = Mem0Store(memory=fake)
+    old_id = _seed_ownership_change(store)
+    audit = RecordingAuditLog()
+    store._client = CannedClient(json.dumps({
+        "promotions": [], "merges": [],
+        "supersessions": [
+            {"text": "Marcus is the PM for Project Falcon", "supersedes": old_id}
+        ],
+    }))
+
+    store.consolidate(user_id="u1", audit_log=audit)
+
+    events = [e for rec in audit.records for e in rec["events"]]
+    superseded = next(e for e in events if e["event"] == "consolidation_superseded")
+    assert superseded["deleted_ids"] == [old_id]
+    assert superseded["new_ids"]  # the verified replacement's id(s)
+    assert audit.records[0]["workflow"] == "memory"
+
+
+def test_write_precedes_delete_per_item():
+    """Order pin: a crash between write and delete must leave a duplicate,
+    never a loss — so the verified add always lands before any delete."""
+    calls: list[str] = []
+
+    class OrderRecordingMemory(FakeMemory):
+        def add(self, payload, *, user_id, metadata=None, infer=True):
+            calls.append("add")
+            return super().add(payload, user_id=user_id, metadata=metadata,
+                               infer=infer)
+
+        def delete(self, *, memory_id):
+            calls.append("delete")
+            super().delete(memory_id=memory_id)
+
+    fake = OrderRecordingMemory()
+    store = Mem0Store(memory=fake)
+    old_id = _seed_ownership_change(store)
+    calls.clear()
+    store._client = CannedClient(json.dumps({
+        "promotions": [], "merges": [],
+        "supersessions": [{"text": "Marcus runs Falcon", "supersedes": old_id}],
+    }))
+
+    store.consolidate(user_id="u1")
+
+    assert calls.index("add") < calls.index("delete")
+
+
+def test_journal_failure_never_aborts_consolidation():
+    class ExplodingAudit:
+        def record(self, **kw):
+            raise RuntimeError("audit disk full")
+
+    fake = FakeMemory()
+    store = Mem0Store(memory=fake)
+    old_id = _seed_ownership_change(store)
+    store._client = CannedClient(json.dumps({
+        "promotions": [], "merges": [],
+        "supersessions": [{"text": "Marcus runs Falcon", "supersedes": old_id}],
+    }))
+
+    report = store.consolidate(user_id="u1", audit_log=ExplodingAudit())
+
+    assert report.superseded == 1  # the mutation itself still applied

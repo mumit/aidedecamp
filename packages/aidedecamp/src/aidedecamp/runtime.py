@@ -370,7 +370,13 @@ class Runtime:
         implementation is currently a no-op report; this gives it its cadence
         so the real pass (roadmap prompt 13) lands with a caller already in
         place. The report is audited either way."""
-        report = self.app.store.consolidate(user_id=self.settings.user_id)
+        try:
+            report = self.app.store.consolidate(
+                user_id=self.settings.user_id, audit_log=self.app.audit_log
+            )
+        except TypeError:
+            # substrates predating the audit_log kwarg
+            report = self.app.store.consolidate(user_id=self.settings.user_id)
         from datetime import datetime, timezone as _tz
 
         self.app.audit_log.record(
