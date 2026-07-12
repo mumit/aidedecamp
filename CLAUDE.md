@@ -136,9 +136,11 @@ and `credentials.py`).
   `handle_gmail_notification` triages every thread first (`triage_fn`,
   defaults to `orchestrator.triage_thread`) and skips drafting entirely for
   NOISE — a pure go/no-go gate, no auto-label or other write action.
-  `handle_calendar_notification` is read-only the same way — it calls
-  `notify` on a scheduling conflict, never creates a hold or answers an
-  invite. `handle_chat_interaction` is the async half of Chat's approve/
+  `handle_calendar_notification` calls `notify` on a scheduling conflict
+  and (when a channel can carry the card) offers a CREATE_HOLD workflow —
+  capped at `MAX_HOLD_OFFERS_PER_RUN`, symmetric pairs deduped via the
+  pending registry, and a missing/expired sync token REBASELINES WITHOUT
+  DISPATCHING (no first-run flood); it never answers an invite. `handle_chat_interaction` is the async half of Chat's approve/
   reject flow (see `docs/decisions.md`) — the republisher forwards a
   verified, decoded click here over Pub/Sub; this is what actually calls
   `resume_fn` and posts the real confirmation.

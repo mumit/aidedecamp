@@ -1065,6 +1065,149 @@ def test_calendar_notification_full_syncs_on_expired():
     assert sync_state.get("primary")["sync_token"] == "fresh"
 
 
+def test_bootstrap_rebaselines_without_dispatching():
+    """Prompt 23: a first-ever sync (or 410 recovery) stores the token but
+    dispatches NOTHING — pre-existing overlaps must not become a wall of
+    notifications and cards."""
+    e1 = _cal_event("e1", 0, duration_min=60, summary="Client call")
+    e2 = _cal_event("e2", 15, duration_min=30, summary="Standup")  # overlaps!
+    connector = _FakeCalendarConnector({"e1": e1, "e2": e2}, nearby=[e1, e2])
+    sync_state = _FakeCalendarSyncState()  # no baseline -> SyncExpired
+    calendar_service = _FakeCalendarEventsService(pages=[
+        {"items": [{"id": "e1"}, {"id": "e2"}], "nextSyncToken": "fresh"}
+    ])
+    graph = _FakeGraph()
+    audit = _FakeAuditLog()
+    notifications: list[str] = []
+    posted: list = []
+
+    result = handle_calendar_notification(
+        _fake_app_ctx(graph=graph), {"resource_state": "sync"},
+        calendar_service=calendar_service,
+        calendar_sync_state=sync_state,
+        connector=connector,
+        notify=notifications.append,
+        user_id="me@example.com",
+        audit_log=audit,
+        post_approval=lambda *a, **kw: posted.append(a),
+    )
+
+    assert result == []
+    assert notifications == []      # the pre-existing conflict stays silent
+    assert posted == []
+    assert graph.calls == []
+    assert sync_state.get("primary")["sync_token"] == "fresh"
+    event = audit.records[0]["events"][0]
+    assert event["event"] == "calendar_rebaselined"
+    assert event["skipped_events"] == 2
+
+
+def test_post_baseline_change_flows_normally():
+    """After the baseline exists, a changed event goes through the normal
+    conflict-detection + offer path."""
+    e1 = _cal_event("e1", 60, duration_min=30, summary="Client call")
+    e2 = _cal_event("e2", 75, duration_min=30)
+    connector = _FakeCalendarConnector({"e1": e1, "e2": e2}, nearby=[e1, e2])
+    sync_state = _FakeCalendarSyncState({"primary": {"sync_token": "old"}})
+    calendar_service = _FakeCalendarEventsService(pages=[
+        {"items": [{"id": "e1"}], "nextSyncToken": "new"}
+    ])
+    notifications: list[str] = []
+    posted: list = []
+
+    result = handle_calendar_notification(
+        _fake_app_ctx(graph=_FakeGraph()), {"resource_state": "exists"},
+        calendar_service=calendar_service,
+        calendar_sync_state=sync_state,
+        connector=connector,
+        notify=notifications.append,
+        user_id="me@example.com",
+        post_approval=lambda *a, **kw: posted.append(a),
+    )
+
+    assert len(result) == 1
+    assert len(notifications) == 1
+    assert len(posted) == 1
+
+
+def test_symmetric_conflict_pair_gets_one_card():
+    """A overlaps B and B overlaps A: one collision, one card — whichever
+    side got there first (prompt 23)."""
+    e1 = _cal_event("e1", 60, duration_min=30, summary="A")
+    e2 = _cal_event("e2", 75, duration_min=30, summary="B")
+    connector = _FakeCalendarConnector({"e1": e1, "e2": e2}, nearby=[e1, e2])
+    sync_state = _FakeCalendarSyncState({"primary": {"sync_token": "old"}})
+    calendar_service = _FakeCalendarEventsService(pages=[
+        # BOTH sides of the pair arrive as changed
+        {"items": [{"id": "e1"}, {"id": "e2"}], "nextSyncToken": "new"}
+    ])
+    posted: list = []
+    registered: dict[str, object] = {}
+
+    class _Pending:
+        def get_pending_for_source(self, ref):
+            return registered.get(ref)
+
+        def register(self, *, lg_tid, source_ref, domain, posted_at):
+            registered[source_ref] = object()
+
+    handle_calendar_notification(
+        _fake_app_ctx(graph=_FakeGraph()), {"resource_state": "exists"},
+        calendar_service=calendar_service,
+        calendar_sync_state=sync_state,
+        connector=connector,
+        notify=lambda text: None,
+        user_id="me@example.com",
+        post_approval=lambda *a, **kw: posted.append(a),
+        pending=_Pending(),
+    )
+
+    assert len(posted) == 1  # not two cards for the same collision
+
+
+def test_hold_offers_capped_per_run_but_all_conflicts_notified():
+    # five distinct conflict pairs in one notification
+    events = {}
+    changed = []
+    nearby = []
+    for i in range(5):
+        a = _cal_event(f"a{i}", 60 + i * 120, duration_min=30, summary=f"A{i}")
+        b = _cal_event(f"b{i}", 75 + i * 120, duration_min=30, summary=f"B{i}")
+        events[a.event_id] = a
+        events[b.event_id] = b
+        changed.append({"id": a.event_id})
+        nearby.extend([a, b])
+
+    class _PairConnector:
+        def get_event(self, event_id):
+            return events[event_id]
+
+        def list_events(self, *, time_min, time_max):
+            # only the events overlapping the queried window
+            return [e for e in nearby if e.start < time_max and time_min < e.end]
+
+    sync_state = _FakeCalendarSyncState({"primary": {"sync_token": "old"}})
+    calendar_service = _FakeCalendarEventsService(pages=[
+        {"items": changed, "nextSyncToken": "new"}
+    ])
+    notifications: list[str] = []
+    posted: list = []
+
+    result = handle_calendar_notification(
+        _fake_app_ctx(graph=_FakeGraph()), {"resource_state": "exists"},
+        calendar_service=calendar_service,
+        calendar_sync_state=sync_state,
+        connector=_PairConnector(),
+        notify=notifications.append,
+        user_id="me@example.com",
+        post_approval=lambda *a, **kw: posted.append(a),
+    )
+
+    assert len(result) == 5
+    assert len(notifications) == 5   # every conflict still notified
+    assert len(posted) == 3          # but at most 3 cards per run
+
+
 def test_calendar_notification_records_audit_event():
     e1 = _cal_event("e1", 0, duration_min=60, summary="Client call")
     e2 = _cal_event("e2", 15, duration_min=30, summary="Standup")

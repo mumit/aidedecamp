@@ -72,6 +72,9 @@ _default_triage = triage_thread
 
 
 FETCH_RETRIES = 2
+# Hold offers per calendar notification — a conflict-heavy day still gets
+# every notification, but never a wall of cards (mirrors the nudge cap).
+MAX_HOLD_OFFERS_PER_RUN = 3
 
 
 def _fetch_with_retry(fetch: Callable[[], Any], retries: int = FETCH_RETRIES) -> Any:
@@ -347,11 +350,12 @@ def handle_calendar_notification(
 ) -> list[ConflictResult]:
     """Process a decoded Calendar webhook notification (design 1.2, 1.4, 4.2).
 
-    Reconciles via the stored sync-token baseline (falling back to a full
-    resync on :class:`~ingestion.SyncExpired` — no baseline, or an expired
-    410 token; see ``calendar_sync.py`` for why this recovery differs from
-    Gmail's watch-renewal), then checks each changed event for a scheduling
-    conflict. For every conflict found, ``notify(text)`` is called with a
+    Reconciles via the stored sync-token baseline. A missing/expired token
+    (:class:`~ingestion.SyncExpired`) REBASELINES WITHOUT DISPATCHING —
+    every event would otherwise come back "changed" and flood the user with
+    cards for pre-existing overlaps (prompt 23; mirrors poll-mode
+    Gmail/Chat first-run semantics). Normal notifications check each changed
+    event for a scheduling conflict. For every conflict found, ``notify(text)`` is called with a
     plain-text heads-up, and — when ``audit_log`` is supplied — the
     detection is recorded under a ``"scheduling"`` workflow name.
 
@@ -368,9 +372,32 @@ def handle_calendar_notification(
     try:
         changes = _reconcile_calendar(calendar_service, calendar_sync_state, calendar_id)
     except SyncExpired:
+        # First-ever sync, or a 410-expired token: full_calendar_sync
+        # returns EVERY event as "changed". Dispatching those would flood
+        # the user with notifications + hold offers for every pre-existing
+        # overlap (review finding #8) — so rebaseline and return, exactly
+        # like poll-mode Gmail/Chat's "start from now, never replay".
         changes = full_calendar_sync(calendar_service, calendar_sync_state, calendar_id)
+        logger.info(
+            "calendar rebaselined (%d pre-existing events skipped)",
+            len(changes.event_ids),
+        )
+        if audit_log is not None:
+            audit_log.record(
+                thread_id=f"calendar:{calendar_id}:rebaseline",
+                workflow="ops",
+                events=[{
+                    "event": "calendar_rebaselined",
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "skipped_events": len(changes.event_ids),
+                }],
+                domain="ops",
+                user_id=user_id,
+            )
+        return []
 
     conflicts: list[ConflictResult] = []
+    offers_made = 0
     for event_id in changes.event_ids:
         try:
             event = _fetch_with_retry(lambda: connector.get_event(event_id))
@@ -417,11 +444,21 @@ def handle_calendar_notification(
             )
 
         if post_approval is not None:
-            _offer_resolution_hold(
+            if offers_made >= MAX_HOLD_OFFERS_PER_RUN:
+                # Detection + notify above still ran; only the CARD is
+                # capped — a wall of proposals is worse than none.
+                logger.info(
+                    "hold-offer cap reached; conflict on %s notified only",
+                    event.event_id,
+                )
+                continue
+            offered = _offer_resolution_hold(
                 app_ctx, connector, conflict,
                 post_approval=post_approval, pending=pending,
                 audit_log=audit_log, user_id=user_id, notify=notify,
             )
+            if offered is not None:
+                offers_made += 1
 
     return conflicts
 
@@ -452,8 +489,15 @@ def _offer_resolution_hold(
     start, end = slots[0]
 
     if pending is not None and hasattr(pending, "get_pending_for_source"):
-        if pending.get_pending_for_source(event.event_id) is not None:
-            return None  # a card for this event is already live
+        # Symmetric-pair dedupe (prompt 23): A-overlaps-B and B-overlaps-A
+        # are one collision — one card, whichever side got there first.
+        if (
+            pending.get_pending_for_source(event.event_id) is not None
+            or pending.get_pending_for_source(
+                conflict.conflicting_with.event_id
+            ) is not None
+        ):
+            return None
 
     lg_tid = f"calendar:hold:{event.event_id}:{start:%Y%m%d%H%M}"
     incoming_summary = (

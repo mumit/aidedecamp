@@ -3,6 +3,25 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — Calendar bootstrap suppression + hold-offer caps (roadmap prompt 23, review finding #8)
+
+- **Rebaseline without dispatching.** A missing or 410-expired sync token
+  makes `full_calendar_sync` return every event as "changed" — on a busy
+  calendar, first run meant a notification + hold proposal for every
+  pre-existing overlap (twice, for symmetric pairs).
+  `handle_calendar_notification` now stores the fresh token and returns
+  nothing on `SyncExpired`, recording one `"ops"` `calendar_rebaselined`
+  audit event with the skipped-event count so the silence is explainable —
+  the same "start from now, never replay" semantics poll-mode Gmail/Chat
+  already had. Changes after the new baseline flow normally.
+- **Symmetric-pair dedupe**: before offering a hold, the pending registry
+  is checked for a live card on EITHER side of the collision — one card per
+  pair, whichever side arrived first.
+- **`MAX_HOLD_OFFERS_PER_RUN = 3`** (a module constant, mirroring the nudge
+  cap — no new setting): conflicts beyond the cap still `notify` (the
+  read-only heads-up costs nothing) but post no card, logged. Detection
+  and notification are never capped; only cards are.
+
 ## 2026-07 — Verified, journaled consolidation (roadmap prompt 22, review finding #7)
 
 - **Write → verify → delete, per item.** The consolidation pass called
