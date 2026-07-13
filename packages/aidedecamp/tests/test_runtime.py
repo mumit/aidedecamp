@@ -497,6 +497,25 @@ class _FakeConversation:
         )
 
 
+class _FakeRetryQueue:
+    """Injected so tests never touch the real SQLite default in CWD."""
+
+    def __init__(self):
+        self.enqueued: list[tuple] = []
+
+    def enqueue(self, kind, source_ref, payload, *, error):
+        self.enqueued.append((kind, source_ref, payload, error))
+
+    def pending(self, *, limit=25):
+        return []
+
+    def complete(self, item):
+        pass
+
+    def fail(self, item, *, error):
+        pass
+
+
 def _runtime(**overrides):
     kwargs = dict(
         app=_app_ctx(),
@@ -507,6 +526,7 @@ def _runtime(**overrides):
         chat_events_service=object(), calendar_service=object(),
         pending=_FakePending(),
         conversation=_FakeConversation(),
+        retry_queue=_FakeRetryQueue(),
     )
     kwargs.update(overrides)
     return build_runtime(_settings(), **kwargs)

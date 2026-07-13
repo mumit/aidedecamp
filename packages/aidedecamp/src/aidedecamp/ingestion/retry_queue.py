@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -18,11 +19,21 @@ class RetryItem:
 
 
 class SqliteRetryQueue:
-    """Small durable queue with one live item per (kind, source_ref)."""
+    """Small durable queue with one live item per (kind, source_ref).
+
+    Disk initialization is LAZY, per the same convention as every JSON state
+    file in this codebase: constructing the queue (which ``build_runtime``
+    does unconditionally) touches nothing; the database and its WAL sidecars
+    appear only when the first failure is actually enqueued. Read paths on a
+    never-created queue short-circuit without creating the file either —
+    otherwise the five-minute drain job would recreate it immediately.
+    """
 
     def __init__(self, path: str):
         self._path = path
-        self._initialize()
+
+    def _exists(self) -> bool:
+        return os.path.exists(self._path)
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._path, timeout=30)
@@ -30,8 +41,6 @@ class SqliteRetryQueue:
         return conn
 
     def _initialize(self) -> None:
-        import os
-
         parent = os.path.dirname(self._path)
         if parent:
             os.makedirs(parent, exist_ok=True)
@@ -53,6 +62,7 @@ class SqliteRetryQueue:
     def enqueue(
         self, kind: str, source_ref: str, payload: dict[str, Any], *, error: str
     ) -> None:
+        self._initialize()
         now = datetime.now(timezone.utc).isoformat()
         with self._connect() as conn:
             conn.execute(
@@ -69,6 +79,8 @@ class SqliteRetryQueue:
             )
 
     def pending(self, *, limit: int = 25) -> list[RetryItem]:
+        if not self._exists():
+            return []
         with self._connect() as conn:
             rows = conn.execute(
                 """
@@ -82,6 +94,8 @@ class SqliteRetryQueue:
         return [RetryItem(r[0], r[1], json.loads(r[2]), r[3]) for r in rows]
 
     def complete(self, item: RetryItem) -> None:
+        if not self._exists():
+            return
         with self._connect() as conn:
             conn.execute(
                 "DELETE FROM source_retries WHERE kind=? AND source_ref=?",
@@ -89,6 +103,8 @@ class SqliteRetryQueue:
             )
 
     def fail(self, item: RetryItem, *, error: str) -> None:
+        if not self._exists():
+            return
         now = datetime.now(timezone.utc).isoformat()
         with self._connect() as conn:
             conn.execute(

@@ -3,6 +3,20 @@
 A running log of settled architectural decisions, so the reasoning survives even
 when the design doc gets long. Newest first.
 
+## 2026-07 — Retry queue initializes lazily (post-review defect fix)
+
+- `SqliteRetryQueue` created its database eagerly at construction, and
+  `build_runtime` constructs it unconditionally — so every test run (and
+  any run without `ADC_DATA_DIR`) littered the working directory with
+  `source_retries.db` + WAL sidecars. Every other file-backed default in
+  this codebase initializes lazily on first use; the queue now follows the
+  same convention: construction and empty reads touch nothing (`pending()`
+  on a never-created queue returns `[]` without creating the file —
+  otherwise the five-minute drain job would recreate it immediately); the
+  database appears only when the first failure is actually enqueued. The
+  runtime test helper injects a fake queue, and `.gitignore` covers the
+  pattern as a backstop. Pinned by tests.
+
 ## 2026-07 — Deployment documentation follows executable reality
 
 - CLI entrypoints now load the `.env` produced by `aidedecamp init`; the

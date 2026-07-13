@@ -37,3 +37,7 @@ audit.log.jsonl
 .idea/
 .vscode/
 .DS_Store
+
+# Retry-queue SQLite (lives in ADC_DATA_DIR in real deployments)
+source_retries.db
+source_retries.db-*
