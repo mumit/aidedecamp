@@ -323,6 +323,39 @@ def test_brief_prints_assembled_summary(capsys):
     assert "0 unread" in out
 
 
+def test_plain_brief_does_not_load_google_credentials_for_mcp(monkeypatch):
+    from attune.cli.brief_cmd import _default_build
+    from attune.config import Settings
+
+    settings = Settings.from_env({
+        "ATTUNE_WORKSPACE_BACKEND": "mcp",
+        "ATTUNE_MCP_URL": "https://mcp.example/mcp",
+    })
+    connector = object()
+    client = object()
+
+    def fail_google_load(configured):
+        raise AssertionError("Google credentials should not load for MCP")
+
+    monkeypatch.setattr(
+        "attune.config.Settings.from_env", classmethod(lambda cls: settings)
+    )
+    monkeypatch.setattr(
+        "attune.credentials.load_google_credentials",
+        fail_google_load,
+    )
+    monkeypatch.setattr(
+        "attune.connectors.make_connector",
+        lambda configured, **kwargs: connector,
+    )
+    monkeypatch.setattr(
+        "attune.llm.make_client",
+        lambda **kwargs: client,
+    )
+
+    assert _default_build() == (connector, client, settings)
+
+
 def test_run_gates_on_fatal_doctor_checks():
     started: list[bool] = []
 

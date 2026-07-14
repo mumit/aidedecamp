@@ -42,8 +42,9 @@ comments and unknown keys are preserved, legacy names are migrated, and a
 `.env.bak` backup is written. Use `attune init --fresh` only when you explicitly
 want a new configuration.
 
-See [Getting started](docs/getting-started.md), [Design](docs/design.md), and
-[Deployment](docs/deployment.md). MCP server implementers should use the
+See [Getting started](docs/getting-started.md), the complete
+[configuration reference](docs/configuration.md), [Design](docs/design.md),
+and [Deployment](docs/deployment.md). MCP server implementers should use the
 [versioned Workspace contract](docs/mcp-contract.md).
 
 ## Development
