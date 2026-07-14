@@ -48,3 +48,45 @@ def test_slack_owner_destination_reuses_allowlisted_user_id():
 
     assert "ATTUNE_SLACK_CHANNEL=U0123456789" in guide
     assert "conversations_open" not in guide
+
+
+def test_gcp_foundation_preserves_hosted_security_boundaries():
+    root = ROOT / "deploy" / "gcp" / "foundation"
+    terraform = "\n".join(path.read_text() for path in sorted(root.glob("*.tf")))
+
+    assert 'version = "7.34.0"' in terraform
+    assert 'ipv4_enabled    = false' in terraform
+    assert 'cloudsql.iam_authentication' in terraform
+    assert 'edition                     = "ENTERPRISE"' in terraform
+    assert '".gserviceaccount.com"' in terraform
+    assert 'deletion_protection = true' in terraform
+    assert 'public_access_prevention    = "enforced"' in terraform
+    assert 'prevent_destroy = true' in terraform
+    assert 'serviceAccount:gmail-api-push@system.gserviceaccount.com' in terraform
+    assert 'roles/secretmanager.secretAccessor' in terraform
+    assert 'name            = "connector-credentials"' in terraform
+    assert 'roles/cloudkms.cryptoKeyEncrypterDecrypter' in terraform
+    assert 'roles/secretmanager.secretVersionAdder' not in terraform
+    assert 'roles/secretmanager.admin' not in terraform
+    assert 'roles/editor' not in terraform
+    assert 'roles/owner' not in terraform
+    assert "secret_manager_secret_version" not in terraform
+    assert "google_cloud_run_v2_service" not in terraform
+
+
+def test_gcp_foundation_documents_no_customer_data_gate():
+    foundation = (ROOT / "deploy" / "gcp" / "foundation" / "README.md").read_text()
+    architecture = (ROOT / "docs" / "hosted-gcp.md").read_text()
+    normalized_foundation = " ".join(foundation.split())
+    normalized_architecture = " ".join(architecture.split())
+
+    assert "does not admit customer data" in normalized_foundation
+    assert "gmail-api-push@system.gserviceaccount.com" in foundation
+    assert "constraints/iam.allowedPolicyMemberDomains" in foundation
+    assert "add-iam-policy-binding" in foundation
+    assert "restore_domain_policy" in foundation
+    assert "terraform plan -detailed-exitcode" in foundation
+    assert "Repeat this procedure only for a new topic/project" in normalized_foundation
+    assert "making the topic public" in normalized_foundation
+    assert "No secret value may enter Terraform state" in normalized_architecture
+    assert "Production is blocked" in normalized_architecture

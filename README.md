@@ -59,7 +59,8 @@ configuration-only.
 See [Getting started](docs/getting-started.md), the complete
 [configuration reference](docs/configuration.md), the
 [user journey](docs/user-journey.md), [Design](docs/design.md), and
-[Deployment](docs/deployment.md). The normative
+[Deployment](docs/deployment.md). Operators building the managed service should
+start with the [GCP operated-service architecture](docs/hosted-gcp.md). The normative
 [security architecture](docs/security-architecture.md) defines trust boundaries,
 control requirements, red-team cases, and hosted launch gates. MCP server
 implementers should use the [versioned Workspace contract](docs/mcp-contract.md).

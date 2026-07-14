@@ -42,3 +42,12 @@ setup-state.json
 # Retry-queue SQLite (lives in ATTUNE_DATA_DIR in real deployments)
 source_retries.db
 source_retries.db-*
+
+# Terraform local state, plans, and operator values (provider lock files commit)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+*.auto.tfvars
+backend.hcl

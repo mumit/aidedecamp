@@ -1,0 +1,11 @@
+project_id  = "attune-staging-example"
+region      = "northamerica-northeast1"
+environment = "staging"
+
+# Production must set this to true. Bucket Lock is irreversible.
+lock_audit_retention = false
+
+labels = {
+  owner       = "platform"
+  cost_center = "attune"
+}

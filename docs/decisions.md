@@ -2,6 +2,21 @@
 
 Newest first. This log records decisions that constrain current implementation.
 
+## 2026-07 — GCP is the first operated SaaS platform
+
+- The first hosted implementation uses Cloud Run, Cloud Tasks, private Cloud
+  SQL PostgreSQL, Secret Manager/KMS, Artifact Registry, and retained Cloud
+  Storage audit objects. Each trust boundary has a separate service identity.
+- Hosted vector storage starts with PostgreSQL `vector` and tenant RLS rather
+  than a shared Qdrant service, reducing privileged stores and unifying tenant
+  deletion, backup, and audit boundaries. The memory interface remains portable.
+- GCP is an implementation choice, not a product branch. The self-hosted
+  single-principal runtime and polling mode stay portable; cloud-specific code
+  remains behind hosted adapters and declarative infrastructure.
+- The Terraform foundation creates no secret versions and deploys no current
+  single-principal runtime. Customer data is prohibited until hosted schema,
+  secret-broker, identity-link, ingress, audit, and isolation gates pass.
+
 ## 2026-07 — Local setup is planned, resumable, and resource-owned
 
 - `attune init --target local` writes configuration first, displays an exact
