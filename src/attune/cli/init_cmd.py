@@ -221,7 +221,8 @@ def run_init(
     slack_bot = ask_kept_secret("Slack bot token", "SLACK_BOT_TOKEN")
     slack_app = ask_kept_secret("Slack app-level token", "SLACK_APP_TOKEN") if slack_bot else ""
     slack_channel = ask_default(
-        "Slack proactive destination ID", current.get("ATTUNE_SLACK_CHANNEL", "")
+        "Slack destination ID (owner U... or conversation D/C/G...)",
+        current.get("ATTUNE_SLACK_CHANNEL", ""),
     ) if slack_bot else ""
     slack_allowed = ask_default(
         "Allowed Slack user IDs", current.get("ATTUNE_SLACK_ALLOWED_USERS", "")

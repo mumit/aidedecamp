@@ -59,7 +59,10 @@ def test_qdrant_server_accepts_compose_service_override():
 
 
 def test_owner_private_slack_dm_needs_no_visibility_ack():
-    Settings.from_env({"ATTUNE_SLACK_CHANNEL": "D0123"}).validate_proactive_destinations()
+    for destination in ("U0123", "D0123"):
+        Settings.from_env({
+            "ATTUNE_SLACK_CHANNEL": destination
+        }).validate_proactive_destinations()
 
 
 def test_shared_or_unverifiable_destinations_require_ack():
@@ -88,7 +91,7 @@ def test_visibility_ack_allows_explicit_shared_destination():
 @pytest.mark.parametrize(
     "env, message",
     [
-        ({"ATTUNE_SLACK_CHANNEL": "#aide"}, "conversation ID"),
+        ({"ATTUNE_SLACK_CHANNEL": "#aide"}, "user/conversation ID"),
         ({"ATTUNE_CHAT_SPACE": "AAAA"}, "spaces/AAAA"),
     ],
 )

@@ -481,6 +481,15 @@ def test_make_slack_say_posts_to_configured_channel():
     assert post_call["blocks"] == [{"type": "header"}]
 
 
+def test_make_slack_say_accepts_owner_user_id_for_dm():
+    mod, calls = _fake_slack_sdk_module()
+    with patch.dict(sys.modules, {"slack_sdk": mod}):
+        say = make_slack_say("xoxb-token", "U123")
+        say(text="owner brief")
+
+    assert calls[1]["channel"] == "U123"
+
+
 def test_make_slack_say_returns_result():
     mod, _ = _fake_slack_sdk_module()
     with patch.dict(sys.modules, {"slack_sdk": mod}):

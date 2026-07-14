@@ -280,11 +280,17 @@ class Settings:
         self.validate_proactive_destinations()
 
     def validate_proactive_destinations(self) -> None:
-        if self.slack_default_channel and not self.slack_default_channel.startswith(("D", "C", "G")):
-            raise ValueError("ATTUNE_SLACK_CHANNEL must be a Slack conversation ID beginning D, C, or G")
+        if self.slack_default_channel and not self.slack_default_channel.startswith(("U", "D", "C", "G")):
+            raise ValueError(
+                "ATTUNE_SLACK_CHANNEL must be a Slack user/conversation ID "
+                "beginning U, D, C, or G"
+            )
         if self.chat_default_space and not self.chat_default_space.startswith("spaces/"):
             raise ValueError("ATTUNE_CHAT_SPACE must be a resource name such as spaces/AAAA")
-        slack_needs_ack = bool(self.slack_default_channel and not self.slack_default_channel.startswith("D"))
+        slack_needs_ack = bool(
+            self.slack_default_channel
+            and not self.slack_default_channel.startswith(("U", "D"))
+        )
         chat_needs_ack = bool(self.chat_default_space)
         if (slack_needs_ack or chat_needs_ack) and not self.destination_visibility_acknowledged:
             raise ValueError(

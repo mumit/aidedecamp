@@ -106,7 +106,7 @@ the [user journey](user-journey.md).
 |---|---|---|
 | `SLACK_APP_TOKEN` | blank | Slack Socket Mode app-level token beginning `xapp-`. Required only when Slack is an interaction channel. |
 | `SLACK_BOT_TOKEN` | blank | Slack bot token beginning `xoxb-`. Required for any Slack delivery or interaction route. |
-| `ATTUNE_SLACK_CHANNEL` | blank | Proactive Slack destination ID: owner DM (`D…`, recommended), private channel (`G…`), or channel (`C…`). Names such as `#general` are not accepted. |
+| `ATTUNE_SLACK_CHANNEL` | blank | Stable proactive Slack destination: owner member ID (`U…`, recommended; Slack opens the app DM), existing DM (`D…`), private channel (`G…`), or channel (`C…`). Display names are mutable/non-unique and are not accepted. |
 | `ATTUNE_SLACK_ALLOWED_USERS` | blank | Comma-separated Slack member IDs (`U…`) allowed to interact with Attune. Required when Slack interactions are enabled; normally list only the principal. |
 | `ATTUNE_CHAT_CREDENTIALS_FILE` | blank | Service-account JSON for the Google Chat app using `chat.bot`. Required for any Google Chat route and distinct from the user's Gmail/Calendar credential. |
 | `ATTUNE_CHAT_SPACE` | blank | Proactive Google Chat destination resource such as `spaces/AAAA`. Prefer an owner-only direct-message space. |
@@ -163,7 +163,7 @@ Slack-only delivery and interaction uses:
 ```dotenv
 SLACK_APP_TOKEN=xapp-...
 SLACK_BOT_TOKEN=xoxb-...
-ATTUNE_SLACK_CHANNEL=D...
+ATTUNE_SLACK_CHANNEL=U...
 ATTUNE_SLACK_ALLOWED_USERS=U...
 ATTUNE_BRIEF_CHANNELS=slack
 ATTUNE_APPROVAL_CHANNEL=slack

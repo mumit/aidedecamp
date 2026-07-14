@@ -262,7 +262,8 @@ def make_slack_say(bot_token: str, channel: str) -> Callable[..., Any]:
     a Gmail-triggered approval card, neither of which arrives inside a live
     Slack event with its own ``say`` in scope (unlike button-click handlers,
     which get one from Bolt). Lazily imports ``slack_sdk`` (bundled with
-    slack_bolt) so the module loads without it.
+    slack_bolt) so the module loads without it. ``channel`` may also be the
+    owner's stable ``U...`` member ID; Slack resolves it to the app DM.
 
     Use with :class:`SlackChannel`'s ``post_brief``/``post_approval``::
 

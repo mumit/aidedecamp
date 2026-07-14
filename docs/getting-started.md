@@ -258,32 +258,27 @@ and that `message.im` needs `im:history`: see the
 [Socket Mode guide](https://docs.slack.dev/tools/python-slack-sdk/socket-mode/)
 and [`message.im` reference](https://docs.slack.dev/reference/events/message.im).
 
-### Find the owner-only DM destination
+### Choose the owner-only DM destination
 
-Open a DM with the app. Attune needs its API conversation ID (`D...`), not a
-display name. After putting the tokens and owner ID in `.env`, this prints only
-the DM ID:
+Use the same stable owner member ID (`U...`) for both the proactive destination
+and interaction allowlist. Slack's `chat.postMessage` accepts a user ID and
+opens the app's one-to-one conversation when needed, so no separate `D...`
+lookup script is required. An existing `D...` conversation ID also works.
 
-```bash
-python - <<'PY'
-import os
-from dotenv import load_dotenv
-from slack_sdk import WebClient
-
-load_dotenv()
-result = WebClient(token=os.environ["SLACK_BOT_TOKEN"]).conversations_open(
-    users=os.environ["ATTUNE_SLACK_ALLOWED_USERS"]
-)
-print(result["channel"]["id"])
-PY
-```
+Why not store a display name? Names are easier to recognize and type, which is
+useful in an interactive setup wizard. Slack display names are nevertheless
+mutable and non-unique, username-based posting is deprecated, and resolving a
+name requires listing workspace users with the additional `users:read` scope.
+The stable `U...` ID is already required for Attune's allowlist, works directly
+for an owner DM, and avoids both ambiguity and extra directory access. Shared
+destinations still use stable `C...` or `G...` conversation IDs.
 
 Configure Slack as the delivery and interaction surface:
 
 ```dotenv
 SLACK_APP_TOKEN=xapp-...
 SLACK_BOT_TOKEN=xoxb-...
-ATTUNE_SLACK_CHANNEL=D0123456789
+ATTUNE_SLACK_CHANNEL=U0123456789
 ATTUNE_SLACK_ALLOWED_USERS=U0123456789
 
 ATTUNE_BRIEF_CHANNELS=slack
@@ -340,7 +335,7 @@ approval flow.
 | `qdrant FAIL` | Start Docker and run `docker compose -f deploy/compose.yml up -d`. |
 | `slack FAIL: missing_scope` | Add the Slack scopes above and reinstall the app. |
 | `channels FAIL` | Set the destination, token, allowlist, and explicit route variables for every selected channel. |
-| Slack configured with `#name` | Use a `D...`, `C...`, or `G...` API conversation ID. |
+| Slack configured with a display name | Use the owner's `U...` member ID for a DM, or a stable `D...`, `C...`, or `G...` conversation ID. |
 
 For an always-on server or Google Cloud push deployment, continue with
 [`deployment.md`](deployment.md).

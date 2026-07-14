@@ -34,9 +34,13 @@ source .venv/bin/activate
 pip install -e ".[dev,orchestrator,memory,google,slack,mcp]"
 cp .env.example .env
 attune init
+docker compose -f deploy/compose.yml up -d
 attune doctor
 attune run
 ```
+
+The Compose command starts the durable Qdrant memory service on
+`127.0.0.1:6333`; `attune doctor` verifies it before the runtime starts.
 
 `attune init` edits an existing `.env` in place: current values become defaults,
 comments and unknown keys are preserved, legacy names are migrated, and a
