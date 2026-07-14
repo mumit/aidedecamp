@@ -67,8 +67,8 @@ planned re-embedding/migration.
 | `ATTUNE_EMBEDDING_API_KEY` | LLM API key | Bearer credential for embeddings. Leave blank when the LLM credential also authorizes the embedding endpoint. |
 | `ATTUNE_EMBEDDING_MODEL` | blank | Required for memory. Suggested: `text-embedding-3-small`; quality-first: `text-embedding-3-large`. The configured provider must expose it. |
 | `ATTUNE_EMBEDDING_DIMENSIONS` | blank | Required vector length. Use `1536` with the default `text-embedding-3-small`, or `3072` with full-size `text-embedding-3-large`. It must match the model output and existing Qdrant collection. |
-| `ATTUNE_QDRANT_HOST` | blank (Mem0 temporary local store) | Qdrant server host. Set `127.0.0.1` on a host or `qdrant` with `deploy/compose.yml`; this is recommended because Attune's Doctor and deployment path expect a durable Qdrant service. |
-| `ATTUNE_QDRANT_PORT` | `6333` | Qdrant HTTP port when `ATTUNE_QDRANT_HOST` is set. Keep `6333` unless the service uses another private port. |
+| `ATTUNE_QDRANT_HOST` | `127.0.0.1` | Durable Qdrant server host used by both runtime and Doctor. Keep the default when Attune runs on the host; the Compose assistant overrides it with the service name `qdrant`. Embedded Qdrant is intentionally not an implicit fallback. |
+| `ATTUNE_QDRANT_PORT` | `6333` | Qdrant HTTP port used by both runtime and Doctor. Keep `6333` unless the private service uses another port. |
 
 ## Principal and runtime
 

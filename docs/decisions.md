@@ -2,6 +2,16 @@
 
 Newest first. This log records decisions that constrain current implementation.
 
+## 2026-07 — Qdrant server mode is the memory default
+
+- Attune defaults to the durable Qdrant server at `127.0.0.1:6333`; embedded
+  Qdrant/SQLite is not an implicit fallback because Mem0 writes on worker
+  threads and the local SQLite client is not safe across those threads.
+- Runtime memory configuration and Doctor consume the same typed host and port,
+  so a passing readiness check validates the service the runtime actually uses.
+- The Compose assistant overrides the host with the internal service name
+  `qdrant`; host-based deployments retain the loopback default.
+
 ## 2026-07 — Channel conversation uses bounded live Workspace reads
 
 - Slack and Google Chat share one natural-language planner rather than separate

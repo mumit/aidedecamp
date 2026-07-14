@@ -67,6 +67,8 @@ class Settings:
     mem0_url: str
     audit_log_path: str
     data_dir: str | None = None
+    qdrant_host: str = "127.0.0.1"
+    qdrant_port: int = 6333
 
     # Principal and organization boundary.
     user_id: str = "me"
@@ -194,6 +196,8 @@ class Settings:
             embedding_dimensions=int(dims) if dims else None,
             mem0_url=e.get("ATTUNE_MEM0_URL", "http://localhost:8000"),
             data_dir=data_dir,
+            qdrant_host=e.get("ATTUNE_QDRANT_HOST") or "127.0.0.1",
+            qdrant_port=int(e.get("ATTUNE_QDRANT_PORT") or "6333"),
             audit_log_path=_path("ATTUNE_AUDIT_LOG_PATH", "audit.log.jsonl"),
             user_id=user_id,
             internal_domains=domains,

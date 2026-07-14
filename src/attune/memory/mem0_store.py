@@ -22,9 +22,6 @@ from .base import (
     _now,
 )
 
-import os
-
-
 def build_mem0_config(
     *,
     settings: Settings | None = None,
@@ -81,13 +78,9 @@ def build_mem0_config(
         vs_config: dict[str, Any] = {
             "collection_name": "attune",
             "embedding_model_dims": embedding_dimensions,
+            "host": settings.qdrant_host,
+            "port": settings.qdrant_port,
         }
-        # In the compose stack the assistant runs in a container where Qdrant
-        # isn't localhost — ATTUNE_QDRANT_HOST/PORT point it at the service name.
-        qdrant_host = os.environ.get("ATTUNE_QDRANT_HOST")
-        if qdrant_host:
-            vs_config["host"] = qdrant_host
-            vs_config["port"] = int(os.environ.get("ATTUNE_QDRANT_PORT", "6333"))
         resolved_vs = {"provider": "qdrant", "config": vs_config}
 
     return {"llm": llm, "embedder": resolved_embedder, "vector_store": resolved_vs}

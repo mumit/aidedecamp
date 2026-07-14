@@ -32,6 +32,11 @@ class Check:
     fn: CheckFn
 
 
+def _qdrant_ready_url(settings) -> str:
+    """The exact server target shared with Mem0 through typed settings."""
+    return f"http://{settings.qdrant_host}:{settings.qdrant_port}/readyz"
+
+
 def check_channel_routes(settings) -> tuple[str, str]:
     """Validate that every selected route has usable local configuration."""
     routed = (
@@ -284,9 +289,9 @@ def build_checks() -> list[Check]:  # pragma: no cover - thin assembly; each
     def check_qdrant() -> tuple[str, str]:
         # Mem0 runs in-process. Its actual external dependency is Qdrant, not
         # the obsolete standalone Mem0 REST endpoint represented by mem0_url.
-        host = os.environ.get("ATTUNE_QDRANT_HOST", "localhost")
-        port = int(os.environ.get("ATTUNE_QDRANT_PORT", "6333"))
-        url = f"http://{host}:{port}/readyz"
+        host = settings.qdrant_host
+        port = settings.qdrant_port
+        url = _qdrant_ready_url(settings)
         import urllib.request
 
         try:

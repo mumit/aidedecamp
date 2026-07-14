@@ -41,6 +41,23 @@ def test_no_data_dir_keeps_cwd_defaults():
     assert s.pending_state_path == "./pending_approvals.json"
 
 
+def test_qdrant_server_defaults_are_typed_and_durable():
+    # A copied .env may contain the key with no value; that must not select
+    # Mem0's embedded SQLite backend.
+    s = Settings.from_env({"ATTUNE_QDRANT_HOST": ""})
+    assert s.qdrant_host == "127.0.0.1"
+    assert s.qdrant_port == 6333
+
+
+def test_qdrant_server_accepts_compose_service_override():
+    s = Settings.from_env({
+        "ATTUNE_QDRANT_HOST": "qdrant",
+        "ATTUNE_QDRANT_PORT": "7333",
+    })
+    assert s.qdrant_host == "qdrant"
+    assert s.qdrant_port == 7333
+
+
 def test_owner_private_slack_dm_needs_no_visibility_ack():
     Settings.from_env({"ATTUNE_SLACK_CHANNEL": "D0123"}).validate_proactive_destinations()
 

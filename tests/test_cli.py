@@ -13,6 +13,7 @@ from attune.cli.doctor import (
     SKIP,
     WARN,
     Check,
+    _qdrant_ready_url,
     check_channel_routes,
     run_doctor,
 )
@@ -242,6 +243,16 @@ def test_doctor_fatal_only_filters_battery():
     run_doctor(checks, out=lambda s: None, fatal_only=True)
 
     assert ran == ["env", "llm", "channels"]  # network channel checks aren't fatal
+
+
+def test_doctor_qdrant_target_uses_resolved_settings():
+    from attune.config import Settings
+
+    settings = Settings.from_env({
+        "ATTUNE_QDRANT_HOST": "qdrant",
+        "ATTUNE_QDRANT_PORT": "7333",
+    })
+    assert _qdrant_ready_url(settings) == "http://qdrant:7333/readyz"
 
 
 def test_channel_routes_skip_when_no_surface_is_selected():

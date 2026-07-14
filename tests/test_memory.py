@@ -93,17 +93,18 @@ def test_embedding_override_keeps_model_and_dims_explicit():
     assert cfg["vector_store"]["config"]["embedding_model_dims"] == 3072
 
 
-def test_qdrant_host_env_points_store_at_service(monkeypatch):
-    """ATTUNE_QDRANT_HOST lets the containerized assistant reach the compose
-    stack's qdrant service (prompt 10); unset keeps mem0's default."""
-    monkeypatch.setenv("ATTUNE_QDRANT_HOST", "qdrant")
+def test_qdrant_server_default_matches_doctor_target():
     cfg = build_mem0_config(settings=_settings())
-    assert cfg["vector_store"]["config"]["host"] == "qdrant"
+    assert cfg["vector_store"]["config"]["host"] == "127.0.0.1"
     assert cfg["vector_store"]["config"]["port"] == 6333
 
-    monkeypatch.delenv("ATTUNE_QDRANT_HOST")
-    cfg = build_mem0_config(settings=_settings())
-    assert "host" not in cfg["vector_store"]["config"]
+
+def test_qdrant_host_setting_points_store_at_compose_service():
+    cfg = build_mem0_config(settings=_settings(
+        ATTUNE_QDRANT_HOST="qdrant", ATTUNE_QDRANT_PORT="7333"
+    ))
+    assert cfg["vector_store"]["config"]["host"] == "qdrant"
+    assert cfg["vector_store"]["config"]["port"] == 7333
 
 
 # --- store adapter -------------------------------------------------------
