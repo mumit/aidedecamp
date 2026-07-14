@@ -1,8 +1,9 @@
 # Attune
 
 Attune is a memory-aware assistant for Gmail, Google Calendar, Google Chat,
-and Slack. It drafts and triages work, prepares briefs, detects scheduling
-conflicts, and earns autonomy through explicit, audited grants.
+and Slack. It answers natural-language Workspace questions from live data,
+drafts and triages work, prepares briefs, detects scheduling conflicts, and
+earns autonomy through explicit, audited grants.
 
 ## Why the name
 
@@ -43,8 +44,9 @@ comments and unknown keys are preserved, legacy names are migrated, and a
 want a new configuration.
 
 See [Getting started](docs/getting-started.md), the complete
-[configuration reference](docs/configuration.md), [Design](docs/design.md),
-and [Deployment](docs/deployment.md). MCP server implementers should use the
+[configuration reference](docs/configuration.md), the
+[user journey](docs/user-journey.md), [Design](docs/design.md), and
+[Deployment](docs/deployment.md). MCP server implementers should use the
 [versioned Workspace contract](docs/mcp-contract.md).
 
 ## Development

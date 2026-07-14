@@ -98,7 +98,9 @@ Only the variables for the selected Workspace backend are required.
 
 Slack and Google Chat are optional and independently selectable. Route values
 are `slack`, `google_chat`, a comma-separated combination, or blank to disable
-that behavior. Approvals intentionally accept only one channel.
+that behavior. Approvals intentionally accept only one channel. Both
+interaction surfaces use the same bounded natural-language layer described in
+the [user journey](user-journey.md).
 
 | Variable | Default | Purpose and suggested value |
 |---|---|---|

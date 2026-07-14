@@ -244,6 +244,7 @@ class Runtime:
             memory_ui=self.memory_ui,
             audit_log=self.app.audit_log,
             allowed_senders=self.settings.chat_allowed_users,
+            workspace=self.connector,
         )
 
     def process_calendar_notification(
@@ -1178,6 +1179,7 @@ def build_runtime(
                 conversation=resolved_conversation,
                 memory_ui=_memory_ui,
                 audit_log=resolved_app.audit_log,
+                workspace=resolved_connector,
             )
 
         def _audit_unauthorized(actor: str, surface: str) -> None:

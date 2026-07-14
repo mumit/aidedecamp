@@ -321,6 +321,13 @@ Not every unread message produces Slack output: mail triaged as noise is
 audit-only. Calendar sends an immediate notification only for conflicts;
 ordinary appointments appear in that day's scheduled brief.
 
+With `ATTUNE_INTERACTION_CHANNELS` configured, the owner can now ask natural
+questions such as “Anything new to report?”, “Did Sarah reply?”, or “What is
+on my calendar tomorrow morning?” in Slack or Google Chat. Attune performs a
+bounded live Workspace read rather than answering those questions from memory
+alone. See the [user journey](user-journey.md) for the complete interaction and
+approval flow.
+
 ## Common failures
 
 | Doctor result | Meaning and fix |

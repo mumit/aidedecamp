@@ -64,6 +64,12 @@ Slack and Google Chat are peers and are optional. Briefs and notifications may
 use zero, one, or several channels; approvals use zero or one; interactions may
 use zero, one, or several.
 
+Both channels normalize authenticated human messages into one bounded
+natural-language planner. The planner can select live Gmail reads, live
+Calendar reads, a fresh brief, or memory-informed conversation. It is not an
+unrestricted tool loop and cannot execute free-form mutations. Workspace
+writes remain explicit durable workflows governed by autonomy and approval.
+
 Google Chat app messages and card actions arrive through its verified callback;
 proactive messages use a separate app service account. Google Workspace OAuth
 is not reused as Chat app authentication. Sender allowlists and destination

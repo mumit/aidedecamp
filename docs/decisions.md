@@ -2,6 +2,19 @@
 
 Newest first. This log records decisions that constrain current implementation.
 
+## 2026-07 — Channel conversation uses bounded live Workspace reads
+
+- Slack and Google Chat share one natural-language planner rather than separate
+  channel keyword routers.
+- The planner selects a fresh brief, capped Gmail search, bounded Calendar
+  window, or general memory-informed conversation. Direct OAuth and MCP behave
+  identically above the connector boundary.
+- Live results are provenance-framed as untrusted, source fields are bounded,
+  and answers must be grounded in the returned data. Read failures are
+  reported rather than silently replaced with memory-only answers.
+- Free-form mutations are recognized but refused. Writes remain in explicit,
+  audited workflows with autonomy gates and human approval.
+
 ## 2026-07 — Routes and MCP capability contracts fail fast
 
 - Selecting a channel route is an operational commitment. Doctor now treats

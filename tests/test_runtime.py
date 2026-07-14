@@ -23,6 +23,12 @@ from attune.ingestion.state import JsonChatSubscriptionState, JsonGmailWatchStat
 from attune.runtime import Runtime, build_runtime
 
 
+@pytest.fixture(autouse=True)
+def _isolate_runtime_files(tmp_path, monkeypatch):
+    """Runtime defaults exercised by this module must never litter the checkout."""
+    monkeypatch.chdir(tmp_path)
+
+
 # ---------------------------------------------------------------------------
 # Shared fakes
 # ---------------------------------------------------------------------------
@@ -361,18 +367,21 @@ def test_build_runtime_builds_slack_say_when_channel_configured():
     assert callable(runtime.slack_say)
 
 
-def test_build_runtime_wires_slack_message_fn_to_converse():
+def test_build_runtime_wires_slack_message_fn_to_live_workspace_reads():
     client = _FakeClient(reply="here's your answer")
     settings = _settings(SLACK_BOT_TOKEN="xoxb-token")
+    connector = _FakeConnector(threads={"t1": _FakeThread(subject="Unread plan")})
     runtime = build_runtime(
-        settings, app=_app_ctx(client=client), connector=_FakeConnector(),
+        settings, app=_app_ctx(client=client), connector=connector,
         gmail_service=_FakeGmailService(), chat_events_service=object(), calendar_service=object(),
     )
 
     replies = []
-    runtime.slack._message("what's on my plate?", "U1", replies.append)
+    runtime.slack._message("Any unread email?", "U1", replies.append)
 
     assert replies == ["here's your answer"]
+    assert len(client.calls) == 2  # classify, then answer from live results
+    assert "Unread plan" in client.calls[1]["messages"][-1]["content"]
 
 
 def test_slack_actor_uses_canonical_principal_memory_id():
@@ -664,7 +673,7 @@ def test_process_chat_event_noop_when_gchat_none():
     runtime.process_chat_event(_chat_event("hi"))
 
 
-def test_process_chat_event_posts_converse_reply():
+def test_process_chat_event_reads_live_calendar_for_natural_question():
     gchat = _FakeGChatChannel()
     client = _FakeClient(reply="here's your answer")
     runtime = _runtime(gchat=gchat, app=_app_ctx(client=client))
@@ -672,7 +681,9 @@ def test_process_chat_event_posts_converse_reply():
 
     runtime.process_chat_event(_chat_event("what's on my calendar?"))
 
-    assert gchat.texts == [("spaces/ABC", "here's your answer")]
+    assert gchat.texts == [(
+        "spaces/ABC", "I checked Calendar live and found no events in that window."
+    )]
 
 
 def test_process_chat_event_posts_brief_on_keyword():
