@@ -60,12 +60,16 @@ def _render(brief: Any) -> str:
 
 
 def _default_build():  # pragma: no cover - needs live credentials
-    from ..config import Settings
+    from ..config import Settings, WorkspaceBackend
     from ..connectors import make_connector
     from ..credentials import load_google_credentials
     from ..llm import make_client
 
     settings = Settings.from_env()
-    credentials = load_google_credentials(settings)
+    credentials = (
+        load_google_credentials(settings)
+        if settings.workspace_backend == WorkspaceBackend.GOOGLE_OAUTH
+        else None
+    )
     connector = make_connector(settings, credentials=credentials)
     return connector, make_client(settings=settings), settings
