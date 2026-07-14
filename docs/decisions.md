@@ -2,6 +2,26 @@
 
 Newest first. This log records decisions that constrain current implementation.
 
+## 2026-07 — Local setup is planned, resumable, and resource-owned
+
+- `attune init --target local` writes configuration first, displays an exact
+  deterministic Docker Compose plan, and applies it only after confirmation.
+  The subprocess uses a fixed argument array rather than a shell and receives
+  no Attune environment or credential.
+- The packaged local plan pins Qdrant `v1.18.2`, binds it only to loopback,
+  persists a named volume, and enables Docker's no-new-privileges control.
+- Setup state is schema-versioned, atomic, owner-readable only, and contains
+  statuses, resource identifiers, and a one-way configuration digest rather
+  than settings or secrets. Changed configuration or packaged-plan digest
+  invalidates downstream apply/validation success; interrupted and failed
+  applies are retryable.
+- `attune status` reports the secret-free record; `--check` adds live Doctor
+  validation. `attune repair` previews and reapplies the fixed plan only when a
+  matching state record establishes ownership.
+- Setup validation loads the selected environment exactly. Cleared Attune
+  settings remove stale in-process values so Doctor cannot pass using a token
+  that is no longer present in the file.
+
 ## 2026-07 — Security architecture is normative and the model is non-authoritative
 
 - `security-architecture.md` defines stable `SEC-*` requirements, data classes,

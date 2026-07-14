@@ -30,6 +30,7 @@ service-account*.json
 
 # Local runtime artifacts
 audit.log.jsonl
+setup-state.json
 *.sqlite
 *.db
 

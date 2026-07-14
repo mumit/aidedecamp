@@ -77,6 +77,15 @@ cd /opt/attune/source
 docker compose -f deploy/compose.yml up -d
 ```
 
+On an interactive host, `attune init --target local` combines environment
+editing, a previewed Qdrant Compose apply, resumable setup state, and the full
+Doctor validation. The manual command remains useful for a dedicated service
+account or configuration-management system. The local target deliberately
+does not install or retain cloud-administrator credentials.
+Use `attune status --check` for combined setup and live health, or
+`attune repair` to preview, reapply, and revalidate the recorded local plan.
+Repair refuses an unrecorded deployment rather than guessing resource ownership.
+
 Alternatively, run the whole stack in containers after a `.env` exists:
 
 ```bash

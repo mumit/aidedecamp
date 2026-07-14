@@ -39,7 +39,48 @@ python -c 'import attune; print(attune.__file__)'
 The result should contain this repository's `src/attune` path. `attune doctor`
 also checks this when run from a checkout.
 
-## 2. Start memory storage
+### Guided local setup
+
+For the shortest local path, create the editable environment and let the
+initializer configure, provision, and validate the local substrate:
+
+```bash
+cp .env.example .env
+attune init --target local
+```
+
+The wizard retains existing values as defaults, obtains Google consent when
+requested, and then displays an exact local deployment plan. If accepted, it
+starts a version-pinned Qdrant container bound only to `127.0.0.1:6333` and
+runs the full Doctor battery. It passes no Attune environment or credentials to
+the Qdrant container.
+
+Progress is recorded atomically with mode `0600` in
+`ATTUNE_DATA_DIR/setup-state.json`. That file contains statuses, resource names,
+and a one-way configuration digest—not environment values or secrets. A failed
+or interrupted apply is safe to retry with the same command. If the plan is
+declined, configuration remains saved and no container command is run.
+
+Inspect or repair the resulting installation without re-entering configuration:
+
+```bash
+attune status
+attune status --check
+attune repair
+```
+
+`status` never prints environment values. `repair` displays the fixed plan,
+reapplies only the recorded Attune Compose project, and reruns Doctor. It
+refuses to infer resource ownership when no matching state record exists.
+Status also reports the installation as stale when `.env` or the packaged plan
+has changed since the last successful apply; repair records and validates the
+new digests.
+
+The remaining sections explain each underlying choice and can be followed
+manually. Skip the manual Qdrant start and final `attune doctor` when the guided
+setup has already completed successfully.
+
+## 2. Start memory storage manually
 
 Attune runs Mem0 in-process and stores vectors in Qdrant. With Docker installed:
 
@@ -49,7 +90,8 @@ docker compose -f deploy/compose.yml ps
 ```
 
 The `qdrant` service should be running on port 6333. There is no separate Mem0
-server to configure.
+server to configure. The guided local target performs this step using the
+packaged, pinned Compose definition instead.
 
 ## 3. Configure models
 

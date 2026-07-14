@@ -6,6 +6,8 @@ a 600-line manual runbook. The CLI is the human front door:
 
     attune init      interactive setup wizard (writes .env)
     attune doctor    validate every credential/resource, with fix hints
+    attune status    inspect secret-free setup progress and live health
+    attune repair    reapply the recorded local plan and validate it
     attune brief     assemble one morning brief and print it
     attune run       start the always-on process (doctor-gated)
     attune memory    (subcommand group — arrives with roadmap M4)
@@ -38,12 +40,47 @@ def build_parser() -> argparse.ArgumentParser:
     p_init.add_argument(
         "--fresh", action="store_true", help="ignore existing values and create a fresh env file"
     )
+    p_init.add_argument(
+        "--target",
+        choices=("configure", "local"),
+        default="configure",
+        help="configure only (default), or provision and validate local Qdrant",
+    )
+    p_init.add_argument(
+        "--yes",
+        action="store_true",
+        help="apply the displayed deterministic deployment plan without prompting",
+    )
     p_init.set_defaults(func=_cmd_init)
 
     p_doctor = sub.add_parser(
         "doctor", help="validate configuration, credentials, and services"
     )
     p_doctor.set_defaults(func=_cmd_doctor)
+
+    p_status = sub.add_parser(
+        "status", help="show secret-free setup progress and optionally run Doctor"
+    )
+    p_status.add_argument(
+        "--env-file", default=".env", help="configured environment file"
+    )
+    p_status.add_argument(
+        "--check", action="store_true", help="also run the live Doctor battery"
+    )
+    p_status.set_defaults(func=_cmd_status)
+
+    p_repair = sub.add_parser(
+        "repair", help="reapply and validate the recorded local deployment"
+    )
+    p_repair.add_argument(
+        "--env-file", default=".env", help="configured environment file"
+    )
+    p_repair.add_argument(
+        "--yes",
+        action="store_true",
+        help="apply the displayed deterministic repair plan without prompting",
+    )
+    p_repair.set_defaults(func=_cmd_repair)
 
     p_brief = sub.add_parser("brief", help="assemble one morning brief and print it")
     p_brief.add_argument(
@@ -129,13 +166,30 @@ def main(argv: list[str] | None = None) -> int:
 def _cmd_init(args: Any) -> int:
     from .init_cmd import run_init
 
-    return run_init(env_file=args.env_file, fresh=args.fresh)
+    return run_init(
+        env_file=args.env_file,
+        fresh=args.fresh,
+        target=args.target,
+        yes=args.yes,
+    )
 
 
 def _cmd_doctor(args: Any) -> int:
     from .doctor import run_doctor
 
     return run_doctor()
+
+
+def _cmd_status(args: Any) -> int:
+    from .setup_cmd import run_status
+
+    return run_status(env_file=args.env_file, check=args.check)
+
+
+def _cmd_repair(args: Any) -> int:
+    from .setup_cmd import run_repair
+
+    return run_repair(env_file=args.env_file, yes=args.yes)
 
 
 def _cmd_brief(args: Any) -> int:

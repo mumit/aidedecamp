@@ -8,6 +8,7 @@
 - portable polling and advanced Google Pub/Sub ingestion
 - independently configurable Slack and Google Chat routes
 - editable, migration-aware `attune init`
+- versioned, secret-free setup state and deterministic local Qdrant provisioning
 - versioned generic MCP tool contract and capability diagnostics
 - fail-fast validation for optional channel routes
 - durable approvals, memory, audit, retries, and earned autonomy
@@ -26,7 +27,7 @@ The hosted path is gated by the security architecture rather than being a
 deployment wrapper around the current local process. Work proceeds in this
 order:
 
-1. versioned, resumable setup state shared by hosted and local onboarding;
+1. extend the versioned, resumable local setup state into hosted onboarding;
 2. authenticated control plane and explicit account/connector identity links;
 3. tenant-aware relational, vector, audit, queue, and object storage adapters;
 4. encrypted connector vault and policy-enforcing secret broker;

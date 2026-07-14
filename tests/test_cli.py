@@ -28,7 +28,8 @@ from attune.cli.run_cmd import run_run
 
 def test_parser_knows_all_subcommands():
     parser = build_parser()
-    for argv in (["doctor"], ["brief"], ["brief", "--post"],
+    for argv in (["doctor"], ["status", "--check"], ["repair", "--yes"],
+                 ["brief"], ["brief", "--post"],
                  ["run", "--no-checks"], ["init", "--fresh"],
                  ["memory"], ["autonomy"]):
         args = parser.parse_args(argv)

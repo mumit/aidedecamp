@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import getpass
+import hashlib
 import json
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 from typing import Callable
 
@@ -115,8 +117,20 @@ def run_init(
     ask: Callable[[str], str] = input,
     ask_secret: Callable[[str], str] = getpass.getpass,
     oauth_flow: Callable[..., str] | None = None,
+    target: str = "configure",
+    yes: bool = False,
+    local_runner: (
+        Callable[
+            [list[str] | tuple[str, ...]], subprocess.CompletedProcess[str]
+        ]
+        | None
+    ) = None,
+    doctor: Callable[..., int] | None = None,
     out: Callable[[str], None] = print,
 ) -> int:
+    if target not in {"configure", "local"}:
+        out(f"Unsupported setup target: {target}")
+        return 2
     existed = os.path.exists(env_file)
     original, current = ("", {}) if (fresh or force) else _load_existing(env_file)
 
@@ -148,7 +162,14 @@ def run_init(
         ask_default("Data directory", current.get("ATTUNE_DATA_DIR", DEFAULT_DATA_DIR))
     )
     if data_dir:
-        os.makedirs(data_dir, exist_ok=True)
+        os.makedirs(data_dir, mode=0o700, exist_ok=True)
+        # This directory contains credentials, workflow state, memory, and
+        # audit data. The explicit Attune data directory is owner-private.
+        try:
+            os.chmod(data_dir, 0o700)
+        except OSError:
+            # Windows and unusual filesystems may not support POSIX modes.
+            pass
     user_id = ask_default(
         "Google mailbox email / memory principal",
         current.get("ATTUNE_USER_ID", "me"),
@@ -246,7 +267,8 @@ def run_init(
         "Brief channels", current.get("ATTUNE_BRIEF_CHANNELS", route_default)
     )
     approval_channel = ask_default(
-        "Approval channel", current.get("ATTUNE_APPROVAL_CHANNEL", available[0] if available else "")
+        "Approval channel",
+        current.get("ATTUNE_APPROVAL_CHANNEL", available[0] if available else ""),
     )
     notification_channels = ask_default(
         "Notification channels", current.get("ATTUNE_NOTIFICATION_CHANNELS", route_default)
@@ -302,8 +324,135 @@ def run_init(
     }
     content = _rewrite_env(original, updates)
     _atomic_write(env_file, content, backup=existed and not (fresh or force))
-    out(f"Wrote {env_file} (0600)" + (f"; backup: {env_file}.bak" if existed and not (fresh or force) else ""))
-    out("Next: attune doctor, then attune brief")
+    backup_note = (
+        f"; backup: {env_file}.bak" if existed and not (fresh or force) else ""
+    )
+    out(f"Wrote {env_file} (0600){backup_note}")
+    if target == "configure":
+        out("Next: attune doctor, then attune brief")
+        return 0
+    return _run_local_target(
+        env_file=env_file,
+        data_dir=data_dir,
+        content=content,
+        ask=ask,
+        yes=yes,
+        runner=local_runner,
+        doctor=doctor,
+        force_apply=False,
+        out=out,
+    )
+
+
+def _run_local_target(
+    *,
+    env_file: str,
+    data_dir: str,
+    content: str,
+    ask: Callable[[str], str],
+    yes: bool,
+    runner: (
+        Callable[
+            [list[str] | tuple[str, ...]], subprocess.CompletedProcess[str]
+        ]
+        | None
+    ),
+    doctor: Callable[..., int] | None,
+    force_apply: bool = False,
+    out: Callable[[str], None],
+) -> int:
+    """Apply and validate the deterministic local substrate plan.
+
+    The state document contains only workflow metadata and a one-way digest of
+    the environment file, never its values.  An interrupted ``in_progress``
+    apply is safe to retry because Docker Compose ``up`` is idempotent.
+    """
+    from .env_file import attune_env_exact
+    from .local_setup import (
+        LocalProvisionError,
+        apply_local_plan,
+        build_local_plan,
+        render_local_plan,
+    )
+    from .setup_state import SetupState, SetupStateError, setup_state_path
+
+    path = setup_state_path(data_dir)
+    try:
+        state = SetupState.load_or_create(
+            path,
+            target="local",
+            env_file=env_file,
+            data_dir=data_dir,
+        )
+    except SetupStateError as exc:
+        out(f"Setup state refused: {exc}")
+        out(f"Inspect or move {path}; Attune will not overwrite ambiguous setup state.")
+        return 1
+
+    digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    state.record_configuration(digest)
+    plan = build_local_plan()
+    state.record_plan(plan.digest)
+    state.save(path)
+    for line in render_local_plan(plan):
+        out(line)
+    approved = yes or (
+        ask("Apply this local deployment plan? (y/N): ").strip().lower() == "y"
+    )
+    if not approved:
+        state.set_step("apply", "declined", "operator declined the displayed plan")
+        state.save(path)
+        out(
+            "Configuration is saved. Rerun with --target local when ready; "
+            f"state: {path}"
+        )
+        return 0
+
+    if state.steps["apply"].status == "succeeded" and not force_apply:
+        out(
+            "Local resources were already applied for this configuration; "
+            "validating again."
+        )
+    else:
+        state.set_step("apply", "in_progress", "applying reviewed Docker Compose plan")
+        state.save(path)
+        try:
+            apply_local_plan(plan, runner=runner)
+        except LocalProvisionError as exc:
+            state.set_step("apply", "failed", "Docker Compose plan failed")
+            state.save(path)
+            out(f"Local deployment failed: {exc}")
+            out(f"Fix Docker and rerun the same command; resumable state: {path}")
+            return 1
+        state.resources = list(plan.resources)
+        state.set_step("apply", "succeeded", "reviewed Docker Compose plan applied")
+        state.save(path)
+        out("Local Qdrant deployment applied.")
+
+    state.set_step("validate", "in_progress", "running full Attune Doctor")
+    state.save(path)
+    if doctor is None:
+        # The CLI loaded .env before the wizard rewrote it. Refresh only from
+        # the explicit setup file so Doctor validates the values just written.
+        from .doctor import run_doctor
+
+        doctor = run_doctor
+        with attune_env_exact(env_file):
+            code = int(doctor(out=out) or 0)
+    else:
+        code = int(doctor(out=out) or 0)
+    if code:
+        state.set_step("validate", "failed", "Attune Doctor reported failures")
+        state.save(path)
+        out(
+            "Local deployment is running but validation failed; resumable "
+            f"state: {path}"
+        )
+        return code
+    state.set_step("validate", "succeeded", "Attune Doctor passed")
+    state.save(path)
+    out(f"Local setup completed and validated; state: {path}")
+    out("Next: attune brief, then attune run")
     return 0
 
 
@@ -340,7 +489,9 @@ def _run_oauth_flow(*, client_secret_path: str, save_dir: str) -> str:  # pragma
 
     from ..credentials import SCOPES_DEFAULT
 
-    flow = InstalledAppFlow.from_client_secrets_file(client_secret_path, scopes=list(SCOPES_DEFAULT))
+    flow = InstalledAppFlow.from_client_secrets_file(
+        client_secret_path, scopes=list(SCOPES_DEFAULT)
+    )
     creds = flow.run_local_server(port=0)
     save_path = os.path.join(save_dir, "google_authorized_user.json")
     with open(save_path, "w") as fh:

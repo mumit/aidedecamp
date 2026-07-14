@@ -33,19 +33,28 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev,orchestrator,memory,google,slack,mcp]"
 cp .env.example .env
-attune init
-docker compose -f deploy/compose.yml up -d
-attune doctor
+attune init --target local
+attune brief
 attune run
 ```
 
-The Compose command starts the durable Qdrant memory service on
-`127.0.0.1:6333`; `attune doctor` verifies it before the runtime starts.
+The local target edits the environment, displays its deterministic deployment
+plan, starts the pinned Qdrant service on `127.0.0.1:6333`, and runs the full
+Doctor battery. Setup progress is resumable from
+`~/.attune/setup-state.json`; the state contains no configuration values or
+credentials. Use `--yes` only when you have already reviewed the displayed
+local plan and want non-interactive application.
+
+After setup, `attune status` reads only the secret-free progress record;
+`attune status --check` also runs live diagnostics. `attune repair` previews
+and reapplies the same owned local plan, then validates it again. Repair refuses
+to infer or modify resources when no matching setup record exists.
 
 `attune init` edits an existing `.env` in place: current values become defaults,
 comments and unknown keys are preserved, legacy names are migrated, and a
 `.env.bak` backup is written. Use `attune init --fresh` only when you explicitly
-want a new configuration.
+want a new configuration. Without `--target local`, initialization remains
+configuration-only.
 
 See [Getting started](docs/getting-started.md), the complete
 [configuration reference](docs/configuration.md), the

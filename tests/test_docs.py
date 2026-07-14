@@ -23,12 +23,24 @@ def test_every_example_environment_variable_is_documented():
     assert documented_keys == example_keys
 
 
-def test_quickstart_starts_qdrant_before_doctor():
+def test_quickstart_uses_guided_local_setup():
     readme = (ROOT / "README.md").read_text()
     quickstart = readme.split("## Quick start", 1)[1].split("## Development", 1)[0]
 
-    assert "docker compose -f deploy/compose.yml up -d" in quickstart
-    assert quickstart.index("docker compose") < quickstart.index("attune doctor")
+    assert "attune init --target local" in quickstart
+    assert "docker compose" not in quickstart
+    assert "attune doctor" not in quickstart
+
+
+def test_qdrant_compose_images_are_pinned_and_loopback_bound():
+    compose = (ROOT / "deploy" / "compose.yml").read_text()
+    local = (ROOT / "src" / "attune" / "resources" / "local-compose.yml").read_text()
+
+    assert "qdrant/qdrant:latest" not in compose + local
+    assert "qdrant/qdrant:v1.18.2" in compose
+    assert "qdrant/qdrant:v1.18.2" in local
+    assert '"127.0.0.1:6333:6333"' in compose
+    assert '"127.0.0.1:6333:6333"' in local
 
 
 def test_slack_owner_destination_reuses_allowlisted_user_id():
