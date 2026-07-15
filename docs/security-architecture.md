@@ -197,6 +197,37 @@ authenticated, and audited.
   through fixed lease/finalize functions. Finalization MUST re-prove the browser
   binding, be terminal, and remove the live PKCE verifier from the current row.
   The exchange workload MUST NOT receive application log-writer authority.
+- **SEC-109.** Hosted sign-in and provider connector consent MUST use separate
+  OAuth clients, secrets, redirects, and validation paths. Login identity MUST
+  NOT authorize provider data access, and a connector ID token MUST NOT create
+  an Attune session.
+- **SEC-110.** Hosted sessions MUST use independent high-entropy opaque and CSRF
+  values, store only hashes, bind one active tenant and principal, cap absolute
+  lifetime, and support immediate revocation. Email and domain claims MUST NOT
+  establish tenant membership. Zero or ambiguous membership MUST fail closed.
+- **SEC-111.** Browser identity API keys MUST be restricted to the exact
+  application and provider-handler origins and only the identity APIs the
+  client uses. They are public project identifiers, not authorization.
+  Administrative verification MUST select or redact exact non-secret fields
+  because a complete Identity Platform configuration can contain password-hash
+  configuration. OAuth client secrets MUST remain in provider configuration or
+  the connector-secret path, never Terraform state, logs, support output, or
+  operator chat.
+- **SEC-112.** Hosted browser sign-in MUST keep provider credentials transient,
+  exchange only a freshly verified token for an independent application
+  session, and remove provider state after exchange. Browser authentication code
+  MUST be version- and integrity-locked, built into the reviewed image, served
+  from the application origin, and constrained by an exact Content Security
+  Policy. A development bootstrap MAY expose sign-in before membership exists
+  only when zero membership fails closed and no connector authority is active.
+- **SEC-113.** Initial tenant membership MUST use a distinct operator workload
+  and database role with no direct table access. A fixed memberless function
+  owner MAY create a tenant only atomically with its first principal, MUST
+  serialize concurrent ceremonies, MUST make exact replay idempotent, and MUST
+  reject conflicting slugs or cross-tenant identity reuse. The raw provider
+  subject, expected email, and subject hash MUST NOT enter Terraform, job
+  arguments, images, or logs. A one-time secret version MAY carry only the
+  locally derived subject hash and MUST be destroyed after successful use.
 
 ### 5.2 Authorization model
 

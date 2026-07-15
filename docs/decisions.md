@@ -2,6 +2,23 @@
 
 Newest first. This log records decisions that constrain current implementation.
 
+## 2026-07 — Hosted login is separate from Workspace consent
+
+- Google Identity Platform verifies hosted login through a dedicated identity-
+  only OAuth client. Workspace connector consent uses a different client,
+  redirect, secret, and broker-owned exchange path.
+- The control plane accepts only a fresh, verified Google-provider Identity
+  Platform token with exact issuer and project audience, then replaces it with
+  independent opaque and CSRF session values whose hashes are tenant-bound in
+  PostgreSQL for at most eight hours.
+- Email and domain are not membership authority. A memberless function owner
+  resolves the hashed subject across tenants and creates a session only for
+  exactly one active mapping; zero and multiple mappings return no session.
+- The Identity Platform provider secret is configured outside Terraform because
+  the provider resource persists it in state. API enablement, dormant runtime
+  flags, database coordinates, and deny-by-default edge routes remain
+  declarative.
+
 ## 2026-07 — Google code exchange is private and broker-owned
 
 - The public callback identity may invoke exactly one internal-only OAuth
@@ -298,6 +315,24 @@ Newest first. This log records decisions that constrain current implementation.
   sharing changes, or access grants.
 - Security exceptions are explicit, owned, compensating-control-backed, and
   time-bounded.
+
+## 2026-07 — Initial hosted membership uses a one-purpose operator boundary
+
+- A successful Identity Platform login never creates Attune membership from an
+  email or domain. Zero mappings fail closed before an application session is
+  issued.
+- The first development mapping is created by a private Cloud Run job with a
+  distinct workload/IAM database identity. It can execute one fixed
+  `SECURITY DEFINER` function and has no direct tenant-table access.
+- The function creates a tenant atomically with its first principal, serializes
+  concurrent calls, makes exact replay idempotent, and rejects conflicting
+  subject or slug state. It cannot add members to an established tenant.
+- Only a locally derived SHA-256 subject hash crosses the boundary, through a
+  one-time CMEK-backed secret version destroyed after execution. Terraform,
+  job overrides, image layers, and content-free logs contain no identity
+  material.
+- The bulk-access migrator remains migration-only and accepts no runtime
+  overrides. It is not an identity administration interface.
 
 ## 2026-07 — Qdrant server mode is the memory default
 

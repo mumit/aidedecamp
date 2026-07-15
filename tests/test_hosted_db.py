@@ -47,6 +47,11 @@ from attune.hosted.oauth import (
     PostgresOAuthExchangeRepository,
     PostgresOAuthTransactionRepository,
 )
+from attune.hosted.identity import VerifiedIdentity
+from attune.hosted.identity_session import (
+    IdentitySessionSecrets,
+    PostgresIdentitySessionRepository,
+)
 from attune.hosted.tenant import TenantContext, tenant_transaction
 from attune.hosted.vault import (
     PostgresCredentialIntentRepository,
@@ -65,6 +70,8 @@ OAUTH_CONNECTOR = UUID("10000000-0000-4000-8000-000000000042")
 OAUTH_INTENT = UUID("10000000-0000-4000-8000-000000000043")
 RATE_CONNECTOR = UUID("10000000-0000-4000-8000-000000000061")
 RATE_CREDENTIAL = UUID("10000000-0000-4000-8000-000000000062")
+IDENTITY_PRINCIPAL_A = UUID("10000000-0000-4000-8000-000000000071")
+IDENTITY_PRINCIPAL_B = UUID("20000000-0000-4000-8000-000000000072")
 
 ROLE_BINDINGS = {
     "attune_control_plane": "attune_test_control",
@@ -73,6 +80,7 @@ ROLE_BINDINGS = {
     "attune_secret_broker": "attune_test_broker",
     "attune_audit_writer": "attune_test_audit",
     "attune_oauth_exchange": "attune_test_oauth_exchange",
+    "attune_identity_provisioner": "attune_test_identity_provisioner",
 }
 
 
@@ -82,7 +90,7 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
         migration.name for migration in migrations
     )
     assert migrations[0].name == "0001_tenant_boundary.sql"
-    assert migrations[-1].name == "0014_oauth_install_intent.sql"
+    assert migrations[-1].name == "0016_initial_identity_provisioning.sql"
     assert all(
         migration.checksum == hashlib.sha256(migration.sql.encode()).hexdigest()
         for migration in migrations
@@ -197,7 +205,7 @@ def initialized_database(database_url: str):
             cursor.execute(f'CREATE ROLE "{role}" NOLOGIN INHERIT')
     admin.autocommit = False
 
-    assert apply_migrations(admin) == 14
+    assert apply_migrations(admin) == 16
     with admin.cursor() as cursor:
         cursor.execute("GRANT attune_worker TO attune_test_stale_member")
     admin.commit()
@@ -1435,3 +1443,117 @@ def test_oauth_transaction_is_tenant_bound_one_time_and_exchange_only(
         raw_exchange.rollback()
     finally:
         raw_exchange.close()
+
+
+def test_identity_session_is_unambiguous_csrf_bound_and_function_only(
+    initialized_database, database_url
+):
+    psycopg = pytest.importorskip("psycopg")
+    issuer = "https://securetoken.google.com/attune-development-502421"
+    subject_hash = hashlib.sha256(b"identity-platform-user").digest()
+    with initialized_database.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO attune.principals
+                (tenant_id, id, subject_hash, issuer)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (TENANT_A, IDENTITY_PRINCIPAL_A, subject_hash, issuer),
+        )
+    initialized_database.commit()
+
+    connection_factory = _role_connection_factory(
+        database_url, ROLE_BINDINGS["attune_control_plane"]
+    )
+    sessions = PostgresIdentitySessionRepository(connection_factory)
+    identity = VerifiedIdentity(
+        issuer=issuer,
+        subject_hash=subject_hash,
+        authenticated_at=datetime.now(timezone.utc),
+    )
+    secrets = IdentitySessionSecrets(token="s" * 43, csrf="c" * 43)
+    opened = sessions.open(
+        identity,
+        secrets,
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=8),
+    )
+    assert opened is not None
+    assert opened.context == TenantContext(TENANT_A)
+    assert opened.principal_id == IDENTITY_PRINCIPAL_A
+    assert sessions.read(secrets.token) == opened
+    assert sessions.authorize(secrets.token, "w" * 43) is None
+    assert sessions.authorize(secrets.token, secrets.csrf) == opened
+    assert sessions.revoke(secrets.token, "w" * 43) is False
+    assert sessions.revoke(secrets.token, secrets.csrf) is True
+    assert sessions.read(secrets.token) is None
+
+    control = connection_factory()
+    try:
+        with control.cursor() as cursor:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                cursor.execute("SELECT id FROM attune.identity_sessions")
+        control.rollback()
+    finally:
+        control.close()
+
+    with initialized_database.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO attune.principals
+                (tenant_id, id, subject_hash, issuer)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (TENANT_B, IDENTITY_PRINCIPAL_B, subject_hash, issuer),
+        )
+    initialized_database.commit()
+    ambiguous = sessions.open(
+        identity,
+        IdentitySessionSecrets(token="t" * 43, csrf="d" * 43),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=8),
+    )
+    assert ambiguous is None
+
+
+def test_initial_identity_provisioning_is_idempotent_conflict_closed_and_function_only(
+    initialized_database, database_url
+):
+    psycopg = pytest.importorskip("psycopg")
+    subject_hash = hashlib.sha256(b"initial-identity").digest()
+    issuer = "https://securetoken.google.com/attune-development-502421"
+    connection = _role_connection_factory(
+        database_url, ROLE_BINDINGS["attune_identity_provisioner"]
+    )()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM attune.provision_initial_identity(%s,%s,%s,%s)",
+                (subject_hash, issuer, "bootstrap-test", "test-region1"),
+            )
+            first = cursor.fetchone()
+        connection.commit()
+        assert first[2] is True
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM attune.provision_initial_identity(%s,%s,%s,%s)",
+                (subject_hash, issuer, "bootstrap-test", "test-region1"),
+            )
+            repeated = cursor.fetchone()
+        connection.commit()
+        assert repeated[:2] == first[:2]
+        assert repeated[2] is False
+
+        with connection.cursor() as cursor:
+            with pytest.raises(psycopg.errors.UniqueViolation):
+                cursor.execute(
+                    "SELECT * FROM attune.provision_initial_identity(%s,%s,%s,%s)",
+                    (subject_hash, issuer, "other-bootstrap", "test-region1"),
+                )
+        connection.rollback()
+
+        with connection.cursor() as cursor:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                cursor.execute("SELECT id FROM attune.tenants")
+        connection.rollback()
+    finally:
+        connection.close()

@@ -1,0 +1,15 @@
+{
+  "name": "attune-hosted-identity",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/sign-in.js --bundle --minify --format=esm --target=es2020 --outfile=../../src/attune/hosted/static/identity.js"
+  },
+  "dependencies": {
+    "firebase": "12.15.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
+  }
+}

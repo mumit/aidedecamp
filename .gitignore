@@ -5,6 +5,7 @@ __pycache__/
 *.egg
 build/
 dist/
+node_modules/
 .eggs/
 .pytest_cache/
 .ruff_cache/

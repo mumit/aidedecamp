@@ -1,14 +1,15 @@
 locals {
   workload_accounts = {
-    control_plane   = "ctl"
-    oauth_callback  = "oauth-cb"
-    oauth_exchange  = "oauth-xchg"
-    dispatch_broker = "task-broker"
-    ingress         = "ingress"
-    worker          = "worker"
-    secret_broker   = "secrets"
-    task_dispatch   = "dispatch"
-    audit_writer    = "audit"
+    control_plane        = "ctl"
+    oauth_callback       = "oauth-cb"
+    oauth_exchange       = "oauth-xchg"
+    dispatch_broker      = "task-broker"
+    ingress              = "ingress"
+    identity_provisioner = "id-prov"
+    worker               = "worker"
+    secret_broker        = "secrets"
+    task_dispatch        = "dispatch"
+    audit_writer         = "audit"
   }
 }
 
@@ -42,6 +43,7 @@ resource "google_project_iam_member" "database_client" {
     "control_plane",
     "dispatch_broker",
     "oauth_exchange",
+    "identity_provisioner",
     "secret_broker",
     "worker",
   ])
@@ -56,6 +58,7 @@ resource "google_project_iam_member" "database_instance_user" {
     "control_plane",
     "dispatch_broker",
     "oauth_exchange",
+    "identity_provisioner",
     "secret_broker",
     "worker",
   ])
@@ -70,6 +73,7 @@ resource "google_sql_user" "workload" {
     "control_plane",
     "dispatch_broker",
     "oauth_exchange",
+    "identity_provisioner",
     "secret_broker",
     "worker",
   ])
@@ -118,11 +122,21 @@ resource "google_service_account_iam_member" "cloud_tasks_token_creator" {
 }
 
 resource "google_secret_manager_secret_iam_member" "broker_access" {
-  for_each  = google_secret_manager_secret.platform
+  for_each = {
+    for name, secret in google_secret_manager_secret.platform : name => secret
+    if name != "identity-bootstrap"
+  }
   project   = var.project_id
   secret_id = each.value.secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.workload["secret_broker"].email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "identity_bootstrap_access" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.platform["identity-bootstrap"].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.workload["identity_provisioner"].email}"
 }
 
 resource "google_kms_crypto_key_iam_member" "broker_connector_crypto" {

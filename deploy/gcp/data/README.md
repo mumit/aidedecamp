@@ -5,6 +5,11 @@ migration job after the no-customer-data foundation exists. The job creates the
 hosted schema and verifies its database controls. It does not deploy an
 application, public endpoint, connector credential, tenant, or customer record.
 
+This root also declares a separate private initial-identity provisioning job.
+It is dormant without a one-time secret version and is never run by Terraform.
+It does not broaden the migration job: the migrator remains unable to accept
+runtime arguments and never creates customer records.
+
 ## Security model
 
 - The migration image is Linux/amd64, runs as UID/GID 65532, and is referenced
@@ -23,7 +28,11 @@ application, public endpoint, connector credential, tenant, or customer record.
 - Runtime database roles are fixed, `NOLOGIN`, non-superuser, and
   `NOBYPASSRLS`. Each role is reconciled to exactly one foundation IAM database
   user; stale members are revoked.
-- Cross-tenant `SECURITY DEFINER` functions are owned by four distinct
+- Initial membership has its own IAM login and `NOLOGIN NOBYPASSRLS` database
+  role. That role has schema usage and execute permission on one fixed function,
+  with no direct table privileges. Its memberless function owner can select and
+  insert only tenants and principals.
+- Cross-tenant `SECURITY DEFINER` functions are owned by distinct
   memberless `NOLOGIN BYPASSRLS` roles for dispatch, audit writing, vault
   mutation, and one-time OAuth transaction exchange. No IAM or runtime login
   is a member. Each owner has only the table privileges required by its fixed
@@ -63,7 +72,9 @@ The migrations currently create tenant-bound records for:
   job's transition out of a lease; and
 - short-lived OAuth transactions bound to tenant, principal, pending connector,
   canonical `google.oauth.install` credential intent, state, browser binding,
-  OIDC nonce, PKCE verifier, redirect URI, and scopes.
+  OIDC nonce, PKCE verifier, redirect URI, and scopes; and
+- eight-hour-maximum opaque identity sessions bound to tenant, principal, and
+  independent token/CSRF hashes.
 
 The OAuth exchange IAM database user is bound to a dedicated unprivileged
 runtime role. It has schema use and execute rights on exactly the lease and
@@ -82,6 +93,14 @@ independently verifies the canonical connector and requested install intent.
 The non-login function owner receives schema `CREATE` only within the migration
 transaction while its lease function is replaced and ownership transferred;
 that privilege is revoked before commit and verified absent afterward.
+
+Identity session creation searches across tenants only inside a fixed
+`SECURITY DEFINER` function and inserts a session only when the verified issuer
+and subject hash map to exactly one active principal in one active tenant. Read,
+CSRF authorization, and revocation are separate fixed functions. The control
+plane can execute them but has no direct session-table privilege; the memberless
+function owner retains only the exact tenant/principal reads and session-table
+select/insert/update rights.
 
 Credential installation and rotation atomically supersede the prior active
 version, insert the new encrypted envelope, update the connector reference, and
@@ -204,6 +223,79 @@ Success reports the number of applied migrations and tenant tables forced
 through RLS. The final Terraform plan must return exit code 0. Re-running the
 job is safe and should apply zero migrations while repeating all live security
 checks.
+
+## Initial development identity ceremony
+
+Run this only after the expected user has completed Google sign-in and received
+the unprovisioned-membership response. It creates the first tenant and principal
+only; it is not a general invitation or membership-management path.
+
+Set the non-sensitive tenant slug in ignored `terraform.tfvars`, rebuild the
+migrator image containing the reviewed migration and provisioner, update its
+immutable digest, then apply foundation and data plans. The foundation plan adds
+one service account, IAM database user, and empty CMEK-backed secret container.
+The data plan updates the migrator image and adds one private job. Neither plan
+contains an email, provider subject, subject hash, or secret version.
+
+After applying, run the migration job first. Then select exactly the expected,
+verified Google user from Identity Platform and stream only its locally hashed
+subject into a new secret version:
+
+```bash
+export PROJECT_ID="attune-development-502421"
+export REGION="northamerica-northeast1"
+export EXPECTED_EMAIL="owner@example.com"
+export BOOTSTRAP_SECRET="attune-development-identity-bootstrap"
+
+gcloud run jobs execute attune-development-database-migrate \
+  --project="$PROJECT_ID" --region="$REGION" --wait
+
+VERSION="$(
+  TOKEN="$(gcloud auth print-access-token)"
+  curl --fail --silent --show-error \
+    -H "Authorization: Bearer ${TOKEN}" \
+    -H "X-Goog-User-Project: ${PROJECT_ID}" \
+    "https://identitytoolkit.googleapis.com/v1/projects/${PROJECT_ID}/accounts:batchGet?maxResults=100" |
+  EXPECTED_EMAIL="$EXPECTED_EMAIL" python -c '
+import hashlib, json, os, sys
+users = json.load(sys.stdin).get("users", [])
+expected = os.environ["EXPECTED_EMAIL"].casefold()
+matches = [
+    user for user in users
+    if user.get("email", "").casefold() == expected
+    and user.get("emailVerified") is True
+    and any(
+        provider.get("providerId") == "google.com"
+        for provider in user.get("providerUserInfo", [])
+    )
+]
+if len(matches) != 1:
+    raise SystemExit("expected exactly one verified Google identity")
+sys.stdout.write(hashlib.sha256(matches[0]["localId"].encode()).hexdigest())
+' |
+  gcloud secrets versions add "$BOOTSTRAP_SECRET" \
+    --project="$PROJECT_ID" --data-file=- --format="value(name.basename())"
+)"
+```
+
+Execute the fixed job with no overrides, then destroy the one-time version even
+though it contains only a pseudonymous hash:
+
+```bash
+gcloud run jobs execute attune-development-identity-provision \
+  --project="$PROJECT_ID" --region="$REGION" --wait
+gcloud secrets versions destroy "$VERSION" \
+  --secret="$BOOTSTRAP_SECRET" --project="$PROJECT_ID" --quiet
+unset VERSION EXPECTED_EMAIL
+```
+
+The only successful job message is `initial identity mapping verified` plus an
+idempotency boolean. It prints no tenant ID, principal ID, email, raw subject,
+or hash. Verify that the secret has no enabled version, exactly one active
+tenant/principal mapping exists for the expected subject hash, a fresh browser
+sign-in issues an opaque Attune session, and all three Terraform roots return a
+zero-change plan. Do not retain the Identity Platform API response or put it in
+a support bundle.
 
 ## Production gates
 

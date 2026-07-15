@@ -1,12 +1,21 @@
 # GCP hosted edge
 
 This independent Terraform root creates the locked public HTTPS boundary for
-the hosted control plane. The initial service exposes only `GET /healthz` and an
-unavailable root. A separately identified, credential-free callback scrubber
+the hosted control plane. With identity disabled, the service exposes only
+`GET /healthz` and an unavailable root. A separately identified,
+credential-free callback scrubber
 accepts the exact Google callback path only to remove query parameters from the
 browser URL. The private OAuth exchange is deployed but not connected to this
 scrubber. Signup, sessions, connector installation, and customer traffic remain
 disabled.
+
+The control-plane image contains a separately gated Identity Platform sign-in
+page, verifier, and opaque session API. `enable_identity_sign_in = false` omits
+every identity, asset, and session route from Cloud Armor and sets the
+application flag false. Enabling it also requires
+`identity_provider_ready = true` and the public restricted browser API key.
+That attestation records an external review but does not replace the tests in
+`docs/identity-platform.md`.
 
 The edge uses a reserved global IPv4 address, global external Application Load
 Balancer, Google-managed certificate, TLS 1.2+ policy, serverless NEG, and Cloud
@@ -17,7 +26,12 @@ also avoids an `allUsers` IAM grant, which domain-restricted-sharing policies
 reject. Disabling the check is safe only in combination with both ingress
 restrictions and the disabled default URI.
 
-The shell policy permits only `/` and `/healthz` on the exact configured host.
+The dormant shell policy permits only `/` and `/healthz` on the exact configured
+host. When staged identity is enabled, a tighter rule adds only the public
+configuration, two fixed assets, and exact session paths; the application
+enforces the allowed HTTP methods and returns 405 for every other method. The browser bundle
+pins Firebase Auth and its build tool in `package-lock.json`; the image rebuilds
+the bundle in a digest-pinned Node stage and serves scripts only from Attune.
 A distinct policy permits only `GET /oauth/google/callback` with a tighter
 source-IP rate. The callback backend has load-balancer logging disabled, and a
 protected project exclusion drops both Cloud Run platform request logs and

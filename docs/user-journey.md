@@ -5,6 +5,26 @@ Google Chat, or both. The channel authenticates the human and carries the
 response; the same bounded interaction layer, Workspace connector, memory, and
 approval workflows operate behind it.
 
+## 0. Sign up for hosted Attune
+
+The operated service starts at the Attune hostname with **Continue with
+Google**. Google sign-in identifies the Attune account; it does not grant access
+to Gmail, Calendar, Chat, or other Workspace data. The browser keeps the Google
+provider credential only in memory, exchanges the fresh Identity Platform token
+for an independent Attune session, and discards the provider credential.
+
+For a new account, Attune verifies the identity but does not infer membership
+from the email address or domain. During development, the first test sign-in
+therefore reports that membership is not provisioned. An operator binds the
+exact Identity Platform subject to one tenant; the user then signs in again and
+continues to the connector-consent journey. A production signup flow will
+replace this development ceremony with an explicit tenant creation or invitation
+step.
+
+Connecting Google Workspace is a separate screen and OAuth client with explicit
+Workspace scopes. A user can sign in to Attune without connecting Workspace,
+and disconnecting Workspace does not silently end or transfer the Attune account.
+
 ## 1. Start the day
 
 At `ATTUNE_BRIEF_TIME`, Attune reads recent unread Gmail, today's Calendar,

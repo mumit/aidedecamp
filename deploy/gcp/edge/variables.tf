@@ -51,3 +51,26 @@ variable "labels" {
   type        = map(string)
   default     = {}
 }
+
+variable "enable_identity_sign_in" {
+  description = "Expose the staged Identity Platform session routes after provider and security evidence."
+  type        = bool
+  default     = false
+}
+
+variable "identity_provider_ready" {
+  description = "Explicit operator attestation that the separate sign-in client and Identity Platform provider are configured and tested."
+  type        = bool
+  default     = false
+}
+
+variable "identity_api_key" {
+  description = "Public Identity Platform browser API key; required only when staged sign-in is enabled."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.identity_api_key == "" || can(regex("^AIza[0-9A-Za-z_-]{35}$", var.identity_api_key))
+    error_message = "identity_api_key must be empty or a syntactically valid public browser API key."
+  }
+}

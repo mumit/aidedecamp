@@ -24,6 +24,7 @@ RUNTIME_ROLES = (
     "attune_secret_broker",
     "attune_audit_writer",
     "attune_oauth_exchange",
+    "attune_identity_provisioner",
 )
 
 FUNCTION_OWNER_ROLES = (
@@ -31,6 +32,8 @@ FUNCTION_OWNER_ROLES = (
     "attune_audit_executor",
     "attune_vault_executor",
     "attune_oauth_executor",
+    "attune_identity_executor",
+    "attune_identity_provisioning_executor",
 )
 
 FUNCTION_OWNER_TABLE_PRIVILEGES = frozenset(
@@ -54,6 +57,15 @@ FUNCTION_OWNER_TABLE_PRIVILEGES = frozenset(
         ("attune_oauth_executor", "attune.oauth_transactions", "UPDATE"),
         ("attune_oauth_executor", "attune.connectors", "SELECT"),
         ("attune_oauth_executor", "attune.credential_intents", "SELECT"),
+        ("attune_identity_executor", "attune.tenants", "SELECT"),
+        ("attune_identity_executor", "attune.principals", "SELECT"),
+        ("attune_identity_executor", "attune.identity_sessions", "SELECT"),
+        ("attune_identity_executor", "attune.identity_sessions", "INSERT"),
+        ("attune_identity_executor", "attune.identity_sessions", "UPDATE"),
+        ("attune_identity_provisioning_executor", "attune.tenants", "SELECT"),
+        ("attune_identity_provisioning_executor", "attune.tenants", "INSERT"),
+        ("attune_identity_provisioning_executor", "attune.principals", "SELECT"),
+        ("attune_identity_provisioning_executor", "attune.principals", "INSERT"),
     }
 )
 
@@ -90,6 +102,7 @@ TENANT_TABLES = (
     "credential_intents",
     "job_reconciliations",
     "oauth_transactions",
+    "identity_sessions",
 )
 
 
@@ -340,8 +353,15 @@ def verify_database_boundary(connection: Any, bindings: dict[str, str]) -> None:
             "attune_dispatch_executor": (True, False, True, False),
             "attune_audit_executor": (True, False, False, False),
             "attune_vault_executor": (True, False, False, False),
-            "attune_oauth_executor": (True, False, False, False),
-        }:
+                "attune_oauth_executor": (True, False, False, False),
+                "attune_identity_executor": (True, False, False, False),
+                "attune_identity_provisioning_executor": (
+                    True,
+                    False,
+                    True,
+                    False,
+                ),
+            }:
             raise RuntimeError("function owner schema privileges do not match policy")
 
         cursor.execute(
@@ -478,6 +498,31 @@ def verify_database_boundary(connection: Any, bindings: dict[str, str]) -> None:
                 "attune.finalize_oauth_transaction(uuid,bytea,text)",
                 "attune_oauth_exchange",
                 "attune_oauth_executor",
+            ),
+            (
+                "attune.open_identity_session(bytea,text,bytea,bytea,timestamp with time zone)",
+                "attune_control_plane",
+                "attune_identity_executor",
+            ),
+            (
+                "attune.read_identity_session(bytea)",
+                "attune_control_plane",
+                "attune_identity_executor",
+            ),
+            (
+                "attune.authorize_identity_session(bytea,bytea)",
+                "attune_control_plane",
+                "attune_identity_executor",
+            ),
+            (
+                "attune.revoke_identity_session(bytea,bytea)",
+                "attune_control_plane",
+                "attune_identity_executor",
+            ),
+            (
+                "attune.provision_initial_identity(bytea,text,text,text)",
+                "attune_identity_provisioner",
+                "attune_identity_provisioning_executor",
             ),
         )
         for signature, role, expected_owner in privileged_functions:

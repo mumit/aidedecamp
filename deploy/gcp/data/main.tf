@@ -43,6 +43,10 @@ locals {
       local.foundation.workload_identities.oauth_exchange,
       ".gserviceaccount.com",
     )
+    attune_identity_provisioner = trimsuffix(
+      local.foundation.workload_identities.identity_provisioner,
+      ".gserviceaccount.com",
+    )
   }
 }
 
@@ -150,4 +154,83 @@ resource "google_cloud_run_v2_job" "migrate" {
     google_project_iam_member.migrator_cloud_sql_login,
     google_sql_user.migrator,
   ]
+}
+
+resource "google_cloud_run_v2_job" "identity_provision" {
+  project             = local.foundation.project_id
+  name                = "${local.prefix}-identity-provision"
+  location            = local.foundation.region
+  deletion_protection = true
+  labels = merge(local.labels, {
+    component = "identity-provisioning"
+  })
+
+  template {
+    task_count  = 1
+    parallelism = 1
+
+    template {
+      service_account = local.foundation.workload_identities.identity_provisioner
+      max_retries     = 0
+      timeout         = "300s"
+
+      containers {
+        name    = "identity-provisioner"
+        image   = var.migrator_image
+        command = ["python", "-m", "attune.hosted.provision_identity"]
+
+        resources {
+          limits = {
+            cpu    = "1"
+            memory = "512Mi"
+          }
+        }
+
+        env {
+          name  = "ATTUNE_CLOUD_SQL_INSTANCE"
+          value = local.foundation.database_instance
+        }
+        env {
+          name  = "ATTUNE_DB_NAME"
+          value = local.foundation.database_name
+        }
+        env {
+          name = "ATTUNE_DB_USER"
+          value = trimsuffix(
+            local.foundation.workload_identities.identity_provisioner,
+            ".gserviceaccount.com",
+          )
+        }
+        env {
+          name  = "ATTUNE_IDENTITY_BOOTSTRAP_SECRET"
+          value = local.foundation.platform_secret_ids["identity-bootstrap"]
+        }
+        env {
+          name  = "ATTUNE_IDENTITY_ISSUER"
+          value = "https://securetoken.google.com/${local.foundation.project_id}"
+        }
+        env {
+          name  = "ATTUNE_INITIAL_TENANT_SLUG"
+          value = var.initial_tenant_slug
+        }
+        env {
+          name  = "ATTUNE_INITIAL_TENANT_REGION"
+          value = local.foundation.region
+        }
+      }
+
+      vpc_access {
+        egress = "PRIVATE_RANGES_ONLY"
+        network_interfaces {
+          network    = local.foundation.network_id
+          subnetwork = local.foundation.subnetwork_id
+          tags       = ["attune-identity-provisioning"]
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }

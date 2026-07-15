@@ -7,6 +7,8 @@ from types import SimpleNamespace
 import pytest
 
 from attune.hosted.google_oauth import (
+    GOOGLE_CERTS_URL,
+    FixedGoogleCertRequest,
     GoogleAuthorizationCodeProvider,
     GoogleOAuthClientSecret,
 )
@@ -54,6 +56,17 @@ class Session:
     def post(self, url, **kwargs):
         self.calls.append((url, kwargs))
         return self.response
+
+
+def test_certificate_request_rejects_every_noncanonical_request_before_network():
+    request = FixedGoogleCertRequest(GOOGLE_CERTS_URL)
+
+    with pytest.raises(ProviderFailure):
+        request("https://attacker.example/certs")
+    with pytest.raises(ProviderFailure):
+        request(GOOGLE_CERTS_URL, method="POST")
+    with pytest.raises(ProviderFailure):
+        request(GOOGLE_CERTS_URL, body=b"unexpected")
 
 
 def client_secret():

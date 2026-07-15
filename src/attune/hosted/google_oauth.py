@@ -206,7 +206,7 @@ def _verify_google_id_token(token: str, audience: str) -> Mapping[str, Any]:
 
     return id_token.verify_oauth2_token(
         token,
-        _BoundedCertRequest(),
+        FixedGoogleCertRequest(GOOGLE_CERTS_URL),
         audience=audience,
         clock_skew_in_seconds=30,
     )
@@ -219,20 +219,27 @@ class _BoundedCertResponse:
         self.data = data
 
 
-class _BoundedCertRequest:
-    def __init__(self):
+class FixedGoogleCertRequest:
+    """google-auth request adapter restricted to one reviewed certificate URL."""
+
+    def __init__(self, expected_url: str):
         import requests
 
+        if not isinstance(expected_url, str) or not expected_url.startswith(
+            "https://www.googleapis.com/"
+        ):
+            raise ValueError("a fixed Google certificate URL is required")
+        self._expected_url = expected_url
         self._session = requests.Session()
         self._session.trust_env = False
 
     def __call__(
         self, url, method="GET", body=None, headers=None, timeout=None, **kwargs
     ):
-        if url != GOOGLE_CERTS_URL or method != "GET" or body is not None or kwargs:
+        if url != self._expected_url or method != "GET" or body is not None or kwargs:
             raise ProviderFailure("certificate request is invalid")
         response = self._session.get(
-            GOOGLE_CERTS_URL,
+            self._expected_url,
             headers=headers,
             timeout=REQUEST_TIMEOUT,
             allow_redirects=False,

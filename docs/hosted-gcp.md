@@ -179,6 +179,15 @@ acceptable substitutes.
    hosted login/session binding, reviewed client-secret version, redirect
    registration, and adversarial evidence are complete.
 4. **Control plane:** OIDC/passkey login and explicit connector identity links.
+   The first Google Identity Platform verifier and tenant-bound opaque session
+   store are implemented and deployed dormant. Identity Platform is initialized
+   in development; its browser key and authorized domains are restricted, but
+   no sign-in provider is configured. Cloud Armor denies all session routes and
+   the application flag remains false. Sign-in-provider configuration, a test
+   principal mapping, adversarial evidence, signup/tenant-selection ceremonies,
+   and UI remain before activation. Follow the separate [hosted sign-in operator
+   ceremony](identity-platform.md); it deliberately uses a different OAuth
+   client from Workspace connector consent.
 5. **Ingress and workers:** provider verification, replay resistance,
    reconciliation, deterministic capabilities, and kill switches.
 6. **Operations:** load balancer/WAF, alerts, SLOs, backups/restores, export,

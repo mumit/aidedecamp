@@ -60,7 +60,9 @@ See [Getting started](docs/getting-started.md), the complete
 [configuration reference](docs/configuration.md), the
 [user journey](docs/user-journey.md), [Design](docs/design.md), and
 [Deployment](docs/deployment.md). Operators building the managed service should
-start with the [GCP operated-service architecture](docs/hosted-gcp.md). The normative
+start with the [GCP operated-service architecture](docs/hosted-gcp.md); the
+[hosted sign-in guide](docs/identity-platform.md) documents the separate Google
+Identity Platform and Workspace consent clients. The normative
 [security architecture](docs/security-architecture.md) defines trust boundaries,
 control requirements, red-team cases, and hosted launch gates; the approved
 [dispatch-broker contract](docs/dispatch-broker.md) defines exclusive task

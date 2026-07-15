@@ -13,8 +13,8 @@ The configuration creates:
   authentication, point-in-time recovery, deletion protection, and the
   standard Enterprise edition (development may use a shared-core tier);
 - separate control-plane, credential-free OAuth-callback, ingress, worker,
-  secret-broker, dispatch-broker, task-delivery, and audit-writer service
-  accounts;
+  secret-broker, dispatch-broker, task-delivery, audit-writer, and initial
+  identity-provisioning service accounts;
 - Cloud Tasks queues and a Gmail-authorized Pub/Sub topic;
 - CMEK-backed Secret Manager containers for static platform credentials,
   without secret versions, plus a separate connector-vault KMS key;
@@ -71,10 +71,20 @@ terraform apply foundation.tfplan
 ```
 
 Do not put OAuth, Slack, model, database, or encryption secrets in `.tfvars`.
-Terraform creates empty Secret Manager resources for platform credentials only.
+Terraform creates empty Secret Manager resources for platform credentials and
+the one-time identity-bootstrap handoff only. The secret broker is explicitly
+denied access to the bootstrap container; only the initial identity provisioner
+can read it.
 Tenant connector credentials are later envelope-encrypted by the secret broker
 with the dedicated connector KMS key and stored as tenant-bound ciphertext in
 PostgreSQL; they do not enter Terraform or Cloud Run environment variables.
+
+Terraform enables the Identity Toolkit API but deliberately does not manage the
+Google Identity Platform provider resource. That resource requires the sign-in
+OAuth client secret and would persist it in Terraform state. Initialize Identity
+Platform and configure its Google provider through the documented secret-aware
+operator ceremony instead. The sign-in OAuth client is distinct from the
+Workspace connector client stored in the broker-only platform secret.
 
 Production requires `lock_audit_retention = true`. Bucket Lock is permanent:
 first validate retention, export, legal-hold, deletion, and incident procedures

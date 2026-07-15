@@ -3,6 +3,11 @@
 !README.md
 !pyproject.toml
 !src/**
+!web/
+!web/hosted-identity/
+!web/hosted-identity/package.json
+!web/hosted-identity/package-lock.json
+!web/hosted-identity/src/**
 !deploy/
 !deploy/oauth-callback/
 !deploy/oauth-callback/app.py

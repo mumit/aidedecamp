@@ -57,6 +57,7 @@ def test_gcp_foundation_preserves_hosted_security_boundaries():
     assert 'version = "7.34.0"' in terraform
     assert "ipv4_enabled    = false" in terraform
     assert '"dns.googleapis.com"' in terraform
+    assert '"identitytoolkit.googleapis.com"' in terraform
     assert '"oauth2.googleapis.com"' in terraform
     assert '"www.googleapis.com"' in terraform
     assert '"gmail.googleapis.com"' in terraform
@@ -324,3 +325,91 @@ def test_oauth_exchange_runtime_preserves_broker_boundary():
     assert 'ingress             = "INGRESS_TRAFFIC_INTERNAL_ONLY"' in exchange
     assert "secret_broker_oauth_invoker" in terraform
     assert "oauth_exchange_invoker" in terraform
+
+
+def test_identity_platform_is_secret_free_and_dormant_in_terraform():
+    foundation = "\n".join(
+        path.read_text()
+        for path in sorted((ROOT / "deploy" / "gcp" / "foundation").glob("*.tf"))
+    )
+    edge = "\n".join(
+        path.read_text()
+        for path in sorted((ROOT / "deploy" / "gcp" / "edge").glob("*.tf"))
+    )
+
+    assert '"identitytoolkit.googleapis.com"' in foundation
+    assert "google_identity_platform_default_supported_idp_config" not in foundation
+    assert (
+        "default     = false"
+        in (ROOT / "deploy" / "gcp" / "edge" / "variables.tf").read_text()
+    )
+    assert 'name  = "ATTUNE_IDENTITY_ENABLED"' in edge
+    assert "identity_provider_ready" in edge
+    assert "request.path == '/v1/session/bootstrap'" in edge
+    assert "google_oauth_client_secret" not in edge.lower()
+
+
+def test_identity_session_database_boundary_is_function_only():
+    migration = (
+        ROOT / "src" / "attune" / "hosted" / "sql" / "0015_identity_sessions.sql"
+    ).read_text()
+
+    assert "FORCE ROW LEVEL SECURITY" in migration
+    assert "attune_identity_executor" in migration
+    assert "LIMIT 2" in migration
+    assert "count(*) FROM matches" in migration
+    assert "TO attune_control_plane" in migration
+    assert (
+        "GRANT SELECT ON attune.identity_sessions TO attune_control_plane"
+        not in migration
+    )
+    assert "REVOKE CREATE ON SCHEMA attune FROM attune_identity_executor" in migration
+
+
+def test_initial_identity_provisioning_is_private_one_purpose_and_secret_aware():
+    foundation = (ROOT / "deploy" / "gcp" / "foundation" / "iam.tf").read_text()
+    data = (ROOT / "deploy" / "gcp" / "data" / "main.tf").read_text()
+    migration = (
+        ROOT
+        / "src"
+        / "attune"
+        / "hosted"
+        / "sql"
+        / "0016_initial_identity_provisioning.sql"
+    ).read_text()
+
+    assert 'identity_provisioner = "id-prov"' in foundation
+    assert 'if name != "identity-bootstrap"' in foundation
+    assert 'workload["identity_provisioner"]' in foundation
+    assert 'resource "google_cloud_run_v2_job" "identity_provision"' in data
+    assert "google_cloud_run_v2_job_iam" not in data
+    assert "ATTUNE_IDENTITY_BOOTSTRAP_SECRET" in data
+    assert "ATTUNE_IDENTITY_SUBJECT_HASH" not in data
+    assert "provision_initial_identity(bytea,text,text,text)" in migration
+    assert "TO attune_identity_provisioner" in migration
+    assert "GRANT SELECT, INSERT ON attune.tenants, attune.principals" in migration
+    assert "GRANT SELECT ON attune.tenants" not in migration
+    assert (
+        "REVOKE CREATE ON SCHEMA attune\nFROM attune_identity_provisioning_executor"
+        in migration
+    )
+
+
+def test_hosted_sign_in_prepares_binding_before_click_time_popup():
+    source = (ROOT / "web" / "hosted-identity" / "src" / "sign-in.js").read_text()
+    exchange = source[source.index("async function exchange") :]
+    exchange = exchange[: exchange.index("function safeFailure")]
+    popup = exchange.index("await signInWithPopup")
+    assert "await " not in exchange[:popup]
+    assert "fetch(" not in exchange[:popup]
+
+
+def test_hosted_sign_in_diagnostics_disclose_only_normalized_error_metadata():
+    source = (ROOT / "web" / "hosted-identity" / "src" / "sign-in.js").read_text()
+
+    assert "error.message" not in source
+    assert "error.customData" not in source
+    assert "auth\\/[a-z0-9-]{1,64}" in source
+    assert "DOMException|Error|FirebaseError|TypeError" in source
+    main = source[source.index("async function main") :]
+    assert main.index("prepareLoginBinding") < main.index("addEventListener")

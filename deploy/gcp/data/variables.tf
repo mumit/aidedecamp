@@ -19,6 +19,16 @@ variable "migrator_image" {
   }
 }
 
+variable "initial_tenant_slug" {
+  description = "Non-sensitive slug for the single operator-provisioned initial tenant."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9-]{1,62}$", var.initial_tenant_slug))
+    error_message = "initial_tenant_slug must be a lowercase DNS-style slug."
+  }
+}
+
 variable "labels" {
   description = "Additional non-sensitive resource labels."
   type        = map(string)

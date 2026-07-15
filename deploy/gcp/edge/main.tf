@@ -61,6 +61,43 @@ resource "google_cloud_run_v2_service" "control_plane" {
         name  = "ATTUNE_PUBLIC_HOST"
         value = var.hostname
       }
+      env {
+        name  = "ATTUNE_IDENTITY_ENABLED"
+        value = tostring(var.enable_identity_sign_in)
+      }
+      env {
+        name  = "ATTUNE_IDENTITY_PROJECT"
+        value = local.foundation.project_id
+      }
+      dynamic "env" {
+        for_each = var.enable_identity_sign_in ? [1] : []
+        content {
+          name  = "ATTUNE_IDENTITY_API_KEY"
+          value = var.identity_api_key
+        }
+      }
+      dynamic "env" {
+        for_each = var.enable_identity_sign_in ? [1] : []
+        content {
+          name  = "ATTUNE_IDENTITY_AUTH_DOMAIN"
+          value = "${local.foundation.project_id}.firebaseapp.com"
+        }
+      }
+      env {
+        name  = "ATTUNE_CLOUD_SQL_INSTANCE"
+        value = local.foundation.database_instance
+      }
+      env {
+        name  = "ATTUNE_DB_NAME"
+        value = local.foundation.database_name
+      }
+      env {
+        name = "ATTUNE_DB_USER"
+        value = trimsuffix(
+          local.foundation.workload_identities.control_plane,
+          ".gserviceaccount.com",
+        )
+      }
 
       startup_probe {
         initial_delay_seconds = 1
@@ -104,6 +141,13 @@ resource "google_cloud_run_v2_service" "control_plane" {
 
   lifecycle {
     prevent_destroy = true
+
+    precondition {
+      condition = !var.enable_identity_sign_in || (
+        var.identity_provider_ready && var.identity_api_key != ""
+      )
+      error_message = "Identity sign-in activation requires provider-readiness attestation and the public browser API key."
+    }
   }
 }
 
@@ -247,6 +291,52 @@ resource "google_compute_security_policy" "edge" {
   name        = "${local.prefix}-control-plane-edge"
   description = "Exact-host and bounded-rate policy for the locked Attune edge"
   type        = "CLOUD_ARMOR"
+
+  dynamic "rule" {
+    for_each = var.enable_identity_sign_in ? [1] : []
+    content {
+      action      = "throttle"
+      priority    = 890
+      description = "Permit only staged identity configuration and fixed assets"
+      match {
+        expr {
+          expression = "request.headers['host'] == '${var.hostname}' && (request.path == '/v1/identity/config' || request.path == '/assets/attune.css' || request.path == '/assets/identity.js')"
+        }
+      }
+      rate_limit_options {
+        conform_action = "allow"
+        exceed_action  = "deny(429)"
+        enforce_on_key = "IP"
+        rate_limit_threshold {
+          count        = 30
+          interval_sec = 60
+        }
+      }
+    }
+  }
+
+  dynamic "rule" {
+    for_each = var.enable_identity_sign_in ? [1] : []
+    content {
+      action      = "throttle"
+      priority    = 900
+      description = "Permit only staged session paths; application enforces methods"
+      match {
+        expr {
+          expression = "request.headers['host'] == '${var.hostname}' && (request.path == '/v1/session/bootstrap' || request.path == '/v1/session')"
+        }
+      }
+      rate_limit_options {
+        conform_action = "allow"
+        exceed_action  = "deny(429)"
+        enforce_on_key = "IP"
+        rate_limit_threshold {
+          count        = 30
+          interval_sec = 60
+        }
+      }
+    }
+  }
 
   rule {
     action      = "throttle"

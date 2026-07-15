@@ -19,6 +19,7 @@ locals {
     "dns.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
+    "identitytoolkit.googleapis.com",
     "logging.googleapis.com",
     "monitoring.googleapis.com",
     "orgpolicy.googleapis.com",
@@ -32,6 +33,7 @@ locals {
 
   platform_secret_ids = toset([
     "google-oauth-client",
+    "identity-bootstrap",
     "llm-api-key",
     "slack-client",
     "slack-signing-secret",
