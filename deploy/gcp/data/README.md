@@ -54,6 +54,11 @@ The migrations currently create tenant-bound records for:
 - immutable encrypted connector credential versions plus one-time installation,
   use, and revocation intents leased only through secret-broker functions.
 
+Credential installation and rotation atomically supersede the prior active
+version, insert the new encrypted envelope, update the connector reference, and
+consume the intent. Revocation atomically marks both credential and connector
+revoked while retaining the opaque credential reference for audit lineage.
+
 Dispatch audit is two-phase without being ambiguous: the broker must write a
 canonical `allowed` audit intent while the dispatch lease is active before it
 can create a task, then write the `observed` or `failed` result from finalized

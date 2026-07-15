@@ -68,7 +68,7 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
         migration.name for migration in migrations
     )
     assert migrations[0].name == "0001_tenant_boundary.sql"
-    assert migrations[-1].name == "0006_connector_vault.sql"
+    assert migrations[-1].name == "0007_connector_vault_lifecycle.sql"
     assert all(
         migration.checksum == hashlib.sha256(migration.sql.encode()).hexdigest()
         for migration in migrations
@@ -163,7 +163,7 @@ def initialized_database(database_url: str):
             cursor.execute(f'CREATE ROLE "{role}" NOLOGIN INHERIT')
     admin.autocommit = False
 
-    assert apply_migrations(admin) == 6
+    assert apply_migrations(admin) == 7
     with admin.cursor() as cursor:
         cursor.execute(
             "GRANT attune_worker TO attune_test_stale_member"
@@ -1095,10 +1095,20 @@ def test_credential_intents_are_tenant_bound_and_broker_function_only(
             )
             assert all(value is None for value in leased[6:])
             cursor.execute(
-                "SELECT attune.finalize_credential_intent(%s, %s, %s)",
-                (intent_id, "control_plane", "consumed"),
+                """
+                SELECT * FROM attune.store_connector_credential(
+                    %s, %s, %s, %s, %s, 1)
+                """,
+                (
+                    intent_id,
+                    b"ciphertext-with-tag",
+                    bytes(12),
+                    b"wrapped-dek",
+                    "projects/test/locations/test/keyRings/test/cryptoKeys/connectors",
+                ),
             )
-            assert cursor.fetchone() == (True,)
+            credential_id, credential_version = cursor.fetchone()
+            assert credential_id and credential_version == 1
         broker.commit()
         with broker.cursor() as cursor:
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
@@ -1106,3 +1116,57 @@ def test_credential_intents_are_tenant_bound_and_broker_function_only(
         broker.rollback()
     finally:
         broker.close()
+
+    control = _role_connection_factory(
+        database_url, ROLE_BINDINGS["attune_control_plane"]
+    )()
+    try:
+        with tenant_transaction(control, TenantContext(TENANT_A)) as cursor:
+            cursor.execute(
+                """
+                INSERT INTO attune.credential_intents
+                    (tenant_id, connector_id, producer_kind, operation,
+                     capability, idempotency_key, expires_at)
+                VALUES (%s, %s, 'control_plane', 'revoke',
+                        'connector.manage', %s, %s)
+                RETURNING id
+                """,
+                (
+                    TENANT_A,
+                    CONNECTOR_A,
+                    hashlib.sha256(b"credential-revoke-intent").digest(),
+                    datetime.now(timezone.utc) + timedelta(minutes=5),
+                ),
+            )
+            revoke_id = cursor.fetchone()[0]
+    finally:
+        control.close()
+    broker = _role_connection_factory(
+        database_url, ROLE_BINDINGS["attune_secret_broker"]
+    )()
+    try:
+        with broker.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM attune.lease_credential_intent(%s, %s, 30)",
+                (revoke_id, "control_plane"),
+            )
+            assert cursor.fetchone()[6] == credential_id
+            cursor.execute(
+                "SELECT attune.revoke_connector_credential(%s)", (revoke_id,)
+            )
+            assert cursor.fetchone() == (True,)
+        broker.commit()
+    finally:
+        broker.close()
+    with initialized_database.cursor() as cursor:
+        cursor.execute(
+            "SELECT status FROM attune.connector_credentials WHERE id = %s",
+            (credential_id,),
+        )
+        assert cursor.fetchone() == ("revoked",)
+        cursor.execute(
+            "SELECT status, credential_ref FROM attune.connectors WHERE id = %s",
+            (CONNECTOR_A,),
+        )
+        assert cursor.fetchone() == ("revoked", credential_id)
+    initialized_database.rollback()

@@ -353,6 +353,14 @@ def verify_database_boundary(connection: Any, bindings: dict[str, str]) -> None:
                 "attune.finalize_credential_intent(uuid,text,text)",
                 "attune_secret_broker",
             ),
+            (
+                "attune.store_connector_credential(uuid,bytea,bytea,bytea,text,integer)",
+                "attune_secret_broker",
+            ),
+            (
+                "attune.revoke_connector_credential(uuid)",
+                "attune_secret_broker",
+            ),
         )
         for signature, role in privileged_functions:
             cursor.execute(
