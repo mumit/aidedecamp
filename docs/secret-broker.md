@@ -39,7 +39,8 @@ The envelope-encryption core, immutable forced-RLS vault schema, one-time
 intent lease/finalize functions, and substitution/isolation tests are
 implemented in development. Atomic ciphertext installation/rotation and
 revocation functions are implemented and retain revoked-version lineage. The
-private service, broker-mediated Google operation, and live KMS evidence remain
-gated work. No
+tenant producer and function-only broker repository adapters are also
+implemented. The private service, broker-mediated Google operation, and live
+KMS evidence remain gated work. No
 customer credential is authorized until those controls and the hosted launch
 gates pass.
