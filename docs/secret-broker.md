@@ -55,6 +55,15 @@ receives only `history_id`, `messages_total`, and `threads_total`; the Gmail
 profile's email address and the OAuth access token never leave the broker.
 Credentials with a caller-controlled token endpoint are rejected.
 
+In GCP, the application subnet has Private Google Access but no Cloud NAT.
+Exact private DNS zones resolve only `oauth2.googleapis.com` and
+`gmail.googleapis.com` to Google's `private.googleapis.com` VIP. There is no
+wildcard Google API zone. TLS still verifies the public hostnames, and the
+broker still fixes each path in code; DNS alone is not treated as provider
+authorization. A credential-free ephemeral job must prove both endpoints
+return their expected unauthenticated refusals before a Google credential is
+authorized.
+
 Before encryption or revocation, the broker creates a tenant-bound,
 content-free `allowed` audit intent through its forced-RLS database identity and
 requires the private audit writer to persist it. It records the observed result
@@ -97,8 +106,11 @@ audit writer; its runtime environment contains resource identifiers but no
 credential values. A synthetic live wrap/unwrap passed under the broker identity
 and verified KMS CRC32C integrity; the ephemeral validation job was removed.
 The first broker-mediated Google operation is implemented and tested offline,
-but is not registered as a worker job route and has not been exercised against
-Google. A dedicated non-production Google identity, approved fixed-destination
-egress validation, a paging notification channel, and full
+but is not registered as a worker job route and has not been exercised with an
+authorized Google identity. Its exact-host private egress boundary is
+declarative, and its credential-free live probe passed in development on
+2026-07-14; repeat the probe after each material network or image change. A
+dedicated non-production Google identity, a paging
+notification channel, and full
 intent-to-ciphertext-to-provider-to-audit evidence remain launch gates. No
 customer credential is authorized until those gates pass.

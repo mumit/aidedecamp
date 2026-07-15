@@ -56,6 +56,12 @@ def test_gcp_foundation_preserves_hosted_security_boundaries():
 
     assert 'version = "7.34.0"' in terraform
     assert 'ipv4_enabled    = false' in terraform
+    assert '"dns.googleapis.com"' in terraform
+    assert '"oauth2.googleapis.com"' in terraform
+    assert '"gmail.googleapis.com"' in terraform
+    assert '"199.36.153.8"' in terraform
+    assert 'google_compute_router_nat' not in terraform
+    assert 'dns_name    = "googleapis.com."' not in terraform
     assert 'cloudsql.iam_authentication' in terraform
     assert 'edition                     = "ENTERPRISE"' in terraform
     assert '".gserviceaccount.com"' in terraform

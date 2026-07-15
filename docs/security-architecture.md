@@ -471,6 +471,14 @@ through protected files or standard input rather than interpolated shell text.
   all-traffic egress so internal-ingress provenance is preserved. Environments
   without an approved egress gateway or Cloud NAT MUST fail closed for arbitrary
   internet destinations.
+- The initial GCP provider boundary uses no Cloud NAT. Private Google Access and
+  exact private DNS zones expose only `oauth2.googleapis.com` and
+  `gmail.googleapis.com` through the `private.googleapis.com` VIP; wildcard
+  Google API DNS is prohibited. Because the VIP can serve more Google APIs,
+  fixed code paths, TLS hostname verification, disabled redirects and ambient
+  proxies, canonical capability checks, and route-specific IAM remain
+  independent controls. Each network change requires a credential-free live
+  probe before connector authorization.
 - Production, staging, development, and security-test environments MUST use
   separate projects/accounts, credentials, OAuth clients, and customer data.
 - Infrastructure changes MUST be declarative, reviewed, logged, and applied by

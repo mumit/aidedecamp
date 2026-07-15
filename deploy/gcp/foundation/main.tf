@@ -16,6 +16,7 @@ locals {
     "cloudkms.googleapis.com",
     "cloudtasks.googleapis.com",
     "compute.googleapis.com",
+    "dns.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
     "logging.googleapis.com",
@@ -35,6 +36,11 @@ locals {
     "slack-client",
     "slack-signing-secret",
   ])
+
+  fixed_google_api_hosts = {
+    oauth2 = "oauth2.googleapis.com"
+    gmail  = "gmail.googleapis.com"
+  }
 }
 
 data "google_project" "current" {
@@ -68,6 +74,44 @@ resource "google_compute_subnetwork" "application" {
     flow_sampling        = 0.5
     metadata             = "INCLUDE_ALL_METADATA"
   }
+}
+
+# Resolve only the two reviewed provider hosts through Google's private API
+# VIP. Other arbitrary internet destinations remain unreachable without NAT,
+# and other googleapis.com names retain their existing resolution behavior.
+resource "google_dns_managed_zone" "fixed_google_api" {
+  for_each = local.fixed_google_api_hosts
+
+  project     = var.project_id
+  name        = "${local.prefix}-${each.key}-private-api"
+  dns_name    = "${each.value}."
+  description = "Exact private DNS boundary for ${each.value}"
+  visibility  = "private"
+  labels      = local.labels
+
+  private_visibility_config {
+    networks {
+      network_url = google_compute_network.private.id
+    }
+  }
+
+  depends_on = [google_project_service.required]
+}
+
+resource "google_dns_record_set" "fixed_google_api" {
+  for_each = local.fixed_google_api_hosts
+
+  project      = var.project_id
+  managed_zone = google_dns_managed_zone.fixed_google_api[each.key].name
+  name         = "${each.value}."
+  type         = "A"
+  ttl          = 300
+  rrdatas = [
+    "199.36.153.8",
+    "199.36.153.9",
+    "199.36.153.10",
+    "199.36.153.11",
+  ]
 }
 
 resource "google_compute_global_address" "service_range" {

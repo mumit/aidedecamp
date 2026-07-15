@@ -2,6 +2,23 @@
 
 Newest first. This log records decisions that constrain current implementation.
 
+## 2026-07 — Fixed Google egress uses exact private DNS without NAT
+
+- The GCP application subnet uses Private Google Access and no Cloud NAT.
+  Private zones for exactly `oauth2.googleapis.com` and `gmail.googleapis.com`
+  resolve their apex records to the `private.googleapis.com` VIP. There is no
+  wildcard `*.googleapis.com` override.
+- This was selected over Cloud NAT, which would make arbitrary internet egress
+  reachable, and over the usual wildcard private Google API zone, which would
+  expose more provider hostnames to workloads.
+- The VIP itself supports more Google APIs, so exact DNS is defense in depth,
+  not authorization. Broker-fixed URLs and paths, TLS hostname verification,
+  disabled redirects and ambient proxies, canonical capabilities,
+  route-specific IAM, and minimized responses remain required.
+- An ephemeral credential-free worker job proves the two endpoints return
+  expected unauthenticated refusals. Adding a provider hostname is a reviewed
+  infrastructure and application change, never an operational workaround.
+
 ## 2026-07 — Provider credentials stay behind fixed broker operations
 
 - Hosted workers receive neither stored credentials nor OAuth access tokens. A

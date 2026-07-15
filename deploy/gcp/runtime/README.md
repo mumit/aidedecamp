@@ -34,10 +34,12 @@ database functions. It requires the private audit writer before and after a
 mutation and fails closed on ambiguous results.
 
 The initial read-only Gmail profile route is not yet in the worker route
-registry and must not be enabled with customer credentials. Before that gate
-opens, validate fixed Google endpoint egress with a dedicated non-production
-Google identity and attach a paging notification channel to the use-anomaly
-alert. The database enforces 60 use leases per tenant/capability/minute. The
+registry and must not be enabled with customer credentials. The development
+credential-free exact-endpoint egress probe passed on 2026-07-14; repeat it
+after a material network or image change. Before the gate opens, use a dedicated
+non-production Google identity for the authenticated evidence and attach a
+paging notification channel to the use-anomaly alert. The database enforces 60
+use leases per tenant/capability/minute. The
 runtime creates a content-free log metric and opens a Monitoring incident after
 more than five denied/limited, provider-failed, or unavailable results in five
 minutes. An empty `alert_notification_channels` list creates the incident but
@@ -174,6 +176,35 @@ gcloud run jobs delete "attune-ENVIRONMENT-kms-smoke" \
 
 Do not retain the job, replace the random input with a real credential, or put
 secret values in command arguments or environment variables.
+
+Before authorizing any Google credential, validate the foundation's exact-host
+private DNS path with the immutable broker image. This probe sends no
+credential or authorization header. It succeeds only when Google's OAuth token
+endpoint returns its expected unauthenticated `400` and Gmail returns `401` or
+`403`, proving DNS, TCP, TLS, and fixed-endpoint reachability without exposing a
+test identity. Use the worker identity because provider-use routes are
+worker-only, and always delete the job:
+
+```bash
+export WORKER_SA="attune-ENVIRONMENT-worker@${PROJECT_ID}.iam.gserviceaccount.com"
+export VPC_NETWORK="attune-ENVIRONMENT-private"
+export VPC_SUBNETWORK="attune-ENVIRONMENT-application"
+
+gcloud run jobs create "attune-ENVIRONMENT-google-egress-smoke" \
+  --project="$PROJECT_ID" --region="$REGION" --image="$IMAGE" \
+  --service-account="$WORKER_SA" \
+  --network="$VPC_NETWORK" --subnet="$VPC_SUBNETWORK" \
+  --vpc-egress=all-traffic \
+  --command=python --args=-m,attune.hosted.google_egress_smoke \
+  --tasks=1 --max-retries=0 --task-timeout=120s --execute-now --wait
+gcloud run jobs delete "attune-ENVIRONMENT-google-egress-smoke" \
+  --project="$PROJECT_ID" --region="$REGION" --quiet
+```
+
+Success prints only `PASS fixed Google endpoint egress`. A failure is a launch
+gate: inspect content-free execution logs and correct the declarative network
+boundary; do not add NAT, a proxy, a wildcard DNS zone, or credentials to the
+probe.
 
 After the dispatch broker is enabled, validate the complete synthetic path
 from control-plane canonical state through broker audit, Cloud Tasks, queue

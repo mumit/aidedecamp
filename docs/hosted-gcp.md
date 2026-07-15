@@ -156,8 +156,11 @@ acceptable substitutes.
    lifecycle, exact workload authentication, intent-only audit, and live KMS
    evidence are implemented in development. The first fixed, read-only,
    response-minimized Gmail profile operation is deployed but not registered as
-   a hosted worker job and has no live provider evidence. Dedicated test
-   identity and egress validation, a paging channel, full end-to-end evidence,
+   a hosted worker job and has no authorized-identity provider evidence. Its
+   no-NAT, exact-host private Google API boundary is declarative, and the
+   credential-free egress probe passed in development on 2026-07-14. It must be
+   repeated after material network or image changes. A dedicated test identity,
+   a paging channel, full end-to-end evidence,
    write reconciliation, and broader operational alerting remain. The durable
    per-tenant/capability use limit and a content-free use-anomaly alert are
    implemented in development.

@@ -7,7 +7,8 @@ storage, the secret broker, ingress verification, and hosted migrations exist.
 
 The configuration creates:
 
-- a private VPC and private-service connection;
+- a private VPC and private-service connection, plus exact private DNS zones
+  for the two fixed Google provider hosts;
 - CMEK-protected Cloud SQL for PostgreSQL with private IP, IAM database
   authentication, point-in-time recovery, deletion protection, and the
   standard Enterprise edition (development may use a shared-core tier);
@@ -81,6 +82,25 @@ in staging, then have two reviewers approve the production plan.
 Cloud SQL and the audit bucket deliberately have deletion protection. Teardown
 is an exceptional, separately reviewed workflow; `terraform destroy` is not the
 data-deletion procedure.
+
+## Fixed Google API egress
+
+The application subnet has Private Google Access enabled and no Cloud NAT.
+Terraform creates private zones for exactly `oauth2.googleapis.com` and
+`gmail.googleapis.com`, with apex A records pointing to Google's
+`private.googleapis.com` VIP (`199.36.153.8/30`). It deliberately creates no
+wildcard `*.googleapis.com` zone. This lets the broker reach its two compiled-in
+TLS hostnames while arbitrary internet destinations continue to fail closed.
+
+The private VIP can serve other Google APIs, so DNS is one layer rather than
+the complete authorization boundary. Exact broker URLs and paths, disabled
+redirects and ambient proxies, TLS hostname verification, route-specific IAM,
+canonical capabilities, and minimized responses remain mandatory. Adding a
+provider hostname requires a reviewed Terraform change, a fixed application
+operation, negative tests, and a credential-free egress probe. Do not add Cloud
+NAT or broaden the zone to `googleapis.com` as an incident workaround.
+The address range and routing model are defined in Google's
+[Private Google Access documentation](https://cloud.google.com/vpc/docs/configure-private-google-access).
 
 ## Gmail publisher and domain restrictions
 
@@ -224,7 +244,7 @@ and the legacy constraint's
 
 ## Not created yet
 
-- public load balancer, Cloud Armor, DNS, or certificates;
+- public load balancer, Cloud Armor, public DNS, or certificates;
 - Cloud Run control-plane, ingress, worker, or secret-broker services;
 - database schema, `vector` extension, row-security policies, or tenant data;
 - secret versions, OAuth clients, channel applications, or customer links;
