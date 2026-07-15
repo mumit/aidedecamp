@@ -19,10 +19,17 @@ _LOCK_ID = 5_746_885_417_301_991_188
 
 RUNTIME_ROLES = (
     "attune_control_plane",
+    "attune_dispatch_broker",
     "attune_worker",
     "attune_secret_broker",
     "attune_audit_writer",
 )
+
+
+def _dispatch_function_invariants_hold(row: Any) -> bool:
+    """Normalize DB-API row containers across psycopg and pg8000."""
+    return tuple(row) == (True, True, True, True)
+
 
 TENANT_TABLES = (
     "tenants",
@@ -45,6 +52,8 @@ TENANT_TABLES = (
     "usage_records",
     "export_jobs",
     "deletion_markers",
+    "dispatch_intents",
+    "audit_intents",
 )
 
 
@@ -150,6 +159,8 @@ def bind_runtime_roles(connection: Any, bindings: dict[str, str]) -> None:
 
     if set(bindings) != set(RUNTIME_ROLES):
         raise ValueError("runtime role bindings must name every fixed Attune role")
+    if len(set(bindings.values())) != len(bindings):
+        raise ValueError("every runtime role requires a distinct IAM login")
     try:
         with closing(connection.cursor()) as cursor:
             cursor.execute("SELECT current_user")
@@ -214,12 +225,13 @@ def verify_database_boundary(connection: Any, bindings: dict[str, str]) -> None:
         ):
             raise RuntimeError("hosted tenant tables must enable and force RLS")
 
+        placeholders = ", ".join("%s" for _ in RUNTIME_ROLES)
         cursor.execute(
-            """
+            f"""
             SELECT r.rolname, r.rolsuper, r.rolcreaterole, r.rolcreatedb,
                    r.rolcanlogin, r.rolbypassrls
              FROM pg_catalog.pg_roles AS r
-             WHERE r.rolname IN (%s, %s, %s, %s)
+             WHERE r.rolname IN ({placeholders})
             """,
             RUNTIME_ROLES,
         )
@@ -273,6 +285,111 @@ def verify_database_boundary(connection: Any, bindings: dict[str, str]) -> None:
         )
         if cursor.fetchone()[0] != 2:
             raise RuntimeError("append-only audit triggers are missing or disabled")
+
+        dispatch_functions = (
+            "attune.lease_dispatch_intent(uuid,text,integer)",
+            "attune.finalize_dispatch_intent(uuid,text,text)",
+        )
+        for signature in dispatch_functions:
+            cursor.execute(
+                """
+                SELECT p.prosecdef,
+                       COALESCE(
+                           'search_path=pg_catalog' = ANY(p.proconfig), false
+                       ),
+                       pg_catalog.has_function_privilege(%s, %s, 'EXECUTE'),
+                       NOT EXISTS (
+                           SELECT 1
+                             FROM pg_catalog.aclexplode(COALESCE(
+                                 p.proacl,
+                                 pg_catalog.acldefault('f', p.proowner)
+                             )) AS acl
+                            WHERE acl.grantee = 0
+                              AND acl.privilege_type = 'EXECUTE'
+                       )
+                  FROM pg_catalog.pg_proc AS p
+                 WHERE p.oid = %s::pg_catalog.regprocedure
+                """,
+                (
+                    "attune_dispatch_broker",
+                    signature,
+                    signature,
+                ),
+            )
+            row = cursor.fetchone()
+            if not _dispatch_function_invariants_hold(row):
+                raise RuntimeError(
+                    f"dispatch function invariant failed for {signature}: "
+                    f"security_definer={row[0]}, search_path={row[1]}, "
+                    f"broker_execute={row[2]}, no_public_execute={row[3]}"
+                )
+        cursor.execute(
+            "SELECT pg_catalog.has_table_privilege(%s, %s, %s)",
+            (
+                "attune_dispatch_broker",
+                "attune.dispatch_intents",
+                "SELECT,INSERT,UPDATE,DELETE,TRUNCATE",
+            ),
+        )
+        if cursor.fetchone()[0] is not False:
+            raise RuntimeError("dispatch broker must not access intent rows directly")
+
+        privileged_functions = (
+            (
+                "attune.write_audit_intent(uuid)",
+                "attune_audit_writer",
+            ),
+            (
+                "attune.request_dispatch_audit(uuid,text,text)",
+                "attune_dispatch_broker",
+            ),
+        )
+        for signature, role in privileged_functions:
+            cursor.execute(
+                """
+                SELECT p.prosecdef,
+                       COALESCE(
+                           'search_path=pg_catalog' = ANY(p.proconfig), false
+                       ),
+                       pg_catalog.has_function_privilege(%s, %s, 'EXECUTE'),
+                       NOT EXISTS (
+                           SELECT 1
+                             FROM pg_catalog.aclexplode(COALESCE(
+                                 p.proacl,
+                                 pg_catalog.acldefault('f', p.proowner)
+                             )) AS acl
+                            WHERE acl.grantee = 0
+                              AND acl.privilege_type = 'EXECUTE'
+                       )
+                  FROM pg_catalog.pg_proc AS p
+                 WHERE p.oid = %s::pg_catalog.regprocedure
+                """,
+                (role, signature, signature),
+            )
+            row = cursor.fetchone()
+            if not _dispatch_function_invariants_hold(row):
+                raise RuntimeError(
+                    f"privileged function invariant failed for {signature}"
+                )
+        cursor.execute(
+            """
+            SELECT pg_catalog.has_function_privilege(
+                       'attune_audit_writer',
+                       'attune.append_audit_event(uuid,text,bytea,text,text,text,bytea,jsonb)',
+                       'EXECUTE'
+                   ),
+                   pg_catalog.has_table_privilege(
+                       'attune_audit_writer', 'attune.audit_intents',
+                       'SELECT,INSERT,UPDATE,DELETE,TRUNCATE'
+                   ),
+                   pg_catalog.has_table_privilege(
+                       'attune_dispatch_broker', 'attune.audit_intents',
+                       'SELECT,INSERT,UPDATE,DELETE,TRUNCATE'
+                   )
+            """
+        )
+        if tuple(cursor.fetchone()) != (False, False, False):
+            raise RuntimeError("audit writer or dispatch broker has ambient audit access")
 
         for role, login in bindings.items():
             cursor.execute(

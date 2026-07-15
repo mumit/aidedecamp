@@ -144,7 +144,9 @@ The broker must not receive customer traffic until all of the following pass:
 2. queue routing is fixed to exact deployed worker targets;
 3. intent lease/finalize functions pass cross-tenant, producer-substitution,
    expiry, crash, replay, and `AlreadyExists` tests;
-4. the private audit writer is available and failure-tested;
+4. the private audit writer is available and failure-tested (the intent-only
+   writer is implemented in development; end-to-end broker integration remains
+   part of this gate);
 5. worker routes are registered deterministic capabilities; and
 6. Terraform, IAM, task creation, logs, and support output contain no customer
    content or secret material.

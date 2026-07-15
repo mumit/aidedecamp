@@ -1,0 +1,124 @@
+data "terraform_remote_state" "foundation" {
+  backend = "gcs"
+  config = {
+    bucket = var.state_bucket
+    prefix = var.foundation_state_prefix
+  }
+}
+
+locals {
+  foundation = data.terraform_remote_state.foundation.outputs.foundation
+  prefix     = "attune-${local.foundation.environment}"
+  labels = merge(
+    {
+      application = "attune"
+      environment = local.foundation.environment
+      managed_by  = "terraform"
+      component   = "audit-writer"
+    },
+    var.labels,
+  )
+  audit_callers = toset([
+    local.foundation.workload_identities.control_plane,
+    local.foundation.workload_identities.dispatch_broker,
+    local.foundation.workload_identities.secret_broker,
+    local.foundation.workload_identities.worker,
+  ])
+}
+
+resource "google_cloud_run_v2_service" "audit_writer" {
+  project             = local.foundation.project_id
+  name                = "${local.prefix}-audit-writer"
+  location            = local.foundation.region
+  deletion_protection = true
+  ingress             = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+  labels              = local.labels
+
+  template {
+    service_account                  = local.foundation.workload_identities.audit_writer
+    timeout                          = "30s"
+    max_instance_request_concurrency = 8
+
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 3
+    }
+
+    containers {
+      name  = "audit-writer"
+      image = var.audit_writer_image
+
+      ports {
+        container_port = 8080
+      }
+
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "512Mi"
+        }
+        cpu_idle          = true
+        startup_cpu_boost = true
+      }
+
+      env {
+        name  = "ATTUNE_CLOUD_SQL_INSTANCE"
+        value = local.foundation.database_instance
+      }
+      env {
+        name  = "ATTUNE_DB_NAME"
+        value = local.foundation.database_name
+      }
+      env {
+        name = "ATTUNE_DB_USER"
+        value = trimsuffix(
+          local.foundation.workload_identities.audit_writer,
+          ".gserviceaccount.com",
+        )
+      }
+
+      startup_probe {
+        initial_delay_seconds = 1
+        timeout_seconds       = 2
+        period_seconds        = 3
+        failure_threshold     = 10
+        http_get {
+          path = "/healthz"
+          port = 8080
+        }
+      }
+
+      liveness_probe {
+        timeout_seconds   = 2
+        period_seconds    = 10
+        failure_threshold = 3
+        http_get {
+          path = "/healthz"
+          port = 8080
+        }
+      }
+    }
+
+    vpc_access {
+      egress = "PRIVATE_RANGES_ONLY"
+      network_interfaces {
+        network    = local.foundation.network_id
+        subnetwork = local.foundation.subnetwork_id
+        tags       = ["attune-audit-writer"]
+      }
+    }
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "google_cloud_run_v2_service_iam_member" "audit_invoker" {
+  for_each = local.audit_callers
+  project  = local.foundation.project_id
+  location = local.foundation.region
+  name     = google_cloud_run_v2_service.audit_writer.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${each.value}"
+}

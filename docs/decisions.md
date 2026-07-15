@@ -2,6 +2,19 @@
 
 Newest first. This log records decisions that constrain current implementation.
 
+## 2026-07 — Hosted audit accepts tenant-bound intents, not event bodies
+
+- Tenant-scoped workloads persist idempotent audit intents under forced RLS.
+- The dispatch broker can create only fixed-purpose audit intents derived from
+  canonical dispatch state and has no direct audit-table authority.
+- The private writer accepts only an opaque intent UUID. Its database identity
+  can execute only the atomic intent-to-hash-chain function; direct table access
+  and the legacy free-form append function are denied.
+- This was selected over a privileged `{tenant_id, event}` HTTP API because
+  workload IAM authenticates a caller but does not prove a request's tenant.
+- Security-sensitive effects fail closed when the intent cannot be written.
+  The complete contract is in `audit-writer.md`.
+
 ## 2026-07 — A private broker exclusively owns hosted task dispatch
 
 - Producers persist a tenant-bound job and dispatch intent in one transaction;

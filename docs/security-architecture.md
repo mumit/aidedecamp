@@ -220,6 +220,11 @@ exports, and deletion markers.
   the producer, resolve a tenant-bound canonical intent without trusting a
   caller-supplied tenant, restrict purpose and destination, use deterministic
   task identity, and enforce infrastructure-controlled queue routing.
+- **SEC-208.** A hosted audit writer MUST NOT trust a caller-supplied tenant or
+  free-form event. Tenant-scoped workloads MUST first persist an idempotent
+  audit intent under the storage boundary; privileged writers MUST resolve that
+  intent server-side and atomically append it. Fixed-purpose infrastructure
+  brokers MAY create intents only by resolving canonical state.
 
 Automated isolation tests MUST attempt every operation with another tenant's
 IDs, installations, approval nonces, queue records, vector filters, cache
@@ -451,6 +456,11 @@ through protected files or standard input rather than interpolated shell text.
 Hosted audit storage MUST be append-only and tamper-evident. The audit event
 records identifiers and decisions, not raw message bodies, access tokens, or
 hidden model reasoning.
+
+The implemented hosted boundary uses the tenant-bound transactional outbox and
+private intent-only writer specified in [`audit-writer.md`](audit-writer.md).
+The writer accepts no tenant or event fields over HTTP and has no direct table
+or free-form append authority.
 
 At minimum record:
 

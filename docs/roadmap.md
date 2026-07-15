@@ -28,10 +28,10 @@ deployment wrapper around the current local process. Work proceeds in this
 order:
 
 1. validate the no-customer-data GCP foundation in development and staging;
-2. implement the approved private dispatch broker, durable intent lease,
-   fixed queue routing, private audit-writer integration, deterministic
-   capability routes, and live HTTP worker adapter on the implemented
-   tenant-aware data and dispatch core;
+2. finish the private dispatch-broker service, fixed queue routing,
+   deterministic capability routes, and live HTTP worker adapter on the
+   implemented tenant-aware data core, durable dispatch intent/IAM boundary,
+   and private audit-writer service;
 3. encrypted connector vault and policy-enforcing secret broker;
 4. authenticated control plane and explicit account/connector identity links;
 5. extend versioned, resumable setup state into tenant-bound hosted onboarding;

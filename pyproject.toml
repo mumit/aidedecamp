@@ -37,6 +37,11 @@ hosted = [
     "cloud-sql-python-connector[pg8000]>=1.18,<2",
     "psycopg[binary]>=3.2,<4",
 ]
+hosted-service = [
+    "cloud-sql-python-connector[pg8000]>=1.18,<2",
+    "flask>=3.1,<4",
+    "gunicorn>=23,<24",
+]
 
 [project.scripts]
 attune = "attune.cli:main"

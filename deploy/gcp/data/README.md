@@ -47,13 +47,16 @@ The migrations currently create tenant-bound records for:
 - conversations and turns;
 - memories and variable-dimension `vector` embeddings;
 - autonomy grants and content-free usage records;
-- export jobs and deletion/restore-suppression markers; and
-- hash-chained audit events and per-tenant audit heads.
+- export jobs and deletion/restore-suppression markers;
+- durable dispatch intents and broker-only lease/finalize functions; and
+- tenant-bound audit intents, hash-chained audit events, and per-tenant audit
+  heads.
 
 The hosted Python boundary provides repositories for every durable object
 class: provider events, jobs/retries, workflow checkpoints, conversations,
 approvals, memories/vectors, autonomy grants, usage, exports, deletion markers,
-and audit. Every method requires a `TenantContext`; none accepts a tenant
+dispatch intents, and audit intents. Every tenant-scoped method requires a
+`TenantContext`; none accepts a tenant
 embedded in payload or model output. Idempotency collisions are checked,
 leases and sequence allocation are atomic, checkpoints use expected versions,
 vector search injects tenant and principal predicates, deletion marks both
@@ -76,7 +79,9 @@ unavailable. A live worker service remains prohibited until its queue has
 fixed target routing and least-privilege producers, the private audit writer
 exists, and each registered executor passes deterministic capability and
 ambiguous-effect review. Deploying a generic handler before those controls
-would turn an identifier envelope into unintended authority.
+would turn an identifier envelope into unintended authority. The private
+intent-only audit writer is now deployed from `deploy/gcp/runtime`; the broker,
+fixed routes, and registered executors remain required.
 
 Connector rows hold only opaque credential references. Credential ciphertext
 arrives with the separate connector-vault/secret-broker phase. No secret value

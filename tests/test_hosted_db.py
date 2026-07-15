@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
@@ -13,6 +14,7 @@ import pytest
 from attune.hosted.migrate import (
     RUNTIME_ROLES,
     Migration,
+    _dispatch_function_invariants_hold,
     apply_migrations,
     bind_runtime_roles,
     load_migrations,
@@ -26,8 +28,16 @@ from attune.hosted.durable import (
     PostgresProviderEventRepository,
     PostgresWorkflowRepository,
 )
+from attune.hosted.dispatch import (
+    PostgresDispatchBrokerRepository,
+    PostgresDispatchProducerRepository,
+)
+from attune.hosted.audit import (
+    PostgresAuditProducerRepository,
+    PostgresAuditWriterRepository,
+    PostgresDispatchAuditRepository,
+)
 from attune.hosted.repositories import (
-    PostgresAuditRepository,
     PostgresApprovalRepository,
     PostgresJobRepository,
     PostgresMemoryRepository,
@@ -45,6 +55,7 @@ CONNECTOR_A = UUID("10000000-0000-4000-8000-000000000041")
 
 ROLE_BINDINGS = {
     "attune_control_plane": "attune_test_control",
+    "attune_dispatch_broker": "attune_test_dispatch",
     "attune_worker": "attune_test_worker",
     "attune_secret_broker": "attune_test_broker",
     "attune_audit_writer": "attune_test_audit",
@@ -57,7 +68,7 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
         migration.name for migration in migrations
     )
     assert migrations[0].name == "0001_tenant_boundary.sql"
-    assert migrations[-1].name == "0002_durable_tenant_objects.sql"
+    assert migrations[-1].name == "0004_audit_intents.sql"
     assert all(
         migration.checksum == hashlib.sha256(migration.sql.encode()).hexdigest()
         for migration in migrations
@@ -73,6 +84,15 @@ def test_tenant_context_rejects_non_uuid_values():
 
 def test_runtime_role_binding_contract_is_fixed():
     assert set(RUNTIME_ROLES) == set(ROLE_BINDINGS)
+    with pytest.raises(ValueError, match="distinct IAM login"):
+        duplicated = dict(ROLE_BINDINGS)
+        duplicated["attune_worker"] = duplicated["attune_control_plane"]
+        bind_runtime_roles(None, duplicated)
+
+
+def test_dispatch_verifier_accepts_pg8000_list_rows():
+    assert _dispatch_function_invariants_hold([True, True, True, True])
+    assert not _dispatch_function_invariants_hold([True, True, False, True])
 
 
 def test_hosted_migrator_refuses_runtime_overrides():
@@ -87,7 +107,9 @@ def test_repositories_reject_invalid_data_before_connecting():
     context = TenantContext(TENANT_A)
     jobs = PostgresJobRepository(forbidden_connection)
     memories = PostgresMemoryRepository(forbidden_connection)
-    audit = PostgresAuditRepository(forbidden_connection)
+    audit = PostgresAuditProducerRepository(
+        forbidden_connection, producer_kind="worker"
+    )
 
     with pytest.raises(ValueError, match="exactly 32 bytes"):
         jobs.enqueue(
@@ -110,8 +132,9 @@ def test_repositories_reject_invalid_data_before_connecting():
             embedding=[float("nan")],
         )
     with pytest.raises(ValueError, match="audit outcome"):
-        audit.append(
+        audit.request(
             context,
+            idempotency_key=hashlib.sha256(b"invalid-audit").digest(),
             actor_type="worker",
             action="read",
             outcome="invented",
@@ -140,7 +163,7 @@ def initialized_database(database_url: str):
             cursor.execute(f'CREATE ROLE "{role}" NOLOGIN INHERIT')
     admin.autocommit = False
 
-    assert apply_migrations(admin) == 2
+    assert apply_migrations(admin) == 4
     with admin.cursor() as cursor:
         cursor.execute(
             "GRANT attune_worker TO attune_test_stale_member"
@@ -318,38 +341,47 @@ def test_tenant_setting_does_not_survive_transaction(initialized_database):
         _reset_role(initialized_database)
 
 
-def test_audit_is_tenant_bound_and_append_only(initialized_database):
+def test_audit_is_tenant_bound_and_append_only(
+    initialized_database, database_url
+):
     psycopg = pytest.importorskip("psycopg")
+    producer = PostgresAuditProducerRepository(
+        _role_connection_factory(database_url, ROLE_BINDINGS["attune_worker"]),
+        producer_kind="worker",
+    )
+    writer = PostgresAuditWriterRepository(
+        _role_connection_factory(
+            database_url, ROLE_BINDINGS["attune_audit_writer"]
+        )
+    )
+    intent = producer.request(
+        TenantContext(TENANT_A),
+        idempotency_key=hashlib.sha256(b"append-only-audit").digest(),
+        actor_type="worker",
+        actor_ref_hash=hashlib.sha256(b"actor").digest(),
+        action="memory.read",
+        outcome="allowed",
+        target_type="memory",
+        target_ref_hash=hashlib.sha256(b"target").digest(),
+        metadata={"content_free": True},
+    )
+    event_id = writer.write(intent.id)
+    assert event_id
+    assert writer.write(intent.id) == event_id
+
     _set_role(initialized_database, ROLE_BINDINGS["attune_audit_writer"])
     try:
-        with tenant_transaction(initialized_database, TenantContext(TENANT_A)) as cursor:
-            cursor.execute(
-                """
-                SELECT attune.append_audit_event(
-                    %s, 'worker', %s, 'memory.read',
-                    'allowed', 'memory', %s,
-                    '{"content_free": true}'::jsonb)
-                """,
-                (
-                    TENANT_A,
-                    hashlib.sha256(b"actor").digest(),
-                    hashlib.sha256(b"target").digest(),
-                ),
-            )
-            assert cursor.fetchone()[0]
-
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
-            with tenant_transaction(
-                initialized_database, TenantContext(TENANT_A)
-            ) as cursor:
+            with initialized_database.cursor() as cursor:
                 cursor.execute(
                     """
                     SELECT attune.append_audit_event(
-                        %s, 'worker', NULL, 'memory.read', 'denied',
+                        %s, 'worker', NULL, 'memory.read', 'allowed',
                         NULL, NULL, '{}'::jsonb)
                     """,
-                    (TENANT_B,),
+                    (TENANT_A,),
                 )
+        initialized_database.rollback()
     finally:
         _reset_role(initialized_database)
 
@@ -481,14 +513,22 @@ def test_memory_repository_scopes_vector_search_and_soft_delete(
     ) == []
 
 
-def test_audit_repository_cannot_append_for_another_tenant(
+def test_audit_outbox_is_idempotent_and_writer_accepts_only_intent_ids(
     initialized_database, database_url
 ):
-    repository = PostgresAuditRepository(
-        _role_connection_factory(database_url, ROLE_BINDINGS["attune_audit_writer"])
+    producer = PostgresAuditProducerRepository(
+        _role_connection_factory(database_url, ROLE_BINDINGS["attune_worker"]),
+        producer_kind="worker",
     )
-    event_id = repository.append(
+    writer = PostgresAuditWriterRepository(
+        _role_connection_factory(
+            database_url, ROLE_BINDINGS["attune_audit_writer"]
+        )
+    )
+    key = hashlib.sha256(b"audit-outbox-idempotency").digest()
+    intent = producer.request(
         TenantContext(TENANT_A),
+        idempotency_key=key,
         actor_type="worker",
         actor_ref_hash=hashlib.sha256(b"actor").digest(),
         action="job.complete",
@@ -497,7 +537,43 @@ def test_audit_repository_cannot_append_for_another_tenant(
         target_ref_hash=hashlib.sha256(b"job").digest(),
         metadata={"content_free": True},
     )
-    assert event_id
+    duplicate = producer.request(
+        TenantContext(TENANT_A),
+        idempotency_key=key,
+        actor_type="worker",
+        actor_ref_hash=hashlib.sha256(b"actor").digest(),
+        action="job.complete",
+        outcome="observed",
+        target_type="job",
+        target_ref_hash=hashlib.sha256(b"job").digest(),
+        metadata={"content_free": True},
+    )
+    assert duplicate.id == intent.id
+    event_id = writer.write(intent.id)
+    assert event_id and writer.write(intent.id) == event_id
+    assert writer.write(UUID("ffffffff-ffff-4fff-8fff-ffffffffffff")) is None
+
+    with pytest.raises(RuntimeError, match="idempotency key reused"):
+        producer.request(
+            TenantContext(TENANT_A),
+            idempotency_key=key,
+            actor_type="worker",
+            action="job.fail",
+            outcome="failed",
+        )
+
+    connection = _role_connection_factory(
+        database_url, ROLE_BINDINGS["attune_worker"]
+    )()
+    try:
+        with tenant_transaction(connection, TenantContext(TENANT_B)) as cursor:
+            cursor.execute(
+                "SELECT id FROM attune.audit_intents WHERE id = %s",
+                (intent.id,),
+            )
+            assert cursor.fetchone() is None
+    finally:
+        connection.close()
 
 
 def test_approval_repository_binds_actor_action_version_and_single_use(
@@ -734,3 +810,201 @@ def test_autonomy_and_lifecycle_objects_fail_closed_across_tenants(
         attributes={"model": "approved-model"},
     )
     assert usage_id
+
+
+def test_dispatch_intent_is_canonical_idempotent_and_broker_only(
+    initialized_database, database_url
+):
+    producer = PostgresDispatchProducerRepository(
+        _role_connection_factory(
+            database_url, ROLE_BINDINGS["attune_control_plane"]
+        ),
+        producer_kind="control_plane",
+    )
+    broker = PostgresDispatchBrokerRepository(
+        _role_connection_factory(
+            database_url, ROLE_BINDINGS["attune_dispatch_broker"]
+        )
+    )
+    dispatch_audit = PostgresDispatchAuditRepository(
+        _role_connection_factory(
+            database_url, ROLE_BINDINGS["attune_dispatch_broker"]
+        )
+    )
+    audit_writer = PostgresAuditWriterRepository(
+        _role_connection_factory(
+            database_url, ROLE_BINDINGS["attune_audit_writer"]
+        )
+    )
+    key = hashlib.sha256(b"dispatch-intent-canonical").digest()
+    dispatch = producer.enqueue(
+        TenantContext(TENANT_A),
+        kind="gmail.reconcile",
+        capability="gmail.read",
+        payload={"canonical_ref": "opaque"},
+        idempotency_key=key,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+    )
+    duplicate = producer.enqueue(
+        TenantContext(TENANT_A),
+        kind="gmail.reconcile",
+        capability="gmail.read",
+        payload={"canonical_ref": "opaque"},
+        idempotency_key=key,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+    )
+    assert duplicate.job.id == dispatch.job.id
+    assert duplicate.intent.id == dispatch.intent.id
+    assert dispatch.intent.task_id == f"attune-{dispatch.intent.id.hex}"
+
+    assert broker.lease(
+        dispatch.intent.id, producer_kind="worker"
+    ) is None
+    leased = broker.lease(
+        dispatch.intent.id,
+        producer_kind="control_plane",
+        lease_seconds=30,
+    )
+    assert leased is not None
+    assert leased.tenant == TenantContext(TENANT_A)
+    assert leased.job_id == dispatch.job.id
+    assert leased.purpose == "gmail.reconcile"
+    assert leased.capability == "gmail.read"
+    assert leased.task_id == dispatch.intent.task_id
+    assert broker.lease(
+        dispatch.intent.id, producer_kind="control_plane"
+    ) is None
+    assert broker.finalize(
+        dispatch.intent.id,
+        producer_kind="control_plane",
+        outcome="dispatched",
+    )
+    assert broker.finalize(
+        dispatch.intent.id,
+        producer_kind="control_plane",
+        outcome="dispatched",
+    )
+    replay = broker.lease(
+        dispatch.intent.id, producer_kind="control_plane"
+    )
+    assert replay is not None and replay.state == "dispatched"
+    assert replay.task_id == dispatch.intent.task_id
+    audit_intent_id = dispatch_audit.request(
+        dispatch.intent.id, outcome="observed"
+    )
+    assert audit_intent_id
+    assert dispatch_audit.request(
+        dispatch.intent.id, outcome="observed"
+    ) == audit_intent_id
+    assert audit_writer.write(audit_intent_id)
+
+
+def test_dispatch_intent_rejects_producer_substitution_and_cross_tenant_reads(
+    initialized_database, database_url
+):
+    psycopg = pytest.importorskip("psycopg")
+    factory = _role_connection_factory(database_url, ROLE_BINDINGS["attune_worker"])
+    jobs = PostgresJobRepository(factory)
+    job = jobs.enqueue(
+        TenantContext(TENANT_A),
+        kind="calendar.reconcile",
+        capability="calendar.read",
+        payload={},
+        idempotency_key=hashlib.sha256(b"dispatch-substitution").digest(),
+    )
+    connection = factory()
+    try:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            with tenant_transaction(connection, TenantContext(TENANT_A)) as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO attune.dispatch_intents
+                        (tenant_id, job_id, producer_kind, purpose, capability,
+                         expires_at)
+                    VALUES (%s, %s, 'control_plane', %s, %s, %s)
+                    """,
+                    (
+                        TENANT_A,
+                        job.id,
+                        job.kind,
+                        job.capability,
+                        datetime.now(timezone.utc) + timedelta(minutes=5),
+                    ),
+                )
+    finally:
+        connection.close()
+
+    producer = PostgresDispatchProducerRepository(
+        factory, producer_kind="worker"
+    )
+    dispatch = producer.enqueue(
+        TenantContext(TENANT_A),
+        kind="calendar.reconcile",
+        capability="calendar.read",
+        payload={"version": 2},
+        idempotency_key=hashlib.sha256(b"dispatch-tenant-read").digest(),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+    )
+    connection = factory()
+    try:
+        with tenant_transaction(connection, TenantContext(TENANT_B)) as cursor:
+            cursor.execute(
+                "SELECT id FROM attune.dispatch_intents WHERE id = %s",
+                (dispatch.intent.id,),
+            )
+            assert cursor.fetchone() is None
+    finally:
+        connection.close()
+
+
+def test_dispatch_lease_recovers_and_expired_intent_never_leases(
+    initialized_database, database_url
+):
+    producer = PostgresDispatchProducerRepository(
+        _role_connection_factory(database_url, ROLE_BINDINGS["attune_worker"]),
+        producer_kind="worker",
+    )
+    broker = PostgresDispatchBrokerRepository(
+        _role_connection_factory(
+            database_url, ROLE_BINDINGS["attune_dispatch_broker"]
+        )
+    )
+    recoverable = producer.enqueue(
+        TenantContext(TENANT_A),
+        kind="memory.reconcile",
+        capability="memory.read",
+        payload={},
+        idempotency_key=hashlib.sha256(b"dispatch-lease-recovery").digest(),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+    )
+    first = broker.lease(
+        recoverable.intent.id, producer_kind="worker", lease_seconds=30
+    )
+    assert first is not None and first.attempts == 1
+    with initialized_database.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE attune.dispatch_intents
+               SET lease_expires_at = clock_timestamp() - interval '1 second'
+             WHERE id = %s
+            """,
+            (recoverable.intent.id,),
+        )
+    initialized_database.commit()
+    recovered = broker.lease(
+        recoverable.intent.id, producer_kind="worker", lease_seconds=30
+    )
+    assert recovered is not None and recovered.attempts == 2
+
+    expiring = producer.enqueue(
+        TenantContext(TENANT_A),
+        kind="memory.reconcile",
+        capability="memory.read",
+        payload={"expiry": True},
+        idempotency_key=hashlib.sha256(b"dispatch-expiry").digest(),
+        expires_at=datetime.now(timezone.utc) + timedelta(milliseconds=30),
+    )
+    time.sleep(0.05)
+    assert broker.lease(
+        expiring.intent.id, producer_kind="worker"
+    ) is None

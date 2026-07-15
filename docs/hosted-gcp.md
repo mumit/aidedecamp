@@ -15,11 +15,11 @@ to the first GCP implementation.
 | Web control plane | Cloud Run behind external HTTPS load balancing and Cloud Armor | No | Yes |
 | Provider/channel ingress | Dedicated Cloud Run service with verified Slack, Chat, Calendar, and Pub/Sub handlers | Signing material only where verification requires it | Yes |
 | Durable dispatch | Cloud Tasks with a dedicated OIDC dispatch identity | No | No |
-| Dispatch broker | Private Cloud Run service and the only Cloud Tasks enqueuer | No | IAM only |
+| Dispatch broker | Private Cloud Run service and the only Cloud Tasks enqueuer | No | IAM and database boundary implemented; service pending |
 | Tenant worker | Private Cloud Run service, one authenticated job envelope per request | No | IAM only |
 | Secret broker | Private Cloud Run service with the only connector-vault KMS identity | Yes | IAM only |
 | Relational/vector data | Private-IP Cloud SQL PostgreSQL with IAM authentication, RLS, and `vector` | No | No |
-| Audit writer | Private service writing canonical events to PostgreSQL and retained Cloud Storage | No | IAM only |
+| Audit writer | Private intent-only service writing canonical events to PostgreSQL and retained Cloud Storage | No | Implemented in development |
 | Images | Artifact Registry with provenance and vulnerability policy gates | No | No |
 
 Every service has a distinct user-managed service account. Google recommends
@@ -140,9 +140,11 @@ acceptable substitutes.
 2. **Hosted schema and dispatch:** the development schema, RLS, tenant-context
    transaction helper, PostgreSQL vector storage, durable object model, and
    tamper-evident audit path now exist. All durable repositories plus the
-   authenticated envelope and fail-closed dispatch core exist. Fixed queue
-   routing, the approved dispatch broker, private audit writer, deterministic
-   capability executors, and live HTTP adapter must complete this gate.
+   authenticated envelope and fail-closed dispatch core exist. The durable
+   dispatch boundary, exclusive broker IAM, tenant-bound audit outbox, and
+   private audit-writer service are implemented in development. Fixed queue
+   routing, the dispatch-broker service, deterministic capability executors,
+   and live worker HTTP adapter must complete this gate.
 3. **Secret broker:** connector storage, use, rotation, revocation, and negative
    authorization tests.
 4. **Control plane:** OIDC/passkey login and explicit connector identity links.

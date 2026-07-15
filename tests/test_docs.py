@@ -64,6 +64,9 @@ def test_gcp_foundation_preserves_hosted_security_boundaries():
     assert 'prevent_destroy = true' in terraform
     assert 'serviceAccount:gmail-api-push@system.gserviceaccount.com' in terraform
     assert 'roles/secretmanager.secretAccessor' in terraform
+    assert 'workload["dispatch_broker"].email' in terraform
+    assert 'toset(["control_plane", "ingress"])' not in terraform
+    assert 'toset(["control_plane", "worker"])' not in terraform
     assert 'name            = "connector-credentials"' in terraform
     assert 'roles/cloudkms.cryptoKeyEncrypterDecrypter' in terraform
     assert 'roles/secretmanager.secretVersionAdder' not in terraform
@@ -143,3 +146,23 @@ def test_dispatch_broker_boundary_is_documented_and_fail_closed():
     assert "only Cloud Tasks producer" in broker
     assert "Direct producer enqueue" in broker
     assert "A private broker exclusively owns hosted task dispatch" in decisions
+
+
+def test_audit_writer_is_private_intent_only_and_least_privileged():
+    root = ROOT / "deploy" / "gcp" / "runtime"
+    terraform = "\n".join(path.read_text() for path in sorted(root.glob("*.tf")))
+    migration = (
+        ROOT / "src" / "attune" / "hosted" / "sql" / "0004_audit_intents.sql"
+    ).read_text()
+    architecture = (ROOT / "docs" / "audit-writer.md").read_text()
+
+    assert 'INGRESS_TRAFFIC_INTERNAL_ONLY' in terraform
+    assert 'roles/run.invoker' in terraform
+    assert 'allUsers' not in terraform
+    assert '@sha256:[0-9a-f]{64}$' in terraform
+    assert 'secret_key_ref' not in terraform
+    assert 'write_audit_intent(uuid)' in migration
+    assert 'REVOKE EXECUTE ON FUNCTION' in migration
+    assert 'FROM attune_audit_writer' in migration
+    assert 'caller-supplied tenant' in architecture
+    assert 'only the opaque audit-intent UUID' in architecture

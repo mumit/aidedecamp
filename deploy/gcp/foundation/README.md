@@ -11,14 +11,20 @@ The configuration creates:
 - CMEK-protected Cloud SQL for PostgreSQL with private IP, IAM database
   authentication, point-in-time recovery, deletion protection, and the
   standard Enterprise edition (development may use a shared-core tier);
-- separate control-plane, ingress, worker, secret-broker, task-dispatch, and
-  audit-writer service accounts;
+- separate control-plane, ingress, worker, secret-broker, dispatch-broker,
+  task-delivery, and audit-writer service accounts;
 - Cloud Tasks queues and a Gmail-authorized Pub/Sub topic;
 - CMEK-backed Secret Manager containers for static platform credentials,
   without secret versions, plus a separate connector-vault KMS key;
 - Artifact Registry; and
 - a versioned, CMEK-protected audit bucket with a retention policy, a platform
   log sink, and Data Access audit logging.
+
+Only the dispatch-broker identity can enqueue either Cloud Tasks queue or use
+the distinct task-delivery identity. Control-plane, ingress, and worker
+identities must persist canonical dispatch state and invoke the broker; they
+cannot create tasks or choose task targets directly. Queue routing is fixed
+when the corresponding runtime service is deployed, before customer traffic.
 
 ## Preconditions
 

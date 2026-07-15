@@ -535,55 +535,6 @@ class PostgresApprovalRepository:
                 return _approval(row) if row is not None else None
 
 
-class PostgresAuditRepository:
-    def __init__(self, connection_factory: ConnectionFactory):
-        self._connect = connection_factory
-
-    def append(
-        self,
-        context: TenantContext,
-        *,
-        actor_type: str,
-        action: str,
-        outcome: str,
-        actor_ref_hash: bytes | None = None,
-        target_type: str | None = None,
-        target_ref_hash: bytes | None = None,
-        metadata: dict[str, Any] | None = None,
-    ) -> UUID:
-        _bounded_text("actor_type", actor_type, 64)
-        _bounded_text("action", action, 120)
-        if outcome not in {"allowed", "denied", "failed", "observed"}:
-            raise ValueError("invalid audit outcome")
-        if target_type is not None:
-            _bounded_text("target_type", target_type, 64)
-        if actor_ref_hash is not None:
-            _fixed_hash("actor_ref_hash", actor_ref_hash)
-        if target_ref_hash is not None:
-            _fixed_hash("target_ref_hash", target_ref_hash)
-        fields = {} if metadata is None else metadata
-        _bounded_object("metadata", fields, 16_384)
-        with closing(self._connect()) as connection:
-            with tenant_transaction(connection, context) as cursor:
-                cursor.execute(
-                    """
-                    SELECT attune.append_audit_event(
-                        %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
-                    """,
-                    (
-                        context.tenant_id,
-                        actor_type,
-                        actor_ref_hash,
-                        action,
-                        outcome,
-                        target_type,
-                        target_ref_hash,
-                        _canonical_json(fields),
-                    ),
-                )
-                return cursor.fetchone()[0]
-
-
 def _job(row: Sequence[Any]) -> HostedJob:
     return HostedJob(
         id=row[0],

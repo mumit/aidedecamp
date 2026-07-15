@@ -1,11 +1,12 @@
 locals {
   workload_accounts = {
-    control_plane = "ctl"
-    ingress       = "ingress"
-    worker        = "worker"
-    secret_broker = "secrets"
-    task_dispatch = "dispatch"
-    audit_writer  = "audit"
+    control_plane   = "ctl"
+    dispatch_broker = "task-broker"
+    ingress         = "ingress"
+    worker          = "worker"
+    secret_broker   = "secrets"
+    task_dispatch   = "dispatch"
+    audit_writer    = "audit"
   }
 }
 
@@ -31,21 +32,39 @@ resource "google_project_iam_member" "runtime_metrics" {
 }
 
 resource "google_project_iam_member" "database_client" {
-  for_each = toset(["audit_writer", "control_plane", "secret_broker", "worker"])
-  project  = var.project_id
-  role     = "roles/cloudsql.client"
-  member   = "serviceAccount:${google_service_account.workload[each.value].email}"
+  for_each = toset([
+    "audit_writer",
+    "control_plane",
+    "dispatch_broker",
+    "secret_broker",
+    "worker",
+  ])
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.workload[each.value].email}"
 }
 
 resource "google_project_iam_member" "database_instance_user" {
-  for_each = toset(["audit_writer", "control_plane", "secret_broker", "worker"])
-  project  = var.project_id
-  role     = "roles/cloudsql.instanceUser"
-  member   = "serviceAccount:${google_service_account.workload[each.value].email}"
+  for_each = toset([
+    "audit_writer",
+    "control_plane",
+    "dispatch_broker",
+    "secret_broker",
+    "worker",
+  ])
+  project = var.project_id
+  role    = "roles/cloudsql.instanceUser"
+  member  = "serviceAccount:${google_service_account.workload[each.value].email}"
 }
 
 resource "google_sql_user" "workload" {
-  for_each = toset(["audit_writer", "control_plane", "secret_broker", "worker"])
+  for_each = toset([
+    "audit_writer",
+    "control_plane",
+    "dispatch_broker",
+    "secret_broker",
+    "worker",
+  ])
   name = trimsuffix(
     google_service_account.workload[each.value].email,
     ".gserviceaccount.com",
@@ -55,28 +74,25 @@ resource "google_sql_user" "workload" {
 }
 
 resource "google_cloud_tasks_queue_iam_member" "ingress_enqueuer" {
-  for_each = toset(["control_plane", "ingress"])
   project  = var.project_id
   location = var.region
   name     = google_cloud_tasks_queue.ingress.name
   role     = "roles/cloudtasks.enqueuer"
-  member   = "serviceAccount:${google_service_account.workload[each.value].email}"
+  member   = "serviceAccount:${google_service_account.workload["dispatch_broker"].email}"
 }
 
 resource "google_cloud_tasks_queue_iam_member" "jobs_enqueuer" {
-  for_each = toset(["control_plane", "worker"])
   project  = var.project_id
   location = var.region
   name     = google_cloud_tasks_queue.jobs.name
   role     = "roles/cloudtasks.enqueuer"
-  member   = "serviceAccount:${google_service_account.workload[each.value].email}"
+  member   = "serviceAccount:${google_service_account.workload["dispatch_broker"].email}"
 }
 
 resource "google_service_account_iam_member" "task_identity_user" {
-  for_each           = toset(["control_plane", "ingress", "worker"])
   service_account_id = google_service_account.workload["task_dispatch"].name
   role               = "roles/iam.serviceAccountUser"
-  member             = "serviceAccount:${google_service_account.workload[each.value].email}"
+  member             = "serviceAccount:${google_service_account.workload["dispatch_broker"].email}"
 }
 
 resource "google_project_service_identity" "cloud_tasks" {
