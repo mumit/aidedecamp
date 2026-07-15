@@ -58,6 +58,9 @@ Credential installation and rotation atomically supersede the prior active
 version, insert the new encrypted envelope, update the connector reference, and
 consume the intent. Revocation atomically marks both credential and connector
 revoked while retaining the opaque credential reference for audit lineage.
+Only one installation or revocation intent can hold a live lease for a
+connector, keeping the predicted credential version stable while AES-GCM binds
+that version into authenticated data.
 
 Dispatch audit is two-phase without being ambiguous: the broker must write a
 canonical `allowed` audit intent while the dispatch lease is active before it

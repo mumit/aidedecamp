@@ -68,7 +68,7 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
         migration.name for migration in migrations
     )
     assert migrations[0].name == "0001_tenant_boundary.sql"
-    assert migrations[-1].name == "0007_connector_vault_lifecycle.sql"
+    assert migrations[-1].name == "0008_vault_mutation_serialization.sql"
     assert all(
         migration.checksum == hashlib.sha256(migration.sql.encode()).hexdigest()
         for migration in migrations
@@ -163,7 +163,7 @@ def initialized_database(database_url: str):
             cursor.execute(f'CREATE ROLE "{role}" NOLOGIN INHERIT')
     admin.autocommit = False
 
-    assert apply_migrations(admin) == 7
+    assert apply_migrations(admin) == 8
     with admin.cursor() as cursor:
         cursor.execute(
             "GRANT attune_worker TO attune_test_stale_member"
@@ -1042,6 +1042,23 @@ def test_credential_intents_are_tenant_bound_and_broker_function_only(
                 ),
             )
             intent_id = cursor.fetchone()[0]
+            cursor.execute(
+                """
+                INSERT INTO attune.credential_intents
+                    (tenant_id, connector_id, producer_kind, operation,
+                     capability, idempotency_key, expires_at)
+                VALUES (%s, %s, 'control_plane', 'install',
+                        'connector.manage', %s, %s)
+                RETURNING id
+                """,
+                (
+                    TENANT_A,
+                    CONNECTOR_A,
+                    hashlib.sha256(b"credential-concurrent-install").digest(),
+                    datetime.now(timezone.utc) + timedelta(minutes=5),
+                ),
+            )
+            concurrent_intent_id = cursor.fetchone()[0]
         with tenant_transaction(control, TenantContext(TENANT_B)) as cursor:
             cursor.execute(
                 "SELECT id FROM attune.credential_intents WHERE id = %s",
@@ -1094,6 +1111,11 @@ def test_credential_intents_are_tenant_bound_and_broker_function_only(
                 "connector.manage",
             )
             assert all(value is None for value in leased[6:])
+            cursor.execute(
+                "SELECT * FROM attune.lease_credential_intent(%s, %s, 30)",
+                (concurrent_intent_id, "control_plane"),
+            )
+            assert cursor.fetchone() is None
             cursor.execute(
                 """
                 SELECT * FROM attune.store_connector_credential(
