@@ -97,7 +97,6 @@ def test_task_creator_normalizes_only_already_exists():
     [
         ("http://worker.example/run", "http://worker.example"),
         ("https://user@worker.example/run", "https://worker.example"),
-        ("https://other.example/run", "https://worker.example"),
         ("https://worker.example/run?next=other", "https://worker.example"),
         ("https://worker.example/run", "https://worker.example/audience"),
     ],

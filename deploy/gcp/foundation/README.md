@@ -26,6 +26,15 @@ identities must persist canonical dispatch state and invoke the broker; they
 cannot create tasks or choose task targets directly. Queue routing is fixed
 when the corresponding runtime service is deployed, before customer traffic.
 
+The jobs queue is created with no HTTP target while the worker is absent. After
+the private worker is deployed, set `jobs_worker_target_host` to the hostname
+from the reviewed worker URI and `jobs_worker_oidc_audience` to the exact custom
+audience from the runtime output, then reapply this root. Both values are
+required together. Terraform forces HTTPS, POST, the exact
+`/v1/tasks/dispatch` path, the task-delivery service account, its OIDC audience,
+and `ALWAYS` URI enforcement. This staged second foundation apply is required
+before the dispatch broker may be deployed; it is not an operator exception.
+
 ## Preconditions
 
 Use a new billing-enabled project for each environment. Authenticate with an

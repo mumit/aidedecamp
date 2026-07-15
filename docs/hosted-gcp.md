@@ -16,7 +16,7 @@ to the first GCP implementation.
 | Provider/channel ingress | Dedicated Cloud Run service with verified Slack, Chat, Calendar, and Pub/Sub handlers | Signing material only where verification requires it | Yes |
 | Durable dispatch | Cloud Tasks with a dedicated OIDC dispatch identity | No | No |
 | Dispatch broker | Private Cloud Run service and the only Cloud Tasks enqueuer | No | IAM and database boundary implemented; service pending |
-| Tenant worker | Private Cloud Run service, one authenticated job envelope per request | No | IAM only |
+| Tenant worker | Private Cloud Run service, one authenticated job envelope per request | No | Deterministic smoke route implemented in development; IAM only |
 | Secret broker | Private Cloud Run service with the only connector-vault KMS identity | Yes | Implemented in development; IAM only |
 | Relational/vector data | Private-IP Cloud SQL PostgreSQL with IAM authentication, RLS, and `vector` | No | No |
 | Audit writer | Private intent-only service writing canonical events to PostgreSQL and retained Cloud Storage | No | Implemented in development |

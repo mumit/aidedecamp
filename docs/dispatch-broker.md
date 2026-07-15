@@ -109,9 +109,10 @@ Task name is deterministic from the intent ID:
 
 Each queue has an infrastructure-controlled routing override for one exact
 service and path. User input and task bodies cannot select a URL. Route
-configuration requires an HTTPS target and a path-free HTTPS OIDC audience on
-the same origin; credentials, query strings, fragments, redirects, and
-cross-origin audiences are rejected. The broker
+configuration requires an HTTPS target and a path-free HTTPS OIDC audience;
+credentials, query strings, fragments, and redirects are rejected. The
+audience may be a distinct infrastructure-owned Cloud Run custom audience and
+is still checked exactly by the worker. The broker
 maps producer class and purpose to a fixed queue; unsupported combinations are
 denied and audited.
 

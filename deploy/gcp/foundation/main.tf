@@ -253,7 +253,51 @@ resource "google_cloud_tasks_queue" "jobs" {
     max_doublings      = 8
   }
 
+  dynamic "http_target" {
+    for_each = (
+      var.jobs_worker_target_host == null &&
+      var.jobs_worker_oidc_audience == null
+      ? []
+      : [true]
+    )
+    content {
+      http_method = "POST"
+
+      uri_override {
+        host                      = var.jobs_worker_target_host
+        scheme                    = "HTTPS"
+        uri_override_enforce_mode = "ALWAYS"
+
+        path_override {
+          path = "/v1/tasks/dispatch"
+        }
+      }
+
+      oidc_token {
+        service_account_email = google_service_account.workload["task_dispatch"].email
+        audience              = var.jobs_worker_oidc_audience
+      }
+
+      header_overrides {
+        header {
+          key   = "Content-Type"
+          value = "application/json"
+        }
+      }
+    }
+  }
+
   depends_on = [google_project_service.required]
+
+  lifecycle {
+    precondition {
+      condition = (
+        (var.jobs_worker_target_host == null) ==
+        (var.jobs_worker_oidc_audience == null)
+      )
+      error_message = "jobs worker host and OIDC audience must be configured together."
+    }
+  }
 }
 
 resource "google_pubsub_topic" "provider_events" {

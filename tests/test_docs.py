@@ -65,6 +65,8 @@ def test_gcp_foundation_preserves_hosted_security_boundaries():
     assert 'serviceAccount:gmail-api-push@system.gserviceaccount.com' in terraform
     assert 'roles/secretmanager.secretAccessor' in terraform
     assert 'workload["dispatch_broker"].email' in terraform
+    assert 'uri_override_enforce_mode = "ALWAYS"' in terraform
+    assert 'path = "/v1/tasks/dispatch"' in terraform
     assert 'toset(["control_plane", "ingress"])' not in terraform
     assert 'toset(["control_plane", "worker"])' not in terraform
     assert 'name            = "connector-credentials"' in terraform
@@ -186,3 +188,18 @@ def test_secret_broker_is_private_exact_identity_and_kms_bound():
     assert 'USER 65532:65532' in dockerfile
     assert 'no caller-authoritative tenant field' in normalized_architecture
     assert 'content-free `allowed` audit intent' in normalized_architecture
+
+
+def test_worker_is_private_deterministic_and_queue_routed():
+    runtime = ROOT / "deploy" / "gcp" / "runtime"
+    terraform = "\n".join(path.read_text() for path in sorted(runtime.glob("*.tf")))
+    dockerfile = (ROOT / "deploy" / "worker" / "Dockerfile").read_text()
+    routes = (ROOT / "src" / "attune" / "hosted" / "worker_routes.py").read_text()
+
+    assert 'resource "google_cloud_run_v2_service" "worker"' in terraform
+    assert 'worker_invoker' in terraform
+    assert 'workload_identities.task_dispatch' in terraform
+    assert 'custom_audiences' in terraform
+    assert 'USER 65532:65532' in dockerfile
+    assert 'platform.smoke' in routes
+    assert 'gmail' not in routes and 'calendar' not in routes

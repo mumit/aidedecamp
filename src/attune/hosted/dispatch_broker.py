@@ -58,8 +58,6 @@ class BrokerRoute:
             raise ValueError("route target and audience must be HTTPS URLs")
         if audience.path not in {"", "/"}:
             raise ValueError("route audience must be an HTTPS origin")
-        if target.netloc != audience.netloc:
-            raise ValueError("route target and audience origins must match")
         if len(target.path) > 255:
             raise ValueError("route target path is too long")
 

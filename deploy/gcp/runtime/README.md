@@ -1,9 +1,10 @@
 # GCP hosted runtime boundaries
 
 This independent Terraform root deploys private hosted services after the
-foundation and database migrations pass. It currently deploys the audit writer
-and credential-mutation secret broker; the dispatch broker and deterministic
-workers join this root only after their own security gates pass.
+foundation and database migrations pass. It currently deploys the audit writer,
+credential-mutation secret broker, and a deterministic worker with only the
+content-free `platform.smoke` route. The dispatch broker joins this root only
+after the jobs queue has its reviewed fixed routing override.
 
 ## Audit-writer boundary
 
@@ -30,6 +31,16 @@ The broker alone can use the connector credential KMS key and its narrow
 database functions. It requires the private audit writer before and after a
 mutation and fails closed on ambiguous results.
 
+## Deterministic worker boundary
+
+The worker accepts only the minimal versioned Cloud Tasks envelope at
+`/v1/tasks/dispatch`. It verifies the exact task-delivery service account and
+custom audience, then atomically rebinds tenant, job kind, and capability to
+canonical PostgreSQL state. The initial `platform.smoke` executor accepts only
+`{"probe":"dispatch-v1"}` and has no provider, model, network, secret, or
+customer-content effect. Required audit failure or executor ambiguity moves the
+job to reconciliation rather than retrying an uncertain effect.
+
 ## Development deployment
 
 Apply `deploy/gcp/data` and successfully execute its migrator before deploying
@@ -41,15 +52,21 @@ export REGION="northamerica-northeast1"
 export REPOSITORY="attune-development"
 export AUDIT_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/attune-audit-writer"
 export BROKER_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/attune-secret-broker"
+export WORKER_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/attune-worker"
 
 docker buildx build --platform=linux/amd64 --push \
   -f deploy/audit-writer/Dockerfile -t "${AUDIT_IMAGE}:audit-writer-v1" .
 docker buildx build --platform=linux/amd64 --push \
   -f deploy/secret-broker/Dockerfile -t "${BROKER_IMAGE}:secret-broker-v1" .
+docker buildx build --platform=linux/amd64 --push \
+  -f deploy/worker/Dockerfile -t "${WORKER_IMAGE}:worker-v1" .
 gcloud artifacts docker images describe "${AUDIT_IMAGE}:audit-writer-v1" \
   --project="$PROJECT_ID" \
   --format='value(image_summary.fully_qualified_digest)'
 gcloud artifacts docker images describe "${BROKER_IMAGE}:secret-broker-v1" \
+  --project="$PROJECT_ID" \
+  --format='value(image_summary.fully_qualified_digest)'
+gcloud artifacts docker images describe "${WORKER_IMAGE}:worker-v1" \
   --project="$PROJECT_ID" \
   --format='value(image_summary.fully_qualified_digest)'
 ```
@@ -67,12 +84,20 @@ terraform plan -out=runtime.tfplan
 terraform apply runtime.tfplan
 ```
 
-Verify that both services have internal ingress and reject unauthenticated
+Verify that all services have internal ingress and reject unauthenticated
 invocation. The audit-writer IAM policy must list only its four expected
 workloads; the broker policy must list only the control plane. Verify the broker
-custom audience and that neither service account has a user-managed key. Do not
-place tenant data, tokens, or credentials in Terraform variables, state,
-labels, probes, or deployment logs.
+custom audience; the worker policy must list only the task-delivery identity.
+Verify that no runtime service account has a user-managed key. Do not place
+tenant data, tokens, or credentials in Terraform variables, state, labels,
+probes, or deployment logs.
+
+Worker deployment does not enable delivery. Copy the worker output's URI
+hostname and custom audience into the two nullable jobs-worker variables in the
+foundation root, review the queue-only in-place plan, and apply it. Confirm the
+queue override forces HTTPS, POST, `/v1/tasks/dispatch`, the task-delivery
+identity, and the exact audience before adding the dispatch broker to this
+runtime root.
 
 For a release candidate, validate the live connector key using the exact
 digest already reviewed in `terraform.tfvars`. This creates no tenant or

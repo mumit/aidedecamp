@@ -64,6 +64,34 @@ variable "lock_audit_retention" {
   default     = false
 }
 
+variable "jobs_worker_target_host" {
+  description = "Cloud Run worker hostname for the jobs queue override; null keeps dispatch disabled."
+  type        = string
+  default     = null
+
+  validation {
+    condition = (
+      var.jobs_worker_target_host == null ||
+      can(regex("^[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.run\\.app$", var.jobs_worker_target_host))
+    )
+    error_message = "jobs_worker_target_host must be a Cloud Run hostname without scheme or path."
+  }
+}
+
+variable "jobs_worker_oidc_audience" {
+  description = "Exact custom OIDC audience for the jobs worker; null keeps dispatch disabled."
+  type        = string
+  default     = null
+
+  validation {
+    condition = (
+      var.jobs_worker_oidc_audience == null ||
+      can(regex("^https://[a-z0-9-]+\\.attune\\.internal$", var.jobs_worker_oidc_audience))
+    )
+    error_message = "jobs_worker_oidc_audience must be an Attune internal HTTPS audience."
+  }
+}
+
 variable "labels" {
   description = "Additional non-sensitive resource labels."
   type        = map(string)

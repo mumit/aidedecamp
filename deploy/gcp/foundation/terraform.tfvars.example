@@ -5,6 +5,11 @@ environment = "staging"
 # Production must set this to true. Bucket Lock is irreversible.
 lock_audit_retention = false
 
+# Keep both null until the private worker is deployed and its exact output is
+# reviewed. Configure both together before enabling jobs-queue dispatch.
+jobs_worker_target_host  = null
+jobs_worker_oidc_audience = null
+
 labels = {
   owner       = "platform"
   cost_center = "attune"

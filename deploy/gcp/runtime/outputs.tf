@@ -22,3 +22,17 @@ output "secret_broker" {
     image           = var.secret_broker_image
   }
 }
+
+output "worker" {
+  description = "Private deterministic worker service identifiers."
+  value = {
+    project         = local.foundation.project_id
+    region          = local.foundation.region
+    name            = google_cloud_run_v2_service.worker.name
+    uri             = google_cloud_run_v2_service.worker.uri
+    target_path     = "/v1/tasks/dispatch"
+    audience        = local.worker_audience
+    service_account = local.foundation.workload_identities.worker
+    image           = var.worker_image
+  }
+}
