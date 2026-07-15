@@ -17,7 +17,7 @@ to the first GCP implementation.
 | Durable dispatch | Cloud Tasks with a dedicated OIDC dispatch identity | No | No |
 | Dispatch broker | Private Cloud Run service and the only Cloud Tasks enqueuer | No | IAM and database boundary implemented; service pending |
 | Tenant worker | Private Cloud Run service, one authenticated job envelope per request | No | IAM only |
-| Secret broker | Private Cloud Run service with the only connector-vault KMS identity | Yes | IAM only |
+| Secret broker | Private Cloud Run service with the only connector-vault KMS identity | Yes | Implemented in development; IAM only |
 | Relational/vector data | Private-IP Cloud SQL PostgreSQL with IAM authentication, RLS, and `vector` | No | No |
 | Audit writer | Private intent-only service writing canonical events to PostgreSQL and retained Cloud Storage | No | Implemented in development |
 | Images | Artifact Registry with provenance and vulnerability policy gates | No | No |
@@ -145,8 +145,10 @@ acceptable substitutes.
    private audit-writer service are implemented in development. Fixed queue
    routing, the dispatch-broker service, deterministic capability executors,
    and live worker HTTP adapter must complete this gate.
-3. **Secret broker:** connector storage, use, rotation, revocation, and negative
-   authorization tests.
+3. **Secret broker:** private install/revoke service, serialized encrypted
+   lifecycle, exact workload authentication, intent-only audit, and live KMS
+   evidence are implemented in development. Broker-mediated provider use,
+   full end-to-end evidence, reconciliation, and operational alerting remain.
 4. **Control plane:** OIDC/passkey login and explicit connector identity links.
 5. **Ingress and workers:** provider verification, replay resistance,
    reconciliation, deterministic capabilities, and kill switches.

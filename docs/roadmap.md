@@ -32,7 +32,9 @@ order:
    deterministic capability routes, and live HTTP worker adapter on the
    implemented tenant-aware data core, durable dispatch intent/IAM boundary,
    and private audit-writer service;
-3. encrypted connector vault and policy-enforcing secret broker;
+3. extend the implemented encrypted connector vault and private install/revoke
+   broker with broker-mediated provider operations, reconciliation, alerting,
+   and full intent-to-audit live evidence;
 4. authenticated control plane and explicit account/connector identity links;
 5. extend versioned, resumable setup state into tenant-bound hosted onboarding;
 6. deterministic typed capability gateway and risk-tier enforcement;

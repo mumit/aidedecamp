@@ -96,8 +96,9 @@ fixed target routing and least-privilege producers, the private audit writer
 exists, and each registered executor passes deterministic capability and
 ambiguous-effect review. Deploying a generic handler before those controls
 would turn an identifier envelope into unintended authority. The private
-intent-only audit writer is now deployed from `deploy/gcp/runtime`; the broker,
-fixed routes, and registered executors remain required.
+intent-only audit writer and credential-mutation secret broker are now deployed
+from `deploy/gcp/runtime`; the dispatch broker, fixed worker routes, registered
+executors, and broker-mediated provider operations remain required.
 
 Connector rows hold only opaque credential references. Credential ciphertext
 arrives with the separate connector-vault/secret-broker phase. No secret value
@@ -189,5 +190,6 @@ Before this job or schema is promoted beyond development:
 7. retain migration plan, digest, execution, verifier output, and reviewer
    evidence in the change record.
 
-Customer data remains prohibited until the later secret-broker, identity-link,
-verified-ingress, capability-gateway, export/deletion, and assurance gates pass.
+Customer data remains prohibited until broker-mediated provider authorization,
+identity-link, verified-ingress, capability-gateway, export/deletion, and
+assurance gates pass.

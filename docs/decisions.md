@@ -80,8 +80,9 @@ Newest first. This log records decisions that constrain current implementation.
   results. A live endpoint is blocked on fixed queue routing, least-privilege
   producers, the private audit writer, and registered capability executors.
 - Customer data remains prohibited. This data boundary does not substitute for
-  the pending secret broker, hardened job delivery, identity links, ingress
-  verification, capability gateway, deletion workflow, or assurance gates.
+  broker-mediated provider authorization, hardened job delivery, identity
+  links, ingress verification, capability gateway, deletion workflow, or
+  assurance gates.
 
 ## 2026-07 — GCP is the first operated SaaS platform
 
