@@ -141,3 +141,26 @@ gcloud run jobs delete "attune-ENVIRONMENT-kms-smoke" \
 
 Do not retain the job, replace the random input with a real credential, or put
 secret values in command arguments or environment variables.
+
+After the dispatch broker is enabled, validate the complete synthetic path
+from control-plane canonical state through broker audit, Cloud Tasks, queue
+override, worker OIDC verification, atomic claim, deterministic execution, and
+worker audit. The validation uses a reserved development-only tenant containing
+no customer/provider content. Run the immutable dispatch image under the
+control-plane identity with Direct VPC egress, then delete the job:
+
+```bash
+gcloud run jobs create "attune-ENVIRONMENT-dispatch-smoke" \
+  --project="$PROJECT_ID" --region="$REGION" --image="$DISPATCH_IMAGE_DIGEST" \
+  --service-account="$CONTROL_PLANE_SA" \
+  --set-env-vars="ATTUNE_CLOUD_SQL_INSTANCE=$CLOUD_SQL_INSTANCE,ATTUNE_DB_NAME=attune,ATTUNE_DB_USER=$CONTROL_PLANE_DB_USER,ATTUNE_DISPATCH_BROKER_URL=$DISPATCH_BROKER_URL,ATTUNE_DISPATCH_BROKER_AUDIENCE=$DISPATCH_BROKER_AUDIENCE,ATTUNE_REGION=$REGION" \
+  --network="$VPC_NETWORK" --subnet="$VPC_SUBNETWORK" \
+  --vpc-egress=private-ranges-only \
+  --command=python --args=-m,attune.hosted.dispatch_smoke \
+  --tasks=1 --max-retries=0 --task-timeout=120s --execute-now --wait
+gcloud run jobs delete "attune-ENVIRONMENT-dispatch-smoke" \
+  --project="$PROJECT_ID" --region="$REGION" --quiet
+```
+
+Success prints only `PASS brokered dispatch round trip`. Retain the content-free
+execution/audit evidence, not the temporary job.
