@@ -8,8 +8,8 @@ flask = pytest.importorskip("flask")
 
 from attune.hosted.audit_service import create_app
 
-INTENT_ID = UUID("10000000-0000-4000-8000-000000000091")
-EVENT_ID = UUID("10000000-0000-4000-8000-000000000092")
+INTENT_ID = UUID("a0000000-0000-4000-8000-000000000091")
+EVENT_ID = UUID("b0000000-0000-4000-8000-000000000092")
 
 
 class Writer:

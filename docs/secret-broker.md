@@ -42,6 +42,9 @@ revocation functions are implemented and retain revoked-version lineage. The
 tenant producer and function-only broker repository adapters are also
 implemented. The fail-closed installation/revocation core serializes mutation
 leases and requires audit before and after effects. The private HTTP adapter,
-broker-mediated Google operation, and live KMS evidence remain gated work. No
+now strictly verifies the exact control-plane OIDC identity and audience, accepts
+only canonical intent envelopes, and never accepts a tenant field. Production
+wiring, broker-mediated Google operation, and live KMS evidence remain gated
+work. No
 customer credential is authorized until those controls and the hosted launch
 gates pass.
