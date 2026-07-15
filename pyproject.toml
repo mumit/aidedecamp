@@ -22,7 +22,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "langgraph>=0.2"]
+dev = [
+    "cryptography>=42,<50",
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "langgraph>=0.2",
+]
 memory = ["mem0ai>=0.1", "qdrant-client>=1.9"]
 orchestrator = ["langgraph>=0.2", "langgraph-checkpoint-sqlite>=2"]
 slack = ["slack-bolt>=1.24"]
