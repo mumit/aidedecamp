@@ -179,6 +179,24 @@ authenticated, and audited.
   administrators MUST use phishing-resistant MFA.
 - **SEC-106.** Sessions, connectors, and channel installations MUST be visible
   and independently revocable by the user or authorized administrator.
+- **SEC-107.** A credential-bearing OAuth callback MUST use a dedicated public
+  service and identity with no tenant, database, secret, queue, or provider
+  authority. Load-balancer request logging MUST be disabled for its backend;
+  platform and Cloud Armor request logs MUST be excluded by dedicated service
+  and backend identities before routing is exposed; and the response MUST
+  immediately replace the browser URL with a credential-free location.
+  Canonical content-free security events remain mandatory; request-log
+  suppression is not audit suppression. Provider redirect registration MUST
+  occur only after the route has converged globally and synthetic non-retention
+  evidence has passed; configuration order is part of the control.
+- **SEC-108.** OAuth transaction resolution MUST require independent state and
+  browser-binding secrets, resolve tenant/principal/connector/redirect/scope
+  authority from a short-lived canonical record, and atomically lease it before
+  provider exchange. The exchange runtime MUST have no direct transaction-table
+  access; a dedicated memberless function owner may cross forced RLS only
+  through fixed lease/finalize functions. Finalization MUST re-prove the browser
+  binding, be terminal, and remove the live PKCE verifier from the current row.
+  The exchange workload MUST NOT receive application log-writer authority.
 
 ### 5.2 Authorization model
 
@@ -476,9 +494,12 @@ through protected files or standard input rather than interpolated shell text.
   without an approved egress gateway or Cloud NAT MUST fail closed for arbitrary
   internet destinations.
 - The initial GCP provider boundary uses no Cloud NAT. Private Google Access and
-  exact private DNS zones expose only `oauth2.googleapis.com` and
-  `gmail.googleapis.com` through the `private.googleapis.com` VIP; wildcard
-  Google API DNS is prohibited. Because the VIP can serve more Google APIs,
+  exact private DNS zones expose only `oauth2.googleapis.com`,
+  `www.googleapis.com`, `gmail.googleapis.com`, and
+  `secretmanager.googleapis.com` through the `private.googleapis.com` VIP;
+  wildcard Google API DNS is prohibited. The additional hosts are restricted
+  in code to signing-certificate retrieval and the platform OAuth-client-secret
+  read. Because the VIP can serve more Google APIs,
   fixed code paths, TLS hostname verification, disabled redirects and ambient
   proxies, canonical capability checks, and route-specific IAM remain
   independent controls. Each network change requires a credential-free live
@@ -500,6 +521,29 @@ through protected files or standard input rather than interpolated shell text.
 Hosted audit storage MUST be append-only and tamper-evident. The audit event
 records identifiers and decisions, not raw message bodies, access tokens, or
 hidden model reasoning.
+
+The infrastructure audit export MUST include only reviewed Cloud Audit log
+classes. It MUST NOT retain all application, load-balancer, or request logs;
+OAuth callbacks necessarily carry short-lived authorization codes in their
+query string. Callback request logs require an explicit non-retention boundary
+before the route is exposed, while canonical content-free Attune events remain
+in the hash-chained application audit.
+
+The development boundary assigns the exact callback path to a dedicated
+credential-free Cloud Run scrubber. Its load-balancer backend logging is off;
+the `_Default` sink excludes both that service's platform request logs and its
+backend's Cloud Armor/load-balancer request logs by resource identity; and the
+retained audit sink contains Cloud Audit classes only. Backend logging disable
+does not by itself suppress Cloud Armor `requests` entries. The exclusion is
+protected from Terraform destruction. Synthetic values must be absent from both
+request-log planes and all project-log search before the deployed exchange is
+connected to an enabled public callback.
+
+Log verification MUST NOT place an authorization code, token, state value, or
+synthetic marker in a server-side logging query: Data Access audit records the
+query filter. Verification uses a narrow timestamp-only query and searches the
+returned data locally. Only explicit non-secret synthetic markers may be used
+in a controlled callback test; real credentials are never searched for.
 
 The implemented hosted boundary uses the tenant-bound transactional outbox and
 private intent-only writer specified in [`audit-writer.md`](audit-writer.md).

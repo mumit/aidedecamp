@@ -11,6 +11,7 @@ from .secret_audit import SecretBrokerAudit
 from .secret_broker import SecretBroker
 from .secret_broker_service import create_app
 from .google_provider import GoogleProvider
+from .google_oauth import GoogleAuthorizationCodeProvider, GoogleOAuthClientSecret
 from .vault import PostgresSecretBrokerRepository
 from .vault_crypto import EnvelopeCipher, GoogleKmsKeyWrapper
 
@@ -31,14 +32,16 @@ def create_production_app():
         ),
         audit=audit,
         google=GoogleProvider(),
+        google_oauth=GoogleAuthorizationCodeProvider(
+            GoogleOAuthClientSecret(os.environ["ATTUNE_GOOGLE_OAUTH_CLIENT_SECRET"])
+        ),
     )
     return create_app(
         broker,
         expected_audience=os.environ["ATTUNE_EXPECTED_AUDIENCE"],
-        expected_control_plane=os.environ[
-            "ATTUNE_CONTROL_PLANE_SERVICE_ACCOUNT"
-        ],
+        expected_control_plane=os.environ["ATTUNE_CONTROL_PLANE_SERVICE_ACCOUNT"],
         expected_worker=os.environ["ATTUNE_WORKER_SERVICE_ACCOUNT"],
+        expected_oauth_exchange=os.environ["ATTUNE_OAUTH_EXCHANGE_SERVICE_ACCOUNT"],
     )
 
 

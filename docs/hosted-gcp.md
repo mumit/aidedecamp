@@ -16,6 +16,7 @@ to the first GCP implementation.
 | Provider/channel ingress | Dedicated Cloud Run service with verified Slack, Chat, Calendar, and Pub/Sub handlers | Signing material only where verification requires it | Yes |
 | Durable dispatch | Cloud Tasks with a dedicated OIDC dispatch identity | No | No |
 | Dispatch broker | Private Cloud Run service and the only Cloud Tasks enqueuer | No | No (internal ingress and IAM) |
+| OAuth exchange | Private Cloud Run service; function-only transaction lease and fixed broker call | Transient authorization code only | No (internal ingress and callback IAM) |
 | Tenant worker | Private Cloud Run service, one authenticated job envelope per request | No | No (internal ingress and task-delivery IAM) |
 | Secret broker | Private Cloud Run service with the only connector-vault KMS identity | Yes | No (internal ingress and IAM) |
 | Relational/vector data | Private-IP Cloud SQL PostgreSQL with IAM authentication, RLS, and `vector` | No | No |
@@ -71,12 +72,19 @@ model response or provider payload.
 
 ## Credential flow
 
+The transaction and callback contract is specified in
+[`oauth-transaction.md`](oauth-transaction.md).
+
 1. The authenticated control plane creates an OAuth transaction bound to the
    browser session, intended tenant, PKCE verifier, exact redirect URI, state,
    and expiry.
-2. The callback validates the transaction and sends the resulting credential
-   directly to the private secret broker.
-3. The broker envelope-encrypts the credential with the connector-vault KMS
+2. The public callback scrubber removes the credential-bearing browser URL and
+   hands only the bounded code, state, and callback binding to a private OAuth
+   exchange service. That service leases canonical transaction authority using
+   both stored hashes and has no direct transaction-table access.
+3. The exchange sends the code plus canonical PKCE, nonce, redirect, scope,
+   principal, and connector bindings to one fixed secret-broker operation. The
+   broker envelope-encrypts the credential with the connector-vault KMS
    key, stores tenant-bound versioned ciphertext in PostgreSQL, and returns an
    opaque connector reference. It never returns the refresh token to the
    control plane or worker.
@@ -152,7 +160,7 @@ acceptable substitutes.
    Provider capability executors, ingress queue routing, authenticated
    resolution operations, and adversarial provider evidence remain before this
    gate is complete.
-3. **Secret broker:** private install/revoke service, serialized encrypted
+3. **Secret broker and OAuth exchange:** private install/revoke service, serialized encrypted
    lifecycle, exact workload authentication, intent-only audit, and live KMS
    evidence are implemented in development. The first fixed, read-only,
    response-minimized Gmail profile operation is deployed. Its deterministic
@@ -164,7 +172,12 @@ acceptable substitutes.
    a verified paging channel, full end-to-end evidence,
    write reconciliation, and broader operational alerting remain. The durable
    per-tenant/capability use limit and a content-free use-anomaly alert are
-   implemented in development.
+   implemented in development. The private OAuth exchange, function-only
+   transaction lease/finalize database boundary, callback-only invoker grant,
+   and fixed broker exchange operation are deployed dormant in development.
+   The callback is not enabled, and no user OAuth flow is authorized until the
+   hosted login/session binding, reviewed client-secret version, redirect
+   registration, and adversarial evidence are complete.
 4. **Control plane:** OIDC/passkey login and explicit connector identity links.
 5. **Ingress and workers:** provider verification, replay resistance,
    reconciliation, deterministic capabilities, and kill switches.

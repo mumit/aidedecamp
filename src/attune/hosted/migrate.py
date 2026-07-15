@@ -23,12 +23,14 @@ RUNTIME_ROLES = (
     "attune_worker",
     "attune_secret_broker",
     "attune_audit_writer",
+    "attune_oauth_exchange",
 )
 
 FUNCTION_OWNER_ROLES = (
     "attune_dispatch_executor",
     "attune_audit_executor",
     "attune_vault_executor",
+    "attune_oauth_executor",
 )
 
 FUNCTION_OWNER_TABLE_PRIVILEGES = frozenset(
@@ -48,6 +50,10 @@ FUNCTION_OWNER_TABLE_PRIVILEGES = frozenset(
         ("attune_vault_executor", "attune.connector_credentials", "UPDATE"),
         ("attune_vault_executor", "attune.connectors", "SELECT"),
         ("attune_vault_executor", "attune.connectors", "UPDATE"),
+        ("attune_oauth_executor", "attune.oauth_transactions", "SELECT"),
+        ("attune_oauth_executor", "attune.oauth_transactions", "UPDATE"),
+        ("attune_oauth_executor", "attune.connectors", "SELECT"),
+        ("attune_oauth_executor", "attune.credential_intents", "SELECT"),
     }
 )
 
@@ -83,6 +89,7 @@ TENANT_TABLES = (
     "connector_credentials",
     "credential_intents",
     "job_reconciliations",
+    "oauth_transactions",
 )
 
 
@@ -227,9 +234,7 @@ def bind_runtime_roles(connection: Any, bindings: dict[str, str]) -> None:
                             f"{_quote_identifier(existing_member)}"
                         )
                 cursor.execute(f"GRANT {quoted_role} TO {quoted_login}")
-                cursor.execute(
-                    f"ALTER ROLE {quoted_login} SET search_path = pg_catalog"
-                )
+                cursor.execute(f"ALTER ROLE {quoted_login} SET search_path = pg_catalog")
         connection.commit()
     except BaseException:
         connection.rollback()
@@ -330,13 +335,12 @@ def verify_database_boundary(connection: Any, bindings: dict[str, str]) -> None:
             """,
             (list(FUNCTION_OWNER_ROLES),),
         )
-        owner_schema_privileges = {
-            row[0]: tuple(row[1:]) for row in cursor.fetchall()
-        }
+        owner_schema_privileges = {row[0]: tuple(row[1:]) for row in cursor.fetchall()}
         if owner_schema_privileges != {
             "attune_dispatch_executor": (True, False, True, False),
             "attune_audit_executor": (True, False, False, False),
             "attune_vault_executor": (True, False, False, False),
+            "attune_oauth_executor": (True, False, False, False),
         }:
             raise RuntimeError("function owner schema privileges do not match policy")
 
@@ -465,6 +469,16 @@ def verify_database_boundary(connection: Any, bindings: dict[str, str]) -> None:
                 "attune_secret_broker",
                 "attune_vault_executor",
             ),
+            (
+                "attune.lease_oauth_transaction(bytea,bytea,integer)",
+                "attune_oauth_exchange",
+                "attune_oauth_executor",
+            ),
+            (
+                "attune.finalize_oauth_transaction(uuid,bytea,text)",
+                "attune_oauth_exchange",
+                "attune_oauth_executor",
+            ),
         )
         for signature, role, expected_owner in privileged_functions:
             cursor.execute(
@@ -531,6 +545,29 @@ def verify_database_boundary(connection: Any, bindings: dict[str, str]) -> None:
 
         cursor.execute(
             """
+            SELECT pg_catalog.has_table_privilege(
+                       'attune_oauth_exchange', 'attune.oauth_transactions',
+                       'SELECT,INSERT,UPDATE,DELETE,TRUNCATE'
+                   ),
+                   pg_catalog.has_table_privilege(
+                       'attune_control_plane', 'attune.oauth_transactions',
+                       'SELECT'
+                   ),
+                   pg_catalog.has_table_privilege(
+                       'attune_control_plane', 'attune.oauth_transactions',
+                       'INSERT'
+                   ),
+                   pg_catalog.has_table_privilege(
+                       'attune_control_plane', 'attune.oauth_transactions',
+                       'UPDATE,DELETE,TRUNCATE'
+                   )
+            """
+        )
+        if tuple(cursor.fetchone()) != (False, True, True, False):
+            raise RuntimeError("OAuth transaction privileges do not match policy")
+
+        cursor.execute(
+            """
             SELECT
                 pg_catalog.has_table_privilege(
                     'attune_worker', 'attune.job_reconciliations', 'SELECT'
@@ -570,6 +607,40 @@ def verify_database_boundary(connection: Any, bindings: dict[str, str]) -> None:
         if cursor.fetchone()[0] != 1:
             raise RuntimeError("reconciliation intake guard is missing or disabled")
 
+        cursor.execute(
+            """
+            SELECT count(*)
+              FROM pg_catalog.pg_trigger AS trigger
+              JOIN pg_catalog.pg_class AS class ON class.oid = trigger.tgrelid
+              JOIN pg_catalog.pg_namespace AS namespace
+                ON namespace.oid = class.relnamespace
+             WHERE namespace.nspname = 'attune'
+               AND class.relname = 'oauth_transactions'
+               AND trigger.tgname = 'oauth_transaction_insert_guard'
+               AND NOT trigger.tgisinternal AND trigger.tgenabled <> 'D'
+            """
+        )
+        if cursor.fetchone()[0] != 1:
+            raise RuntimeError("OAuth transaction guard is missing or disabled")
+
+        cursor.execute(
+            """
+            SELECT count(*)
+              FROM pg_catalog.pg_constraint AS cst
+              JOIN pg_catalog.pg_class AS class
+                ON class.oid = cst.conrelid
+              JOIN pg_catalog.pg_namespace AS namespace
+                ON namespace.oid = class.relnamespace
+             WHERE namespace.nspname = 'attune'
+               AND class.relname = 'oauth_transactions'
+               AND cst.conname =
+                   'oauth_transactions_credential_intent_fk'
+               AND cst.contype = 'f'
+            """
+        )
+        if cursor.fetchone()[0] != 1:
+            raise RuntimeError("OAuth install-intent foreign key is missing")
+
         for role, login in bindings.items():
             cursor.execute(
                 """
@@ -606,8 +677,7 @@ def _bindings_from_environment() -> dict[str, str]:
         raise RuntimeError("ATTUNE_DB_ROLE_BINDINGS is required")
     parsed = json.loads(raw)
     if not isinstance(parsed, dict) or not all(
-        isinstance(key, str) and isinstance(value, str)
-        for key, value in parsed.items()
+        isinstance(key, str) and isinstance(value, str) for key, value in parsed.items()
     ):
         raise ValueError("ATTUNE_DB_ROLE_BINDINGS must be a string-to-string object")
     return parsed

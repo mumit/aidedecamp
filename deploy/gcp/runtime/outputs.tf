@@ -36,6 +36,19 @@ output "secret_broker" {
   }
 }
 
+output "oauth_exchange" {
+  description = "Private one-time OAuth exchange service identifiers."
+  value = {
+    project         = local.foundation.project_id
+    region          = local.foundation.region
+    name            = google_cloud_run_v2_service.oauth_exchange.name
+    uri             = google_cloud_run_v2_service.oauth_exchange.uri
+    audience        = local.oauth_exchange_audience
+    service_account = local.foundation.workload_identities.oauth_exchange
+    image           = var.oauth_exchange_image
+  }
+}
+
 output "worker" {
   description = "Private deterministic worker service identifiers."
   value = {

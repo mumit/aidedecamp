@@ -55,32 +55,38 @@ def test_gcp_foundation_preserves_hosted_security_boundaries():
     terraform = "\n".join(path.read_text() for path in sorted(root.glob("*.tf")))
 
     assert 'version = "7.34.0"' in terraform
-    assert 'ipv4_enabled    = false' in terraform
+    assert "ipv4_enabled    = false" in terraform
     assert '"dns.googleapis.com"' in terraform
     assert '"oauth2.googleapis.com"' in terraform
+    assert '"www.googleapis.com"' in terraform
     assert '"gmail.googleapis.com"' in terraform
+    assert '"secretmanager.googleapis.com"' in terraform
     assert '"199.36.153.8"' in terraform
-    assert 'google_compute_router_nat' not in terraform
+    assert "google_compute_router_nat" not in terraform
     assert 'dns_name    = "googleapis.com."' not in terraform
-    assert 'cloudsql.iam_authentication' in terraform
+    assert 'log_id(\\"cloudaudit.googleapis.com/activity\\")' in terraform
+    assert 'log_id(\\"cloudaudit.googleapis.com/data_access\\")' in terraform
+    assert 'log_id(\\"cloudaudit.googleapis.com/policy\\")' in terraform
+    assert 'log_id(\\"cloudaudit.googleapis.com/system_event\\")' in terraform
+    assert "cloudsql.iam_authentication" in terraform
     assert 'edition                     = "ENTERPRISE"' in terraform
     assert '".gserviceaccount.com"' in terraform
-    assert 'deletion_protection = true' in terraform
+    assert "deletion_protection = true" in terraform
     assert 'public_access_prevention    = "enforced"' in terraform
-    assert 'prevent_destroy = true' in terraform
-    assert 'serviceAccount:gmail-api-push@system.gserviceaccount.com' in terraform
-    assert 'roles/secretmanager.secretAccessor' in terraform
+    assert "prevent_destroy = true" in terraform
+    assert "serviceAccount:gmail-api-push@system.gserviceaccount.com" in terraform
+    assert "roles/secretmanager.secretAccessor" in terraform
     assert 'workload["dispatch_broker"].email' in terraform
     assert 'uri_override_enforce_mode = "ALWAYS"' in terraform
     assert 'path = "/v1/tasks/dispatch"' in terraform
     assert 'toset(["control_plane", "ingress"])' not in terraform
     assert 'toset(["control_plane", "worker"])' not in terraform
     assert 'name            = "connector-credentials"' in terraform
-    assert 'roles/cloudkms.cryptoKeyEncrypterDecrypter' in terraform
-    assert 'roles/secretmanager.secretVersionAdder' not in terraform
-    assert 'roles/secretmanager.admin' not in terraform
-    assert 'roles/editor' not in terraform
-    assert 'roles/owner' not in terraform
+    assert "roles/cloudkms.cryptoKeyEncrypterDecrypter" in terraform
+    assert "roles/secretmanager.secretVersionAdder" not in terraform
+    assert "roles/secretmanager.admin" not in terraform
+    assert "roles/editor" not in terraform
+    assert "roles/owner" not in terraform
     assert "secret_manager_secret_version" not in terraform
     assert "google_cloud_run_v2_service" not in terraform
 
@@ -115,12 +121,12 @@ def test_hosted_data_boundary_is_private_pinned_and_fail_closed():
     normalized_guide = " ".join(guide.split())
 
     assert 'database_roles = ["cloudsqlsuperuser"]' in terraform
-    assert 'roles/cloudsql.client' in terraform
-    assert 'roles/cloudsql.instanceUser' in terraform
-    assert 'roles/logging.logWriter' in terraform
-    assert 'PRIVATE_RANGES_ONLY' in terraform
-    assert 'max_retries     = 0' in terraform
-    assert '@sha256:[0-9a-f]{64}$' in terraform
+    assert "roles/cloudsql.client" in terraform
+    assert "roles/cloudsql.instanceUser" in terraform
+    assert "roles/logging.logWriter" in terraform
+    assert "PRIVATE_RANGES_ONLY" in terraform
+    assert "max_retries     = 0" in terraform
+    assert "@sha256:[0-9a-f]{64}$" in terraform
     assert "allUsers" not in terraform
     assert "secret_key_ref" not in terraform
     assert "google_cloud_run_v2_service" not in terraform
@@ -135,8 +141,7 @@ def test_hosted_data_boundary_is_private_pinned_and_fail_closed():
     assert "@sha256:" in dockerfile
     assert "USER 65532:65532" in dockerfile
     assert (
-        "The transaction tenant setting is a storage guard, not authentication"
-        in guide
+        "The transaction tenant setting is a storage guard, not authentication" in guide
     )
     assert "Customer data remains prohibited" in normalized_guide
     assert "Provider content and executable arguments" in normalized_guide
@@ -157,8 +162,7 @@ def test_dispatch_broker_boundary_is_documented_and_fail_closed():
     assert "Direct producer enqueue" in broker
     assert "exactly one canonical `intent_id`" in broker
     assert (
-        "only with the registered `platform.smoke` route by default"
-        in normalized_broker
+        "only with the registered `platform.smoke` route by default" in normalized_broker
     )
     assert (ROOT / "deploy" / "dispatch-broker" / "Dockerfile").exists()
     assert "A private broker exclusively owns hosted task dispatch" in decisions
@@ -172,16 +176,16 @@ def test_audit_writer_is_private_intent_only_and_least_privileged():
     ).read_text()
     architecture = (ROOT / "docs" / "audit-writer.md").read_text()
 
-    assert 'INGRESS_TRAFFIC_INTERNAL_ONLY' in terraform
-    assert 'roles/run.invoker' in terraform
-    assert 'allUsers' not in terraform
-    assert '@sha256:[0-9a-f]{64}$' in terraform
-    assert 'secret_key_ref' not in terraform
-    assert 'write_audit_intent(uuid)' in migration
-    assert 'REVOKE EXECUTE ON FUNCTION' in migration
-    assert 'FROM attune_audit_writer' in migration
-    assert 'caller-supplied tenant' in architecture
-    assert 'only the opaque audit-intent UUID' in architecture
+    assert "INGRESS_TRAFFIC_INTERNAL_ONLY" in terraform
+    assert "roles/run.invoker" in terraform
+    assert "allUsers" not in terraform
+    assert "@sha256:[0-9a-f]{64}$" in terraform
+    assert "secret_key_ref" not in terraform
+    assert "write_audit_intent(uuid)" in migration
+    assert "REVOKE EXECUTE ON FUNCTION" in migration
+    assert "FROM attune_audit_writer" in migration
+    assert "caller-supplied tenant" in architecture
+    assert "only the opaque audit-intent UUID" in architecture
 
 
 def test_secret_broker_is_private_exact_identity_and_kms_bound():
@@ -191,18 +195,18 @@ def test_secret_broker_is_private_exact_identity_and_kms_bound():
     normalized_architecture = " ".join(architecture.split())
     dockerfile = (ROOT / "deploy" / "secret-broker" / "Dockerfile").read_text()
 
-    assert 'custom_audiences' in terraform
-    assert 'ATTUNE_CONTROL_PLANE_SERVICE_ACCOUNT' in terraform
-    assert 'ATTUNE_WORKER_SERVICE_ACCOUNT' in terraform
-    assert 'ATTUNE_CONNECTOR_KMS_KEY' in terraform
-    assert 'secret_broker_invoker' in terraform
-    assert 'secret_broker_use_anomaly' in terraform
-    assert 'alert_notification_channels' in terraform
-    assert 'allUsers' not in terraform
-    assert 'USER 65532:65532' in dockerfile
-    assert 'no caller-authoritative tenant field' in normalized_architecture
-    assert 'content-free `allowed` audit intent' in normalized_architecture
-    assert 'access tokens are not returned' in normalized_architecture
+    assert "custom_audiences" in terraform
+    assert "ATTUNE_CONTROL_PLANE_SERVICE_ACCOUNT" in terraform
+    assert "ATTUNE_WORKER_SERVICE_ACCOUNT" in terraform
+    assert "ATTUNE_CONNECTOR_KMS_KEY" in terraform
+    assert "secret_broker_invoker" in terraform
+    assert "secret_broker_use_anomaly" in terraform
+    assert "alert_notification_channels" in terraform
+    assert "allUsers" not in terraform
+    assert "USER 65532:65532" in dockerfile
+    assert "no caller-authoritative tenant field" in normalized_architecture
+    assert "content-free `allowed` audit intent" in normalized_architecture
+    assert "access tokens are not returned" in normalized_architecture
 
 
 def test_worker_is_private_deterministic_and_queue_routed():
@@ -212,12 +216,111 @@ def test_worker_is_private_deterministic_and_queue_routed():
     routes = (ROOT / "src" / "attune" / "hosted" / "worker_routes.py").read_text()
 
     assert 'resource "google_cloud_run_v2_service" "worker"' in terraform
-    assert 'worker_invoker' in terraform
-    assert 'workload_identities.task_dispatch' in terraform
-    assert 'custom_audiences' in terraform
-    assert 'USER 65532:65532' in dockerfile
-    assert 'platform.smoke' in routes
-    assert 'google_gmail_profile: JobExecutor | None = None' in routes
-    assert 'enable_google_gmail_profile' in terraform
-    assert 'length(var.alert_notification_channels) > 0' in terraform
-    assert '!var.enable_google_gmail_profile || var.enable_dispatch_broker' in terraform
+    assert "worker_invoker" in terraform
+    assert "workload_identities.task_dispatch" in terraform
+    assert "custom_audiences" in terraform
+    assert "USER 65532:65532" in dockerfile
+    assert "platform.smoke" in routes
+    assert "google_gmail_profile: JobExecutor | None = None" in routes
+    assert "enable_google_gmail_profile" in terraform
+    assert "length(var.alert_notification_channels) > 0" in terraform
+    assert "!var.enable_google_gmail_profile || var.enable_dispatch_broker" in terraform
+
+
+def test_control_plane_edge_is_locked_before_oauth_activation():
+    edge = ROOT / "deploy" / "gcp" / "edge"
+    terraform = "\n".join(path.read_text() for path in sorted(edge.glob("*.tf")))
+    service = (
+        ROOT / "src" / "attune" / "hosted" / "control_plane_service.py"
+    ).read_text()
+    dockerfile = (ROOT / "deploy" / "control-plane" / "Dockerfile").read_text()
+    callback = (
+        ROOT / "src" / "attune" / "hosted" / "oauth_callback_service.py"
+    ).read_text()
+    callback_dockerfile = (ROOT / "deploy" / "oauth-callback" / "Dockerfile").read_text()
+
+    assert "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" in terraform
+    assert "default_uri_disabled = true" in terraform
+    assert "invoker_iam_disabled = true" in terraform
+    assert 'member   = "allUsers"' not in terraform
+    assert 'type        = "CLOUD_ARMOR"' in terraform
+    assert 'action      = "deny(403)"' in terraform
+    assert "request.path == '/healthz'" in terraform
+    assert "strip_query            = true" in terraform
+    assert 'min_tls_version = "TLS_1_2"' in terraform
+    assert re.search(r"oauth_is_enabled\s*=\s*false", terraform)
+    assert "oauth/google/callback" not in service
+    assert "USER 65532:65532" in dockerfile
+    assert "google_logging_project_exclusion" in terraform
+    assert 'log_id("run.googleapis.com/requests")' in terraform
+    assert "resource.labels.service_name" in terraform
+    assert 'resource.type="http_load_balancer"' in terraform
+    assert "resource.labels.backend_service_name" in terraform
+    assert 'log_id("requests")' in terraform
+    assert 'resource "google_compute_backend_service" "oauth_callback"' in terraform
+    assert "enable = false" in terraform
+    assert "request.method == 'GET'" in terraform
+    assert "request.args" not in callback
+    assert "request.query_string" in callback
+    assert 'redirect("/", code=303)' in callback
+    assert '--access-logfile", "/dev/null"' in callback_dockerfile
+    assert "USER 65532:65532" in callback_dockerfile
+    assert "--require-hashes" in callback_dockerfile
+    assert '".[hosted-service]"' not in callback_dockerfile
+
+
+def test_oauth_callback_identity_has_no_data_or_log_writer_authority():
+    iam = (ROOT / "deploy" / "gcp" / "foundation" / "iam.tf").read_text()
+
+    assert re.search(r'oauth_callback\s*=\s*"oauth-cb"', iam)
+    assert 'if !contains(["oauth_callback", "oauth_exchange"], name)' in iam
+    database_identity_set = iam.split(
+        'resource "google_project_iam_member" "database_client"', 1
+    )[1].split('resource "google_cloud_tasks_queue_iam_member"', 1)[0]
+    assert '"oauth_callback"' not in database_identity_set
+    assert re.search(r'oauth_exchange\s*=\s*"oauth-xchg"', iam)
+    assert '"oauth_exchange"' in database_identity_set
+
+
+def test_oauth_exchange_database_boundary_is_function_only():
+    migration = (
+        ROOT / "src" / "attune" / "hosted" / "sql" / "0013_oauth_transactions.sql"
+    ).read_text()
+
+    assert "FORCE ROW LEVEL SECURITY" in migration
+    assert "TO attune_oauth_exchange" in migration
+    assert (
+        "GRANT SELECT, INSERT ON attune.oauth_transactions TO attune_control_plane"
+        in migration
+    )
+    assert (
+        "GRANT SELECT, UPDATE ON attune.oauth_transactions TO attune_oauth_executor"
+        in migration
+    )
+    assert "GRANT SELECT ON attune.connectors TO attune_oauth_executor" in migration
+    assert (
+        "GRANT SELECT ON attune.oauth_transactions TO attune_oauth_exchange"
+        not in migration
+    )
+    assert "transaction.binding_hash = p_binding_hash" in migration
+
+
+def test_oauth_exchange_runtime_preserves_broker_boundary():
+    terraform = (ROOT / "deploy" / "gcp" / "runtime" / "main.tf").read_text()
+    dispatch = terraform.split(
+        'resource "google_cloud_run_v2_service" "dispatch_broker"', 1
+    )[1].split('resource "google_cloud_run_v2_service" "secret_broker"', 1)[0]
+    broker = terraform.split('resource "google_cloud_run_v2_service" "secret_broker"', 1)[
+        1
+    ].split('resource "google_cloud_run_v2_service" "oauth_exchange"', 1)[0]
+    exchange = terraform.split(
+        'resource "google_cloud_run_v2_service" "oauth_exchange"', 1
+    )[1]
+
+    assert "ATTUNE_GOOGLE_OAUTH_CLIENT_SECRET" not in dispatch
+    assert "ATTUNE_OAUTH_EXCHANGE_SERVICE_ACCOUNT" not in dispatch
+    assert "ATTUNE_GOOGLE_OAUTH_CLIENT_SECRET" in broker
+    assert "ATTUNE_OAUTH_EXCHANGE_SERVICE_ACCOUNT" in broker
+    assert 'ingress             = "INGRESS_TRAFFIC_INTERNAL_ONLY"' in exchange
+    assert "secret_broker_oauth_invoker" in terraform
+    assert "oauth_exchange_invoker" in terraform

@@ -3,3 +3,7 @@
 !README.md
 !pyproject.toml
 !src/**
+!deploy/
+!deploy/oauth-callback/
+!deploy/oauth-callback/app.py
+!deploy/oauth-callback/requirements.lock

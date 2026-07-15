@@ -7,10 +7,12 @@ from typing import Any, Mapping, Protocol
 from uuid import UUID
 
 from .google_provider import GoogleProvider, ProviderFailure
+from .google_oauth import GoogleAuthorizationCodeProvider
 from .vault import LeasedCredentialIntent, PostgresSecretBrokerRepository
 from .vault_crypto import EnvelopeCipher
 
 GOOGLE_GMAIL_PROFILE_ACTION = "credential.use.google.gmail.profile.read"
+GOOGLE_OAUTH_INSTALL_ACTION = "credential.install.google.oauth"
 
 
 class SecretAudit(Protocol):
@@ -37,11 +39,74 @@ class SecretBroker:
         cipher: EnvelopeCipher,
         audit: SecretAudit,
         google: GoogleProvider | None = None,
+        google_oauth: GoogleAuthorizationCodeProvider | None = None,
     ):
         self._vault = vault
         self._cipher = cipher
         self._audit = audit
         self._google = google
+        self._google_oauth = google_oauth
+
+    def google_oauth_exchange(
+        self,
+        intent_id: UUID,
+        *,
+        authorization_code: str,
+        pkce_verifier: str,
+        nonce_hash: bytes,
+        redirect_uri: str,
+        scopes: tuple[str, ...],
+    ) -> SecretBrokerResult:
+        intent = self._lease(intent_id, "control_plane", "install")
+        if intent is None:
+            return SecretBrokerResult(404)
+        if (
+            intent.provider != "google"
+            or intent.capability != "google.oauth.install"
+            or self._google_oauth is None
+        ):
+            return SecretBrokerResult(404)
+        if not self._record(
+            intent, action=GOOGLE_OAUTH_INSTALL_ACTION, outcome="allowed"
+        ):
+            return SecretBrokerResult(503)
+        try:
+            credential = self._google_oauth.exchange(
+                authorization_code=authorization_code,
+                pkce_verifier=pkce_verifier,
+                nonce_hash=nonce_hash,
+                redirect_uri=redirect_uri,
+                scopes=scopes,
+            )
+            version = (intent.credential_version or 0) + 1
+            encrypted = self._cipher.encrypt(
+                credential,
+                tenant_id=intent.tenant.tenant_id,
+                connector_id=intent.connector_id,
+                provider=intent.provider,
+                credential_version=version,
+            )
+            stored = self._vault.store(intent.id, encrypted)
+        except ProviderFailure:
+            self._record(intent, action=GOOGLE_OAUTH_INSTALL_ACTION, outcome="failed")
+            try:
+                self._vault.finalize(
+                    intent.id, producer_kind="control_plane", outcome="failed"
+                )
+            except Exception:
+                pass
+            return SecretBrokerResult(502)
+        except Exception:
+            return SecretBrokerResult(503)
+        if stored is None or stored[1] != version:
+            return SecretBrokerResult(503)
+        return SecretBrokerResult(
+            204
+            if self._record(
+                intent, action=GOOGLE_OAUTH_INSTALL_ACTION, outcome="observed"
+            )
+            else 503
+        )
 
     def install(
         self, intent_id: UUID, credential: Mapping[str, Any]
@@ -141,9 +206,7 @@ class SecretBroker:
         status_code: int,
         outcome: str,
     ) -> SecretBrokerResult:
-        if not self._record(
-            intent, action=GOOGLE_GMAIL_PROFILE_ACTION, outcome=outcome
-        ):
+        if not self._record(intent, action=GOOGLE_GMAIL_PROFILE_ACTION, outcome=outcome):
             return SecretBrokerResult(503)
         try:
             finalized = self._vault.finalize(

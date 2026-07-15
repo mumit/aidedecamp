@@ -8,18 +8,19 @@ storage, the secret broker, ingress verification, and hosted migrations exist.
 The configuration creates:
 
 - a private VPC and private-service connection, plus exact private DNS zones
-  for the two fixed Google provider hosts;
+  for four fixed Google provider/platform hosts;
 - CMEK-protected Cloud SQL for PostgreSQL with private IP, IAM database
   authentication, point-in-time recovery, deletion protection, and the
   standard Enterprise edition (development may use a shared-core tier);
-- separate control-plane, ingress, worker, secret-broker, dispatch-broker,
-  task-delivery, and audit-writer service accounts;
+- separate control-plane, credential-free OAuth-callback, ingress, worker,
+  secret-broker, dispatch-broker, task-delivery, and audit-writer service
+  accounts;
 - Cloud Tasks queues and a Gmail-authorized Pub/Sub topic;
 - CMEK-backed Secret Manager containers for static platform credentials,
   without secret versions, plus a separate connector-vault KMS key;
 - Artifact Registry; and
-- a versioned, CMEK-protected audit bucket with a retention policy, a platform
-  log sink, and Data Access audit logging.
+- a versioned, CMEK-protected audit bucket with a retention policy, a
+  Cloud-Audit-only log sink, and Data Access audit logging.
 
 Only the dispatch-broker identity can enqueue either Cloud Tasks queue or use
 the distinct task-delivery identity. Control-plane, ingress, and worker
@@ -79,6 +80,20 @@ Production requires `lock_audit_retention = true`. Bucket Lock is permanent:
 first validate retention, export, legal-hold, deletion, and incident procedures
 in staging, then have two reviewers approve the production plan.
 
+The retained sink deliberately exports only Cloud Audit activity, data-access,
+policy, and system-event logs. It must never export all application or request
+logs: OAuth authorization callbacks carry short-lived codes in their query
+string, and an immutable audit bucket is not an acceptable destination for
+those values. Canonical Attune security events use the separate content-free,
+hash-chained audit path.
+
+The OAuth-callback identity intentionally receives no project log-writer,
+database, Secret Manager, KMS, queue, or provider permission. The private OAuth
+exchange also receives no project log-writer because it transiently handles an
+authorization code. Both retain content-free Monitoring permission. The
+exchange adds only Cloud SQL client/login authority; its database role is
+function-only and has no direct table access.
+
 Cloud SQL and the audit bucket deliberately have deletion protection. Teardown
 is an exceptional, separately reviewed workflow; `terraform destroy` is not the
 data-deletion procedure.
@@ -86,11 +101,14 @@ data-deletion procedure.
 ## Fixed Google API egress
 
 The application subnet has Private Google Access enabled and no Cloud NAT.
-Terraform creates private zones for exactly `oauth2.googleapis.com` and
-`gmail.googleapis.com`, with apex A records pointing to Google's
+Terraform creates private zones for exactly `oauth2.googleapis.com`,
+`www.googleapis.com`, `gmail.googleapis.com`, and
+`secretmanager.googleapis.com`, with apex A records pointing to Google's
 `private.googleapis.com` VIP (`199.36.153.8/30`). It deliberately creates no
-wildcard `*.googleapis.com` zone. This lets the broker reach its two compiled-in
-TLS hostnames while arbitrary internet destinations continue to fail closed.
+wildcard `*.googleapis.com` zone. The broker uses these names only for the
+compiled-in token exchange, Google signing-certificate fetch, Gmail operation,
+and platform OAuth-client-secret read respectively. Arbitrary internet
+destinations continue to fail closed.
 
 The private VIP can serve other Google APIs, so DNS is one layer rather than
 the complete authorization boundary. Exact broker URLs and paths, disabled

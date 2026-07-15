@@ -1,6 +1,8 @@
 locals {
   workload_accounts = {
     control_plane   = "ctl"
+    oauth_callback  = "oauth-cb"
+    oauth_exchange  = "oauth-xchg"
     dispatch_broker = "task-broker"
     ingress         = "ingress"
     worker          = "worker"
@@ -18,10 +20,13 @@ resource "google_service_account" "workload" {
 }
 
 resource "google_project_iam_member" "runtime_logging" {
-  for_each = google_service_account.workload
-  project  = var.project_id
-  role     = "roles/logging.logWriter"
-  member   = "serviceAccount:${each.value.email}"
+  for_each = {
+    for name, account in google_service_account.workload : name => account
+    if !contains(["oauth_callback", "oauth_exchange"], name)
+  }
+  project = var.project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${each.value.email}"
 }
 
 resource "google_project_iam_member" "runtime_metrics" {
@@ -36,6 +41,7 @@ resource "google_project_iam_member" "database_client" {
     "audit_writer",
     "control_plane",
     "dispatch_broker",
+    "oauth_exchange",
     "secret_broker",
     "worker",
   ])
@@ -49,6 +55,7 @@ resource "google_project_iam_member" "database_instance_user" {
     "audit_writer",
     "control_plane",
     "dispatch_broker",
+    "oauth_exchange",
     "secret_broker",
     "worker",
   ])
@@ -62,6 +69,7 @@ resource "google_sql_user" "workload" {
     "audit_writer",
     "control_plane",
     "dispatch_broker",
+    "oauth_exchange",
     "secret_broker",
     "worker",
   ])

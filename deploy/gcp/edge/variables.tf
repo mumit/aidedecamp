@@ -1,0 +1,53 @@
+variable "state_bucket" {
+  description = "Private GCS bucket containing the foundation remote state."
+  type        = string
+}
+
+variable "foundation_state_prefix" {
+  description = "GCS prefix of the foundation Terraform state."
+  type        = string
+  default     = "foundation"
+}
+
+variable "control_plane_image" {
+  description = "Artifact Registry control-plane image pinned by sha256 digest."
+  type        = string
+
+  validation {
+    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.control_plane_image))
+    error_message = "control_plane_image must be an immutable @sha256 Artifact Registry reference."
+  }
+}
+
+variable "oauth_callback_image" {
+  description = "Artifact Registry dormant OAuth callback image pinned by sha256 digest."
+  type        = string
+
+  validation {
+    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.oauth_callback_image))
+    error_message = "oauth_callback_image must be an immutable @sha256 Artifact Registry reference."
+  }
+}
+
+variable "hostname" {
+  description = "Exact lower-case public DNS hostname for the development edge."
+  type        = string
+
+  validation {
+    condition = (
+      length(var.hostname) >= 4 &&
+      length(var.hostname) <= 253 &&
+      can(regex(
+        "^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$",
+        var.hostname,
+      ))
+    )
+    error_message = "hostname must be an exact lower-case DNS hostname."
+  }
+}
+
+variable "labels" {
+  description = "Additional non-sensitive resource labels."
+  type        = map(string)
+  default     = {}
+}

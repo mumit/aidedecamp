@@ -20,9 +20,11 @@ locals {
   audit_writer_labels      = merge(local.common_labels, { component = "audit-writer" })
   dispatch_broker_labels   = merge(local.common_labels, { component = "dispatch-broker" })
   secret_broker_labels     = merge(local.common_labels, { component = "secret-broker" })
+  oauth_exchange_labels    = merge(local.common_labels, { component = "oauth-exchange" })
   worker_labels            = merge(local.common_labels, { component = "worker" })
   dispatch_broker_audience = "https://${local.prefix}-dispatch-broker.attune.internal"
   secret_broker_audience   = "https://${local.prefix}-secret-broker.attune.internal"
+  oauth_exchange_audience  = "https://${local.prefix}-oauth-exchange.attune.internal"
   worker_audience          = "https://${local.prefix}-worker.attune.internal"
   audit_callers = toset([
     local.foundation.workload_identities.control_plane,
@@ -486,6 +488,14 @@ resource "google_cloud_run_v2_service" "secret_broker" {
         name  = "ATTUNE_WORKER_SERVICE_ACCOUNT"
         value = local.foundation.workload_identities.worker
       }
+      env {
+        name  = "ATTUNE_OAUTH_EXCHANGE_SERVICE_ACCOUNT"
+        value = local.foundation.workload_identities.oauth_exchange
+      }
+      env {
+        name  = "ATTUNE_GOOGLE_OAUTH_CLIENT_SECRET"
+        value = local.foundation.platform_secret_ids["google-oauth-client"]
+      }
 
       startup_probe {
         initial_delay_seconds = 1
@@ -539,6 +549,127 @@ resource "google_cloud_run_v2_service_iam_member" "secret_broker_worker_invoker"
   name     = google_cloud_run_v2_service.secret_broker.name
   role     = "roles/run.invoker"
   member   = "serviceAccount:${local.foundation.workload_identities.worker}"
+}
+
+resource "google_cloud_run_v2_service_iam_member" "secret_broker_oauth_invoker" {
+  project  = local.foundation.project_id
+  location = local.foundation.region
+  name     = google_cloud_run_v2_service.secret_broker.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${local.foundation.workload_identities.oauth_exchange}"
+}
+
+resource "google_cloud_run_v2_service" "oauth_exchange" {
+  project             = local.foundation.project_id
+  name                = "${local.prefix}-oauth-exchange"
+  location            = local.foundation.region
+  deletion_protection = true
+  ingress             = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+  custom_audiences    = [local.oauth_exchange_audience]
+  labels              = local.oauth_exchange_labels
+
+  template {
+    service_account                  = local.foundation.workload_identities.oauth_exchange
+    timeout                          = "30s"
+    max_instance_request_concurrency = 4
+
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 3
+    }
+
+    containers {
+      name  = "oauth-exchange"
+      image = var.oauth_exchange_image
+
+      ports {
+        container_port = 8080
+      }
+
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "512Mi"
+        }
+        cpu_idle          = true
+        startup_cpu_boost = true
+      }
+
+      env {
+        name  = "ATTUNE_CLOUD_SQL_INSTANCE"
+        value = local.foundation.database_instance
+      }
+      env {
+        name  = "ATTUNE_DB_NAME"
+        value = local.foundation.database_name
+      }
+      env {
+        name = "ATTUNE_DB_USER"
+        value = trimsuffix(
+          local.foundation.workload_identities.oauth_exchange,
+          ".gserviceaccount.com",
+        )
+      }
+      env {
+        name  = "ATTUNE_EXPECTED_AUDIENCE"
+        value = local.oauth_exchange_audience
+      }
+      env {
+        name  = "ATTUNE_OAUTH_CALLBACK_SERVICE_ACCOUNT"
+        value = local.foundation.workload_identities.oauth_callback
+      }
+      env {
+        name  = "ATTUNE_SECRET_BROKER_URL"
+        value = google_cloud_run_v2_service.secret_broker.uri
+      }
+      env {
+        name  = "ATTUNE_SECRET_BROKER_AUDIENCE"
+        value = local.secret_broker_audience
+      }
+
+      startup_probe {
+        initial_delay_seconds = 1
+        timeout_seconds       = 2
+        period_seconds        = 3
+        failure_threshold     = 10
+        http_get {
+          path = "/healthz"
+          port = 8080
+        }
+      }
+
+      liveness_probe {
+        timeout_seconds   = 2
+        period_seconds    = 10
+        failure_threshold = 3
+        http_get {
+          path = "/healthz"
+          port = 8080
+        }
+      }
+    }
+
+    vpc_access {
+      egress = "ALL_TRAFFIC"
+      network_interfaces {
+        network    = local.foundation.network_id
+        subnetwork = local.foundation.subnetwork_id
+        tags       = ["attune-oauth-exchange"]
+      }
+    }
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "google_cloud_run_v2_service_iam_member" "oauth_exchange_invoker" {
+  project  = local.foundation.project_id
+  location = local.foundation.region
+  name     = google_cloud_run_v2_service.oauth_exchange.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${local.foundation.workload_identities.oauth_callback}"
 }
 
 resource "google_logging_metric" "secret_broker_use_anomaly" {

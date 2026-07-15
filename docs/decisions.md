@@ -2,6 +2,81 @@
 
 Newest first. This log records decisions that constrain current implementation.
 
+## 2026-07 — Google code exchange is private and broker-owned
+
+- The public callback identity may invoke exactly one internal-only OAuth
+  exchange service. That service accepts only authorization code, state, and
+  callback binding; all tenant and connector authority is recovered through a
+  one-time database lease.
+- The exchange has function-only database access and no log writer, Secret
+  Manager, KMS, queue, or provider credential role. The secret broker alone
+  reads the platform Google web-client secret, calls fixed Google endpoints,
+  validates issuer, audience, time, nonce, PKCE result, and exact scopes, and
+  stores only an envelope-encrypted refresh credential.
+- Every transaction is also bound to a canonical requested
+  `google.oauth.install` credential intent. The migration fails if dormant
+  transaction rows unexpectedly exist; it does not guess or backfill authority.
+- The services are deployed dormant before activation evidence. This was
+  selected over exchanging in the public callback, giving the exchange direct
+  vault/secret authority, accepting tenant data over HTTP, or activating OAuth
+  merely because infrastructure deployment succeeds.
+
+## 2026-07 — OAuth transactions cross tenants only through a leased function
+
+- The authenticated control plane inserts tenant-visible, ten-minute Google
+  OAuth transactions bound to a canonical pending connector. It cannot update,
+  delete, truncate, or bypass RLS on those rows.
+- A dedicated OAuth-exchange IAM database user receives an unprivileged
+  `NOLOGIN NOBYPASSRLS` runtime role. It has no table privilege and may call
+  only fixed lease/finalize functions.
+- The functions use a separate memberless `NOLOGIN BYPASSRLS` owner with only
+  select/update access to OAuth transactions and select access to connectors.
+  Lease requires both independent state and callback-binding hashes; finalize
+  requires the binding again, accepts only a leased row, and clears the current
+  PKCE verifier value.
+- This was selected over a caller-supplied tenant, a shared callback/database
+  identity, direct cross-tenant table reads, or UUID-only finalization. It
+  contains confused-deputy and object-reference substitution paths while
+  keeping the public callback scrubber credential-free.
+
+## 2026-07 — OAuth callbacks use a credential-free scrubber
+
+- The exact Google callback path routes to a dedicated Cloud Run service and
+  workload identity rather than the general control plane. The dormant service
+  parses no OAuth fields, has no tenant, database, secret, KMS, queue, or
+  provider authority, and immediately redirects the browser to `/`.
+- Load-balancer logging is disabled only for the callback backend. Cloud Armor
+  still emits `requests` entries when backend logging is off, so a protected
+  `_Default` exclusion drops both Cloud Run and load-balancer request logs by
+  the dedicated service/backend resource identities. It avoids any filter that
+  parses a URL already carrying an authorization code. The immutable sink
+  remains Cloud-Audit-only.
+- Exact host, path, method, source rate, no-NAT egress, disabled default URI,
+  and load-balancer-only ingress remain independent controls. Synthetic secret
+  values must be absent from both request-log planes before activation.
+- Global URL-map convergence is asynchronous. The OAuth client and redirect URI
+  must not be configured until a documented soak and multi-location synthetic
+  probes prove that no old logged backend still serves the callback path.
+- Cloud Logging Data Access audit records server-side query filters. Callback
+  non-retention tests fetch a timestamp-bounded window and search it locally;
+  operators must never put codes, tokens, state, or test markers in a remote
+  logging filter.
+- This establishes callback URL non-retention but does not activate OAuth.
+  Session-bound one-time state, PKCE, identity linking, broker handoff, and
+  content-free audit are separate gates.
+
+## 2026-07 — Immutable audit export excludes request logs
+
+- The retained GCP sink exports only Cloud Audit activity, data-access, policy,
+  and system-event logs. It does not export all project logs.
+- OAuth callbacks necessarily carry short-lived authorization codes in their
+  query string. Copying Cloud Run or load-balancer request URLs into a
+  CMEK-protected, retention-controlled bucket would turn ephemeral credentials
+  into durable secret records.
+- Canonical Attune security decisions remain content-free and hash-chained in
+  the application audit. Callback request-log non-retention is a separate edge
+  launch gate; filtering the retained export alone is insufficient.
+
 ## 2026-07 — Provider routes activate atomically and fail closed
 
 - `google.gmail.profile.read` is present in neither the worker nor dispatch
@@ -22,9 +97,11 @@ Newest first. This log records decisions that constrain current implementation.
 ## 2026-07 — Fixed Google egress uses exact private DNS without NAT
 
 - The GCP application subnet uses Private Google Access and no Cloud NAT.
-  Private zones for exactly `oauth2.googleapis.com` and `gmail.googleapis.com`
-  resolve their apex records to the `private.googleapis.com` VIP. There is no
-  wildcard `*.googleapis.com` override.
+  Private zones for exactly `oauth2.googleapis.com`, `www.googleapis.com`,
+  `gmail.googleapis.com`, and `secretmanager.googleapis.com` resolve their
+  apex records to the `private.googleapis.com` VIP. There is no wildcard
+  `*.googleapis.com` override. Code restricts the latter additions to Google
+  signing-certificate retrieval and the platform OAuth-client-secret read.
 - This was selected over Cloud NAT, which would make arbitrary internet egress
   reachable, and over the usual wildcard private Google API zone, which would
   expose more provider hostnames to workloads.

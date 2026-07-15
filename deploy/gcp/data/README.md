@@ -23,11 +23,12 @@ application, public endpoint, connector credential, tenant, or customer record.
 - Runtime database roles are fixed, `NOLOGIN`, non-superuser, and
   `NOBYPASSRLS`. Each role is reconciled to exactly one foundation IAM database
   user; stale members are revoked.
-- Cross-tenant `SECURITY DEFINER` functions are owned by three distinct
-  memberless `NOLOGIN BYPASSRLS` roles for dispatch, audit writing, and vault
-  mutation. No IAM or runtime login is a member. Each owner has only the table
-  privileges required by its fixed functions; temporary migrator membership
-  and schema-create authority are revoked inside the migration transaction.
+- Cross-tenant `SECURITY DEFINER` functions are owned by four distinct
+  memberless `NOLOGIN BYPASSRLS` roles for dispatch, audit writing, vault
+  mutation, and one-time OAuth transaction exchange. No IAM or runtime login
+  is a member. Each owner has only the table privileges required by its fixed
+  functions; temporary migrator membership and schema-create authority are
+  revoked inside the migration transaction.
 - Every tenant table enables and forces RLS. Missing transaction-local tenant
   context raises an error rather than returning an ambiguous empty result.
 - Audit events can only be appended through the tenant-checking hash-chain
@@ -59,7 +60,28 @@ The migrations currently create tenant-bound records for:
 - immutable encrypted connector credential versions plus one-time installation,
   use, and revocation intents leased only through secret-broker functions; and
 - content-free job reconciliation records opened atomically with the canonical
-  job's transition out of a lease.
+  job's transition out of a lease; and
+- short-lived OAuth transactions bound to tenant, principal, pending connector,
+  canonical `google.oauth.install` credential intent, state, browser binding,
+  OIDC nonce, PKCE verifier, redirect URI, and scopes.
+
+The OAuth exchange IAM database user is bound to a dedicated unprivileged
+runtime role. It has schema use and execute rights on exactly the lease and
+finalize functions, but no direct table privilege. Leasing requires both
+independent 256-bit hashes, resolves tenant authority from canonical storage,
+and serializes concurrent callbacks. Finalization requires the callback-binding
+hash again, is terminal, and clears the live PKCE verifier value. The control
+plane can only select and insert its tenant-visible transaction rows.
+
+The install-intent migration deliberately adds its required column while OAuth
+is still disabled; any pre-existing transaction makes the migration fail
+instead of being guessed or backfilled. Its composite foreign key is installed
+`NOT VALID` to avoid an RLS-bypassing historical table scan, but PostgreSQL
+enforces it for every subsequent insert and update. The insert trigger also
+independently verifies the canonical connector and requested install intent.
+The non-login function owner receives schema `CREATE` only within the migration
+transaction while its lease function is replaced and ownership transferred;
+that privilege is revoked before commit and verified absent afterward.
 
 Credential installation and rotation atomically supersede the prior active
 version, insert the new encrypted envelope, update the connector reference, and

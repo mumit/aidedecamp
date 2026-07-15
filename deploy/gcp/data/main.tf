@@ -39,6 +39,10 @@ locals {
       local.foundation.workload_identities.audit_writer,
       ".gserviceaccount.com",
     )
+    attune_oauth_exchange = trimsuffix(
+      local.foundation.workload_identities.oauth_exchange,
+      ".gserviceaccount.com",
+    )
   }
 }
 

@@ -45,6 +45,16 @@ variable "secret_broker_image" {
   }
 }
 
+variable "oauth_exchange_image" {
+  description = "Artifact Registry OAuth-exchange image pinned by sha256 digest."
+  type        = string
+
+  validation {
+    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.oauth_exchange_image))
+    error_message = "oauth_exchange_image must be an immutable @sha256 Artifact Registry reference."
+  }
+}
+
 variable "worker_image" {
   description = "Artifact Registry worker image pinned by sha256 digest."
   type        = string

@@ -38,8 +38,10 @@ locals {
   ])
 
   fixed_google_api_hosts = {
-    oauth2 = "oauth2.googleapis.com"
-    gmail  = "gmail.googleapis.com"
+    oauth2        = "oauth2.googleapis.com"
+    oauth-certs   = "www.googleapis.com"
+    gmail         = "gmail.googleapis.com"
+    secretmanager = "secretmanager.googleapis.com"
   }
 }
 
@@ -76,7 +78,7 @@ resource "google_compute_subnetwork" "application" {
   }
 }
 
-# Resolve only the two reviewed provider hosts through Google's private API
+# Resolve only reviewed provider and platform hosts through Google's private API
 # VIP. Other arbitrary internet destinations remain unreachable without NAT,
 # and other googleapis.com names retain their existing resolution behavior.
 resource "google_dns_managed_zone" "fixed_google_api" {
@@ -431,6 +433,15 @@ resource "google_logging_project_sink" "retained_audit" {
   name                   = "${local.prefix}-retained-audit"
   destination            = "storage.googleapis.com/${google_storage_bucket.audit.name}"
   unique_writer_identity = true
+  # Retain administrative Cloud Audit records, not application/request logs.
+  # OAuth callbacks necessarily carry short-lived codes in their query string;
+  # exporting all project logs would copy those codes into immutable storage.
+  filter = join(" OR ", [
+    "log_id(\"cloudaudit.googleapis.com/activity\")",
+    "log_id(\"cloudaudit.googleapis.com/data_access\")",
+    "log_id(\"cloudaudit.googleapis.com/policy\")",
+    "log_id(\"cloudaudit.googleapis.com/system_event\")",
+  ])
 
   depends_on = [google_project_service.required]
 }

@@ -12,10 +12,17 @@ TENANT = UUID("10000000-0000-4000-8000-000000000302")
 CONNECTOR = UUID("10000000-0000-4000-8000-000000000303")
 
 
-def intent(operation="install", version=None):
+def intent(operation="install", version=None, capability="connector.manage"):
     return LeasedCredentialIntent(
-        INTENT, TenantContext(TENANT), CONNECTOR, "google", operation,
-        "connector.manage", None, version, None,
+        INTENT,
+        TenantContext(TENANT),
+        CONNECTOR,
+        "google",
+        operation,
+        capability,
+        None,
+        version,
+        None,
     )
 
 
@@ -24,6 +31,7 @@ class Vault:
         self.leased = leased
         self.stored = []
         self.revoked = []
+        self.finalized = []
 
     def lease(self, *args, **kwargs):
         return self.leased
@@ -34,6 +42,10 @@ class Vault:
 
     def revoke(self, intent_id):
         self.revoked.append(intent_id)
+        return True
+
+    def finalize(self, intent_id, **kwargs):
+        self.finalized.append((intent_id, kwargs))
         return True
 
 
@@ -110,3 +122,35 @@ def test_wrong_operation_is_not_accepted_by_endpoint():
     )
     assert result.status_code == 404
     assert vault.stored == []
+
+
+class GoogleOAuth:
+    def __init__(self):
+        self.calls = []
+
+    def exchange(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"refresh_token": "restricted", "subject_hash": "a" * 64}
+
+
+def test_google_oauth_install_uses_canonical_intent_and_two_phase_audit():
+    vault = Vault(intent(capability="google.oauth.install"))
+    cipher, audit, google = Cipher(), Audit(), GoogleOAuth()
+    result = SecretBroker(
+        vault=vault,
+        cipher=cipher,
+        audit=audit,
+        google_oauth=google,
+    ).google_oauth_exchange(
+        INTENT,
+        authorization_code="code",
+        pkce_verifier="v" * 64,
+        nonce_hash=bytes(32),
+        redirect_uri="https://dev.attune.mumit.org/oauth/google/callback",
+        scopes=("openid", "email"),
+    )
+    assert result.status_code == 204
+    assert [event["outcome"] for event in audit.events] == ["allowed", "observed"]
+    assert google.calls[0]["authorization_code"] == "code"
+    assert cipher.calls[0][0]["refresh_token"] == "restricted"
+    assert vault.stored[0][0] == INTENT

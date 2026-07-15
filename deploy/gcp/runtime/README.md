@@ -4,7 +4,8 @@ This independent Terraform root deploys private hosted services after the
 foundation and database migrations pass. It currently deploys the audit writer,
 credential-mutation secret broker, and a deterministic worker with only the
 content-free `platform.smoke` route. It also deploys the dispatch broker after
-the jobs queue has its reviewed fixed routing override.
+the jobs queue has its reviewed fixed routing override, plus a dormant private
+OAuth exchange service used only by the credential-free callback scrubber.
 
 ## Audit-writer boundary
 
@@ -24,11 +25,13 @@ security-sensitive work.
 ## Secret-broker boundary
 
 The secret broker accepts only an opaque credential-intent UUID, plus the
-credential object for an install. Cloud Run IAM permits only the control-plane
-and worker service accounts to invoke it. Application authorization remains
-route-specific: only the control plane can install or revoke, and only the
-worker can invoke fixed provider-use routes. A stable custom audience is checked
-again inside the application, and caller-supplied tenant or connector authority is rejected.
+credential object for an install. Cloud Run IAM permits only the control-plane,
+worker, and OAuth-exchange service accounts to invoke it. Application
+authorization remains route-specific: only the control plane can install or
+revoke, only the worker can invoke fixed provider-use routes, and only the
+exchange can invoke the fixed Google authorization-code operation. A stable
+custom audience is checked again inside the application, and caller-supplied
+tenant or connector authority is rejected.
 The broker alone can use the connector credential KMS key and its narrow
 database functions. It requires the private audit writer before and after a
 mutation and fails closed on ambiguous results.
@@ -46,6 +49,25 @@ runtime creates a content-free log metric and opens a Monitoring incident after
 more than five denied/limited, provider-failed, or unavailable results in five
 minutes. An empty `alert_notification_channels` list creates the incident but
 sends no page and is not acceptable once customer credentials are authorized.
+
+## OAuth-exchange boundary
+
+The internal-only exchange accepts exactly `code`, `state`, and callback
+binding from the OAuth-callback service account. Its database role has execute
+rights on the lease/finalize functions and no direct table access. Canonical
+tenant, principal, connector, install intent, PKCE verifier, nonce hash,
+redirect URI, and scopes come only from the leased transaction. The exchange
+then calls the broker with a fixed operation and custom audience.
+
+The exchange has Cloud SQL client/login and Monitoring metric-write roles, but
+no project log writer, Secret Manager, KMS, queue, or provider credential role.
+The secret broker alone reads the standard Google web-client JSON from the
+empty-by-default platform secret, calls the fixed token endpoint, validates the
+ID token and exact scope set, and stores only the envelope-encrypted refresh
+credential. Deploying these services does not activate OAuth: the public
+callback remains disabled until a reviewed client secret version, exact Google
+redirect registration, hosted sign-in/session binding, negative tests, and
+release evidence all exist.
 
 ## Deterministic worker boundary
 
@@ -93,6 +115,7 @@ export AUDIT_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/attune-
 export BROKER_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/attune-secret-broker"
 export WORKER_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/attune-worker"
 export DISPATCH_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/attune-dispatch-broker"
+export OAUTH_EXCHANGE_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/attune-oauth-exchange"
 
 docker buildx build --platform=linux/amd64 --push \
   -f deploy/audit-writer/Dockerfile -t "${AUDIT_IMAGE}:audit-writer-v1" .
@@ -102,6 +125,8 @@ docker buildx build --platform=linux/amd64 --push \
   -f deploy/worker/Dockerfile -t "${WORKER_IMAGE}:worker-v1" .
 docker buildx build --platform=linux/amd64 --push \
   -f deploy/dispatch-broker/Dockerfile -t "${DISPATCH_IMAGE}:dispatch-v1" .
+docker buildx build --platform=linux/amd64 --push \
+  -f deploy/oauth-exchange/Dockerfile -t "${OAUTH_EXCHANGE_IMAGE}:oauth-exchange-v1" .
 gcloud artifacts docker images describe "${AUDIT_IMAGE}:audit-writer-v1" \
   --project="$PROJECT_ID" \
   --format='value(image_summary.fully_qualified_digest)'
@@ -112,6 +137,9 @@ gcloud artifacts docker images describe "${WORKER_IMAGE}:worker-v1" \
   --project="$PROJECT_ID" \
   --format='value(image_summary.fully_qualified_digest)'
 gcloud artifacts docker images describe "${DISPATCH_IMAGE}:dispatch-v1" \
+  --project="$PROJECT_ID" \
+  --format='value(image_summary.fully_qualified_digest)'
+gcloud artifacts docker images describe "${OAUTH_EXCHANGE_IMAGE}:oauth-exchange-v1" \
   --project="$PROJECT_ID" \
   --format='value(image_summary.fully_qualified_digest)'
 ```
@@ -167,9 +195,10 @@ metric refreshes from state and only the policy is then created.
 
 Verify that all services have internal ingress and reject unauthenticated
 invocation. The audit-writer IAM policy must list only its four expected
-workloads; the broker policy must list only the control plane and worker. Verify
-the broker custom audience and route-specific application checks; the worker
-policy must list only the task-delivery identity.
+workloads; the broker policy must list only control plane, worker, and OAuth
+exchange. Verify the broker custom audience and route-specific application
+checks; the OAuth exchange policy must list only the callback identity, and the
+worker policy must list only the task-delivery identity.
 Verify that no runtime service account has a user-managed key. Do not place
 tenant data, tokens, or credentials in Terraform variables, state, labels,
 probes, or deployment logs.
