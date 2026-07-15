@@ -68,7 +68,7 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
         migration.name for migration in migrations
     )
     assert migrations[0].name == "0001_tenant_boundary.sql"
-    assert migrations[-1].name == "0005_dispatch_pre_audit.sql"
+    assert migrations[-1].name == "0006_connector_vault.sql"
     assert all(
         migration.checksum == hashlib.sha256(migration.sql.encode()).hexdigest()
         for migration in migrations
@@ -163,7 +163,7 @@ def initialized_database(database_url: str):
             cursor.execute(f'CREATE ROLE "{role}" NOLOGIN INHERIT')
     admin.autocommit = False
 
-    assert apply_migrations(admin) == 5
+    assert apply_migrations(admin) == 6
     with admin.cursor() as cursor:
         cursor.execute(
             "GRANT attune_worker TO attune_test_stale_member"
@@ -1013,3 +1013,96 @@ def test_dispatch_lease_recovers_and_expired_intent_never_leases(
     assert broker.lease(
         expiring.intent.id, producer_kind="worker"
     ) is None
+
+
+def test_credential_intents_are_tenant_bound_and_broker_function_only(
+    initialized_database, database_url
+):
+    psycopg = pytest.importorskip("psycopg")
+    control = _role_connection_factory(
+        database_url, ROLE_BINDINGS["attune_control_plane"]
+    )()
+    key = hashlib.sha256(b"credential-install-intent").digest()
+    try:
+        with tenant_transaction(control, TenantContext(TENANT_A)) as cursor:
+            cursor.execute(
+                """
+                INSERT INTO attune.credential_intents
+                    (tenant_id, connector_id, producer_kind, operation,
+                     capability, idempotency_key, expires_at)
+                VALUES (%s, %s, 'control_plane', 'install',
+                        'connector.manage', %s, %s)
+                RETURNING id
+                """,
+                (
+                    TENANT_A,
+                    CONNECTOR_A,
+                    key,
+                    datetime.now(timezone.utc) + timedelta(minutes=5),
+                ),
+            )
+            intent_id = cursor.fetchone()[0]
+        with tenant_transaction(control, TenantContext(TENANT_B)) as cursor:
+            cursor.execute(
+                "SELECT id FROM attune.credential_intents WHERE id = %s",
+                (intent_id,),
+            )
+            assert cursor.fetchone() is None
+    finally:
+        control.close()
+
+    worker = _role_connection_factory(
+        database_url, ROLE_BINDINGS["attune_worker"]
+    )()
+    try:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            with tenant_transaction(worker, TenantContext(TENANT_A)) as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO attune.credential_intents
+                        (tenant_id, connector_id, producer_kind, operation,
+                         capability, idempotency_key, expires_at)
+                    VALUES (%s, %s, 'worker', 'revoke',
+                            'connector.manage', %s, %s)
+                    """,
+                    (
+                        TENANT_A,
+                        CONNECTOR_A,
+                        hashlib.sha256(b"credential-substitution").digest(),
+                        datetime.now(timezone.utc) + timedelta(minutes=5),
+                    ),
+                )
+    finally:
+        worker.close()
+
+    broker = _role_connection_factory(
+        database_url, ROLE_BINDINGS["attune_secret_broker"]
+    )()
+    try:
+        with broker.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM attune.lease_credential_intent(%s, %s, %s)",
+                (intent_id, "control_plane", 30),
+            )
+            leased = cursor.fetchone()
+            assert leased[0:6] == (
+                intent_id,
+                TENANT_A,
+                CONNECTOR_A,
+                "google",
+                "install",
+                "connector.manage",
+            )
+            assert all(value is None for value in leased[6:])
+            cursor.execute(
+                "SELECT attune.finalize_credential_intent(%s, %s, %s)",
+                (intent_id, "control_plane", "consumed"),
+            )
+            assert cursor.fetchone() == (True,)
+        broker.commit()
+        with broker.cursor() as cursor:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                cursor.execute("SELECT id FROM attune.connector_credentials")
+        broker.rollback()
+    finally:
+        broker.close()

@@ -50,7 +50,9 @@ The migrations currently create tenant-bound records for:
 - export jobs and deletion/restore-suppression markers;
 - durable dispatch intents and broker-only lease/finalize functions; and
 - tenant-bound audit intents, hash-chained audit events, and per-tenant audit
-  heads.
+  heads; and
+- immutable encrypted connector credential versions plus one-time installation,
+  use, and revocation intents leased only through secret-broker functions.
 
 Dispatch audit is two-phase without being ambiguous: the broker must write a
 canonical `allowed` audit intent while the dispatch lease is active before it

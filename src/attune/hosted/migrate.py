@@ -54,6 +54,8 @@ TENANT_TABLES = (
     "deletion_markers",
     "dispatch_intents",
     "audit_intents",
+    "connector_credentials",
+    "credential_intents",
 )
 
 
@@ -343,6 +345,14 @@ def verify_database_boundary(connection: Any, bindings: dict[str, str]) -> None:
                 "attune.request_dispatch_audit(uuid,text,text)",
                 "attune_dispatch_broker",
             ),
+            (
+                "attune.lease_credential_intent(uuid,text,integer)",
+                "attune_secret_broker",
+            ),
+            (
+                "attune.finalize_credential_intent(uuid,text,text)",
+                "attune_secret_broker",
+            ),
         )
         for signature, role in privileged_functions:
             cursor.execute(
@@ -390,6 +400,20 @@ def verify_database_boundary(connection: Any, bindings: dict[str, str]) -> None:
         )
         if tuple(cursor.fetchone()) != (False, False, False):
             raise RuntimeError("audit writer or dispatch broker has ambient audit access")
+        cursor.execute(
+            """
+            SELECT pg_catalog.has_table_privilege(
+                       'attune_secret_broker', 'attune.connector_credentials',
+                       'SELECT,INSERT,UPDATE,DELETE,TRUNCATE'
+                   ),
+                   pg_catalog.has_table_privilege(
+                       'attune_secret_broker', 'attune.credential_intents',
+                       'SELECT,INSERT,UPDATE,DELETE,TRUNCATE'
+                   )
+            """
+        )
+        if tuple(cursor.fetchone()) != (False, False):
+            raise RuntimeError("secret broker has ambient connector-vault access")
 
         for role, login in bindings.items():
             cursor.execute(

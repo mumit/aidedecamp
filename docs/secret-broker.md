@@ -35,8 +35,10 @@ and adversarially tested.
 
 ## Implementation status
 
-The envelope-encryption core and substitution tests are implemented. The vault
-schema, one-time intent functions, private service, rotation/revocation API,
-broker-mediated Google operation, and live KMS evidence remain gated work. No
+The envelope-encryption core, immutable forced-RLS vault schema, one-time
+intent lease/finalize functions, and substitution/isolation tests are
+implemented in development. The private service, credential installation,
+rotation/revocation API, broker-mediated Google operation, and live KMS evidence
+remain gated work. No
 customer credential is authorized until those controls and the hosted launch
 gates pass.
