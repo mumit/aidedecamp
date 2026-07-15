@@ -90,3 +90,56 @@ def test_gcp_foundation_documents_no_customer_data_gate():
     assert "making the topic public" in normalized_foundation
     assert "No secret value may enter Terraform state" in normalized_architecture
     assert "Production is blocked" in normalized_architecture
+
+
+def test_hosted_data_boundary_is_private_pinned_and_fail_closed():
+    root = ROOT / "deploy" / "gcp" / "data"
+    terraform = "\n".join(path.read_text() for path in sorted(root.glob("*.tf")))
+    migration = "\n".join(
+        path.read_text()
+        for path in sorted((ROOT / "src" / "attune" / "hosted" / "sql").glob("*.sql"))
+    )
+    dockerfile = (ROOT / "deploy" / "migrator" / "Dockerfile").read_text()
+    guide = (root / "README.md").read_text()
+    normalized_guide = " ".join(guide.split())
+
+    assert 'database_roles = ["cloudsqlsuperuser"]' in terraform
+    assert 'roles/cloudsql.client' in terraform
+    assert 'roles/cloudsql.instanceUser' in terraform
+    assert 'roles/logging.logWriter' in terraform
+    assert 'PRIVATE_RANGES_ONLY' in terraform
+    assert 'max_retries     = 0' in terraform
+    assert '@sha256:[0-9a-f]{64}$' in terraform
+    assert "allUsers" not in terraform
+    assert "secret_key_ref" not in terraform
+    assert "google_cloud_run_v2_service" not in terraform
+
+    assert "FORCE ROW LEVEL SECURITY" in migration
+    assert "verified tenant context is required" in migration
+    assert "audit records are append-only" in migration
+    assert "attune_ext.vector" in migration
+    assert "credential_ref uuid" in migration
+    assert "refresh_token" not in migration
+
+    assert "@sha256:" in dockerfile
+    assert "USER 65532:65532" in dockerfile
+    assert (
+        "The transaction tenant setting is a storage guard, not authentication"
+        in guide
+    )
+    assert "Customer data remains prohibited" in normalized_guide
+    assert "Provider content and executable arguments" in normalized_guide
+    assert "does not sign arbitrary body fields" in normalized_guide
+    assert "live worker service remains prohibited" in normalized_guide
+
+
+def test_dispatch_broker_boundary_is_documented_and_fail_closed():
+    architecture = (ROOT / "docs" / "security-architecture.md").read_text()
+    broker = (ROOT / "docs" / "dispatch-broker.md").read_text()
+    decisions = (ROOT / "docs" / "decisions.md").read_text()
+
+    assert "SEC-207" in architecture
+    assert "opaque intent ID only" in broker
+    assert "only Cloud Tasks producer" in broker
+    assert "Direct producer enqueue" in broker
+    assert "A private broker exclusively owns hosted task dispatch" in decisions

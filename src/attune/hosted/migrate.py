@@ -1,0 +1,360 @@
+"""Checksum-pinned PostgreSQL migration runner for the hosted data boundary."""
+
+from __future__ import annotations
+
+import hashlib
+import importlib.resources
+import json
+import os
+import re
+import sys
+from contextlib import closing
+from dataclasses import dataclass
+from typing import Any, Iterable
+
+_MIGRATION_NAME = re.compile(r"^[0-9]{4}_[a-z0-9_]+\.sql$")
+_ROLE_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
+_LOGIN_NAME = re.compile(r"^[A-Za-z0-9_.@-]{1,255}$")
+_LOCK_ID = 5_746_885_417_301_991_188
+
+RUNTIME_ROLES = (
+    "attune_control_plane",
+    "attune_worker",
+    "attune_secret_broker",
+    "attune_audit_writer",
+)
+
+TENANT_TABLES = (
+    "tenants",
+    "principals",
+    "installations",
+    "connectors",
+    "policies",
+    "jobs",
+    "approvals",
+    "memories",
+    "memory_embeddings",
+    "audit_heads",
+    "audit_events",
+    "provider_events",
+    "job_retries",
+    "workflow_checkpoints",
+    "conversations",
+    "conversation_turns",
+    "autonomy_grants",
+    "usage_records",
+    "export_jobs",
+    "deletion_markers",
+)
+
+
+@dataclass(frozen=True)
+class Migration:
+    name: str
+    sql: str
+    checksum: str
+
+
+def load_migrations() -> tuple[Migration, ...]:
+    root = importlib.resources.files("attune.hosted.sql")
+    migrations: list[Migration] = []
+    for resource in sorted(root.iterdir(), key=lambda item: item.name):
+        if not resource.is_file() or not _MIGRATION_NAME.fullmatch(resource.name):
+            continue
+        raw = resource.read_bytes()
+        migrations.append(
+            Migration(
+                name=resource.name,
+                sql=raw.decode("utf-8"),
+                checksum=hashlib.sha256(raw).hexdigest(),
+            )
+        )
+    if not migrations:
+        raise RuntimeError("no hosted database migrations were packaged")
+    return tuple(migrations)
+
+
+def apply_migrations(
+    connection: Any, migrations: Iterable[Migration] | None = None
+) -> int:
+    """Apply pending migrations under a session advisory lock.
+
+    A changed checksum is a hard failure. DDL and its bookkeeping row commit in
+    the same transaction; a partially applied migration is rolled back.
+    """
+
+    pending = tuple(migrations or load_migrations())
+    applied = 0
+    with closing(connection.cursor()) as cursor:
+        cursor.execute("SET search_path = pg_catalog")
+        cursor.execute("SELECT pg_advisory_lock(%s)", (_LOCK_ID,))
+    try:
+        with closing(connection.cursor()) as cursor:
+            cursor.execute("CREATE SCHEMA IF NOT EXISTS attune_meta")
+            cursor.execute("REVOKE ALL ON SCHEMA attune_meta FROM PUBLIC")
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS attune_meta.schema_migrations (
+                    name text PRIMARY KEY,
+                    checksum text NOT NULL CHECK (checksum ~ '^[0-9a-f]{64}$'),
+                    applied_at timestamptz NOT NULL DEFAULT clock_timestamp()
+                )
+                """
+            )
+        connection.commit()
+
+        for migration in pending:
+            if not _MIGRATION_NAME.fullmatch(migration.name):
+                raise ValueError(f"invalid migration name: {migration.name!r}")
+            try:
+                with closing(connection.cursor()) as cursor:
+                    cursor.execute(
+                        "SELECT checksum FROM attune_meta.schema_migrations "
+                        "WHERE name = %s",
+                        (migration.name,),
+                    )
+                    row = cursor.fetchone()
+                    if row is not None:
+                        if row[0] != migration.checksum:
+                            raise RuntimeError(
+                                f"migration checksum mismatch for {migration.name}"
+                            )
+                        connection.rollback()
+                        continue
+                    cursor.execute(migration.sql)
+                    cursor.execute(
+                        """
+                        INSERT INTO attune_meta.schema_migrations (name, checksum)
+                        VALUES (%s, %s)
+                        """,
+                        (migration.name, migration.checksum),
+                    )
+                connection.commit()
+                applied += 1
+            except BaseException:
+                connection.rollback()
+                raise
+    finally:
+        try:
+            with closing(connection.cursor()) as cursor:
+                cursor.execute("SELECT pg_advisory_unlock(%s)", (_LOCK_ID,))
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+    return applied
+
+
+def bind_runtime_roles(connection: Any, bindings: dict[str, str]) -> None:
+    """Grant fixed NOLOGIN roles to pre-created Cloud SQL IAM users."""
+
+    if set(bindings) != set(RUNTIME_ROLES):
+        raise ValueError("runtime role bindings must name every fixed Attune role")
+    try:
+        with closing(connection.cursor()) as cursor:
+            cursor.execute("SELECT current_user")
+            migrator = cursor.fetchone()[0]
+            cursor.execute(
+                f"ALTER ROLE {_quote_identifier(migrator)} SET search_path = pg_catalog"
+            )
+            for role in RUNTIME_ROLES:
+                login = bindings[role]
+                if not _ROLE_NAME.fullmatch(role) or not _LOGIN_NAME.fullmatch(login):
+                    raise ValueError("unsafe PostgreSQL role or IAM login identifier")
+                quoted_role = _quote_identifier(role)
+                quoted_login = _quote_identifier(login)
+                cursor.execute(
+                    "SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = %s", (login,)
+                )
+                if cursor.fetchone() is None:
+                    raise RuntimeError(f"Cloud SQL IAM database user is missing: {login}")
+                cursor.execute(
+                    """
+                    SELECT member.rolname
+                      FROM pg_catalog.pg_auth_members AS membership
+                      JOIN pg_catalog.pg_roles AS granted
+                        ON granted.oid = membership.roleid
+                      JOIN pg_catalog.pg_roles AS member
+                        ON member.oid = membership.member
+                     WHERE granted.rolname = %s
+                    """,
+                    (role,),
+                )
+                for existing_member in (row[0] for row in cursor.fetchall()):
+                    if existing_member != login:
+                        cursor.execute(
+                            f"REVOKE {quoted_role} FROM "
+                            f"{_quote_identifier(existing_member)}"
+                        )
+                cursor.execute(f"GRANT {quoted_role} TO {quoted_login}")
+                cursor.execute(
+                    f"ALTER ROLE {quoted_login} SET search_path = pg_catalog"
+                )
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
+
+
+def verify_database_boundary(connection: Any, bindings: dict[str, str]) -> None:
+    """Fail unless the live database retains every storage security invariant."""
+
+    with closing(connection.cursor()) as cursor:
+        cursor.execute(
+            """
+            SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
+              FROM pg_catalog.pg_class AS c
+              JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+             WHERE n.nspname = 'attune' AND c.relkind = 'r'
+            """
+        )
+        rls = {name: (enabled, forced) for name, enabled, forced in cursor.fetchall()}
+        if set(TENANT_TABLES) - set(rls) or not all(
+            rls[name] == (True, True) for name in TENANT_TABLES
+        ):
+            raise RuntimeError("hosted tenant tables must enable and force RLS")
+
+        cursor.execute(
+            """
+            SELECT r.rolname, r.rolsuper, r.rolcreaterole, r.rolcreatedb,
+                   r.rolcanlogin, r.rolbypassrls
+             FROM pg_catalog.pg_roles AS r
+             WHERE r.rolname IN (%s, %s, %s, %s)
+            """,
+            RUNTIME_ROLES,
+        )
+        roles = {row[0]: row[1:] for row in cursor.fetchall()}
+        if set(roles) != set(RUNTIME_ROLES) or any(
+            any(flags) for flags in roles.values()
+        ):
+            raise RuntimeError(
+                "runtime database roles must be unprivileged NOLOGIN roles"
+            )
+
+        cursor.execute(
+            """
+            SELECT e.extname, n.nspname
+              FROM pg_catalog.pg_extension AS e
+              JOIN pg_catalog.pg_namespace AS n ON n.oid = e.extnamespace
+             WHERE e.extname IN ('pgcrypto', 'vector')
+            """
+        )
+        if {tuple(row) for row in cursor.fetchall()} != {
+            ("pgcrypto", "attune_ext"),
+            ("vector", "attune_ext"),
+        }:
+            raise RuntimeError("pgcrypto and vector must be isolated in attune_ext")
+
+        cursor.execute(
+            """
+            SELECT count(*)
+              FROM pg_catalog.pg_class AS c
+              JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+              CROSS JOIN LATERAL pg_catalog.aclexplode(
+                  COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))) AS acl
+             WHERE n.nspname IN ('attune', 'attune_meta') AND acl.grantee = 0
+            """
+        )
+        if cursor.fetchone()[0] != 0:
+            raise RuntimeError("PUBLIC must have no hosted table privileges")
+
+        cursor.execute(
+            """
+            SELECT count(*)
+              FROM pg_catalog.pg_trigger AS t
+              JOIN pg_catalog.pg_class AS c ON c.oid = t.tgrelid
+              JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+             WHERE n.nspname = 'attune' AND c.relname = 'audit_events'
+               AND NOT t.tgisinternal AND t.tgenabled <> 'D'
+               AND t.tgname IN (
+                   'audit_events_no_update_delete', 'audit_events_no_truncate'
+               )
+            """
+        )
+        if cursor.fetchone()[0] != 2:
+            raise RuntimeError("append-only audit triggers are missing or disabled")
+
+        for role, login in bindings.items():
+            cursor.execute(
+                """
+                SELECT member.rolname
+                  FROM pg_catalog.pg_auth_members AS membership
+                  JOIN pg_catalog.pg_roles AS granted ON granted.oid = membership.roleid
+                  JOIN pg_catalog.pg_roles AS member ON member.oid = membership.member
+                 WHERE granted.rolname = %s
+                """,
+                (role,),
+            )
+            if [row[0] for row in cursor.fetchall()] != [login]:
+                raise RuntimeError(
+                    f"runtime role {role} must have exactly one IAM member"
+                )
+
+        for role in RUNTIME_ROLES:
+            cursor.execute(
+                "SELECT pg_catalog.has_table_privilege(%s, 'attune.audit_events', %s)",
+                (role, "INSERT,UPDATE,DELETE,TRUNCATE"),
+            )
+            if cursor.fetchone()[0] is not False:
+                raise RuntimeError(f"{role} has direct audit mutation privileges")
+    connection.rollback()
+
+
+def _quote_identifier(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+def _bindings_from_environment() -> dict[str, str]:
+    raw = os.environ.get("ATTUNE_DB_ROLE_BINDINGS", "")
+    if not raw:
+        raise RuntimeError("ATTUNE_DB_ROLE_BINDINGS is required")
+    parsed = json.loads(raw)
+    if not isinstance(parsed, dict) or not all(
+        isinstance(key, str) and isinstance(value, str)
+        for key, value in parsed.items()
+    ):
+        raise ValueError("ATTUNE_DB_ROLE_BINDINGS must be a string-to-string object")
+    return parsed
+
+
+def _cloud_sql_connection() -> tuple[Any, Any]:
+    from google.cloud.sql.connector import Connector, IPTypes, RefreshStrategy
+
+    instance = os.environ["ATTUNE_CLOUD_SQL_INSTANCE"]
+    user = os.environ["ATTUNE_DB_USER"]
+    database = os.environ.get("ATTUNE_DB_NAME", "attune")
+    connector = Connector(refresh_strategy=RefreshStrategy.LAZY)
+    connection = connector.connect(
+        instance,
+        "pg8000",
+        user=user,
+        db=database,
+        enable_iam_auth=True,
+        ip_type=IPTypes.PRIVATE,
+    )
+    return connector, connection
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv:
+        raise ValueError("the hosted migrator accepts no runtime arguments")
+    owner, connection = _cloud_sql_connection()
+    try:
+        with closing(connection):
+            count = apply_migrations(connection)
+            bindings = _bindings_from_environment()
+            bind_runtime_roles(connection, bindings)
+            verify_database_boundary(connection, bindings)
+        print(
+            f"hosted database boundary verified; {count} migration(s) applied; "
+            f"{len(TENANT_TABLES)} tenant tables forced through RLS"
+        )
+    finally:
+        if owner is not None:
+            owner.close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

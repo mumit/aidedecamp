@@ -2,6 +2,52 @@
 
 Newest first. This log records decisions that constrain current implementation.
 
+## 2026-07 — A private broker exclusively owns hosted task dispatch
+
+- Producers persist a tenant-bound job and dispatch intent in one transaction;
+  they invoke the broker with an opaque intent ID rather than a tenant ID,
+  target URL, task body, or executable argument.
+- The broker verifies the exact producer workload identity and uses a narrow
+  database function to lease canonical tenant, job, purpose, and capability.
+  Deterministic Cloud Task names make crash recovery and `AlreadyExists`
+  idempotent.
+- Only the broker can enqueue or use the task-delivery identity. Queues use
+  infrastructure-controlled exact routing. Producers cannot choose worker
+  targets or mint delivery authority.
+- Cloud Tasks OIDC still authenticates delivery at the worker. The worker
+  atomically rebinds tenant, job kind, and capability to database state and
+  refuses execution when required audit is unavailable.
+- Direct producer enqueue is rejected. KMS signatures do not constrain an
+  authorized malicious signer; per-tenant queues remain a higher-assurance cell
+  option. The complete contract is in `dispatch-broker.md`.
+
+## 2026-07 — Hosted storage fails closed on missing tenant context
+
+- Hosted PostgreSQL migrations are immutable and checksum recorded. A separate
+  private Cloud Run job owns schema changes through a dedicated IAM database
+  identity; runtime identities never own tables or receive `BYPASSRLS`.
+- Every durable customer object carries an immutable tenant ID and is forced
+  through RLS. Composite foreign keys prevent cross-tenant relationships, and
+  variable-dimension pgvector rows remain inside the same policy boundary.
+- Tenant context is transaction-local so pooled connections cannot retain it.
+  Missing context is an error. The context must originate from verified trusted
+  code; RLS is defense in depth and is not authentication of a caller-selected
+  tenant.
+- Audit events are appended through a tenant-checking hash-chain function;
+  application roles cannot insert, update, delete, or truncate the audit table.
+- Hosted repositories require a typed trusted tenant at the API boundary.
+  Cloud Tasks bodies carry identifiers and purpose only; exact Google OIDC
+  caller and audience verification precedes canonical database retrieval and
+  atomic claim, so queue payloads never become executable instructions.
+- Cloud Tasks OIDC authenticates delivery but does not turn body fields into an
+  Attune signature. The dispatch core atomically rebinds job kind and capability
+  to canonical state, requires audit before execution, and reconciles ambiguous
+  results. A live endpoint is blocked on fixed queue routing, least-privilege
+  producers, the private audit writer, and registered capability executors.
+- Customer data remains prohibited. This data boundary does not substitute for
+  the pending secret broker, hardened job delivery, identity links, ingress
+  verification, capability gateway, deletion workflow, or assurance gates.
+
 ## 2026-07 — GCP is the first operated SaaS platform
 
 - The first hosted implementation uses Cloud Run, Cloud Tasks, private Cloud

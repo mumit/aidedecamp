@@ -1,0 +1,145 @@
+data "terraform_remote_state" "foundation" {
+  backend = "gcs"
+  config = {
+    bucket = var.state_bucket
+    prefix = var.foundation_state_prefix
+  }
+}
+
+locals {
+  foundation = data.terraform_remote_state.foundation.outputs.foundation
+  prefix     = "attune-${local.foundation.environment}"
+  labels = merge(
+    {
+      application = "attune"
+      environment = local.foundation.environment
+      managed_by  = "terraform"
+      component   = "database-migration"
+    },
+    var.labels,
+  )
+  runtime_database_users = {
+    attune_control_plane = trimsuffix(
+      local.foundation.workload_identities.control_plane,
+      ".gserviceaccount.com",
+    )
+    attune_worker = trimsuffix(
+      local.foundation.workload_identities.worker,
+      ".gserviceaccount.com",
+    )
+    attune_secret_broker = trimsuffix(
+      local.foundation.workload_identities.secret_broker,
+      ".gserviceaccount.com",
+    )
+    attune_audit_writer = trimsuffix(
+      local.foundation.workload_identities.audit_writer,
+      ".gserviceaccount.com",
+    )
+  }
+}
+
+resource "google_service_account" "migrator" {
+  project      = local.foundation.project_id
+  account_id   = "${local.prefix}-migrate"
+  display_name = "Attune ${local.foundation.environment} database migrator"
+  description  = "Dedicated bulk-access identity used only by the reviewed migration job"
+}
+
+resource "google_project_iam_member" "migrator_cloud_sql_client" {
+  project = local.foundation.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.migrator.email}"
+}
+
+resource "google_project_iam_member" "migrator_cloud_sql_login" {
+  project = local.foundation.project_id
+  role    = "roles/cloudsql.instanceUser"
+  member  = "serviceAccount:${google_service_account.migrator.email}"
+}
+
+resource "google_project_iam_member" "migrator_logs" {
+  project = local.foundation.project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.migrator.email}"
+}
+
+resource "google_sql_user" "migrator" {
+  project  = local.foundation.project_id
+  instance = element(split(":", local.foundation.database_instance), 2)
+  name = trimsuffix(
+    google_service_account.migrator.email,
+    ".gserviceaccount.com",
+  )
+  type           = "CLOUD_IAM_SERVICE_ACCOUNT"
+  database_roles = ["cloudsqlsuperuser"]
+}
+
+resource "google_cloud_run_v2_job" "migrate" {
+  project             = local.foundation.project_id
+  name                = "${local.prefix}-database-migrate"
+  location            = local.foundation.region
+  deletion_protection = true
+  labels              = local.labels
+
+  template {
+    task_count  = 1
+    parallelism = 1
+
+    template {
+      service_account = google_service_account.migrator.email
+      max_retries     = 0
+      timeout         = "900s"
+
+      containers {
+        name  = "migrator"
+        image = var.migrator_image
+
+        resources {
+          limits = {
+            cpu    = "1"
+            memory = "512Mi"
+          }
+        }
+
+        env {
+          name  = "ATTUNE_CLOUD_SQL_INSTANCE"
+          value = local.foundation.database_instance
+        }
+        env {
+          name  = "ATTUNE_DB_NAME"
+          value = local.foundation.database_name
+        }
+        env {
+          name = "ATTUNE_DB_USER"
+          value = trimsuffix(
+            google_service_account.migrator.email,
+            ".gserviceaccount.com",
+          )
+        }
+        env {
+          name  = "ATTUNE_DB_ROLE_BINDINGS"
+          value = jsonencode(local.runtime_database_users)
+        }
+      }
+
+      vpc_access {
+        egress = "PRIVATE_RANGES_ONLY"
+        network_interfaces {
+          network    = local.foundation.network_id
+          subnetwork = local.foundation.subnetwork_id
+          tags       = ["attune-database-migration"]
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+
+  depends_on = [
+    google_project_iam_member.migrator_cloud_sql_client,
+    google_project_iam_member.migrator_cloud_sql_login,
+    google_sql_user.migrator,
+  ]
+}

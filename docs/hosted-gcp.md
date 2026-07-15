@@ -15,7 +15,8 @@ to the first GCP implementation.
 | Web control plane | Cloud Run behind external HTTPS load balancing and Cloud Armor | No | Yes |
 | Provider/channel ingress | Dedicated Cloud Run service with verified Slack, Chat, Calendar, and Pub/Sub handlers | Signing material only where verification requires it | Yes |
 | Durable dispatch | Cloud Tasks with a dedicated OIDC dispatch identity | No | No |
-| Tenant worker | Private Cloud Run service, one signed tenant/job envelope per request | No | IAM only |
+| Dispatch broker | Private Cloud Run service and the only Cloud Tasks enqueuer | No | IAM only |
+| Tenant worker | Private Cloud Run service, one authenticated job envelope per request | No | IAM only |
 | Secret broker | Private Cloud Run service with the only connector-vault KMS identity | Yes | IAM only |
 | Relational/vector data | Private-IP Cloud SQL PostgreSQL with IAM authentication, RLS, and `vector` | No | No |
 | Audit writer | Private service writing canonical events to PostgreSQL and retained Cloud Storage | No | IAM only |
@@ -40,6 +41,33 @@ The first hosted vector implementation is PostgreSQL `vector`, not shared
 Qdrant. This reduces the number of privileged data systems and lets relational
 and vector access use the same transaction, RLS, backup, export, and deletion
 boundary. The existing memory interface remains the application abstraction.
+
+### Implemented development schema
+
+`deploy/gcp/data` now supplies checksum-pinned migrations and a private Cloud
+Run migration job. The schema covers every durable tenant object class in the
+security architecture, forces PostgreSQL RLS, uses composite tenant foreign
+keys, keeps vectors in the same tenant boundary, reconciles least-privilege
+runtime roles, and provides a hash-chained append-only audit path. The job
+connects through private networking with automatic IAM database authentication
+and then verifies the live controls.
+
+RLS consumes a transaction-local tenant selected by deterministic trusted code.
+It does not authenticate that selection: a shared database role with a fully
+compromised session is not contained merely because a GUC and RLS exist.
+Purpose-bound signed jobs, service authorization, secret-broker policy,
+revocation, and—where warranted—separate tenant cells remain required layers.
+No customer data is authorized by the existence of the schema.
+
+Hosted repositories now require a typed `TenantContext` for every durable
+object class, including provider events, jobs and retries, checkpoints,
+conversations, approvals, memory and vectors, autonomy, usage, exports,
+deletion, and audit. Idempotency collisions are checked, claims and sequence
+allocation are atomic, vector predicates include both tenant and principal,
+deletion updates relational and vector records together, and approval
+consumption binds actor, proposed action, source and policy versions,
+connector, destination, and expiry. Tenant authority is never accepted from a
+model response or provider payload.
 
 ## Credential flow
 
@@ -73,6 +101,30 @@ topic; its eventual push subscription must use a service account and an exact
 OIDC audience. Calendar and channel notifications are signals to fetch current
 provider state, never executable instructions.
 
+Internal Cloud Tasks requests use a minimal versioned identifier envelope.
+The worker verifies the exact HTTPS audience, Google issuer, dispatch service
+account, token lifetime, canonical identifiers, allowlisted purpose, and exact
+body schema before loading canonical state from PostgreSQL. Provider content
+and executable arguments never travel as task authority, and duplicate
+delivery is contained by the atomic job claim.
+
+OIDC authenticates Cloud Tasks delivery; it does not make arbitrary body fields
+an Attune-signed authorization statement. The worker dispatch core consequently
+rebinds the exact purpose and capability while atomically claiming canonical
+database state, requires a content-free audit event before execution, and sends
+ambiguous executor or audit outcomes to reconciliation rather than blind retry.
+The live worker endpoint is intentionally not deployed until queue target
+routing, producer permissions, the private audit-writer path, and registered
+deterministic capability executors exist. Higher-assurance cells may also use
+producer signatures or one-time job capabilities as an additional boundary.
+
+The approved broker contract is documented in
+[`dispatch-broker.md`](dispatch-broker.md). Producers persist a tenant-bound
+job and dispatch intent, then invoke the broker with only the opaque intent ID.
+The broker verifies the producer identity, leases canonical routing data
+through a narrow database function, and creates a deterministically named task.
+It is the only workload with queue-enqueue and delivery-identity permissions.
+
 The Google-managed Gmail publisher receives only `roles/pubsub.publisher` on
 that topic. If legacy Domain Restricted Sharing blocks the external system
 principal, operators must use the documented, audited project-scoped
@@ -85,8 +137,12 @@ acceptable substitutes.
 1. **Foundation:** apply `deploy/gcp/foundation` in development and staging;
    verify private networking, IAM, CMEK recovery, backup restore, queues, and
    audit retention. No customer data is allowed.
-2. **Hosted schema and adapters:** migrations, RLS, tenant-context enforcement,
-   PostgreSQL vector storage, queue envelopes, and tamper-evident audit events.
+2. **Hosted schema and dispatch:** the development schema, RLS, tenant-context
+   transaction helper, PostgreSQL vector storage, durable object model, and
+   tamper-evident audit path now exist. All durable repositories plus the
+   authenticated envelope and fail-closed dispatch core exist. Fixed queue
+   routing, the approved dispatch broker, private audit writer, deterministic
+   capability executors, and live HTTP adapter must complete this gate.
 3. **Secret broker:** connector storage, use, rotation, revocation, and negative
    authorization tests.
 4. **Control plane:** OIDC/passkey login and explicit connector identity links.

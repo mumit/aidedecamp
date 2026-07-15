@@ -215,6 +215,11 @@ exports, and deletion markers.
 - **SEC-206.** Higher-assurance tenant cells MAY use distinct data-plane
   identities, databases, regions, and encryption keys, but must preserve the
   same application authorization checks.
+- **SEC-207.** Hosted producers MUST NOT enqueue worker tasks or use the task
+  delivery identity directly. A dedicated dispatch boundary MUST authenticate
+  the producer, resolve a tenant-bound canonical intent without trusting a
+  caller-supplied tenant, restrict purpose and destination, use deterministic
+  task identity, and enforce infrastructure-controlled queue routing.
 
 Automated isolation tests MUST attempt every operation with another tenant's
 IDs, installations, approval nonces, queue records, vector filters, cache

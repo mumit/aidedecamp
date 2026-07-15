@@ -62,7 +62,9 @@ See [Getting started](docs/getting-started.md), the complete
 [Deployment](docs/deployment.md). Operators building the managed service should
 start with the [GCP operated-service architecture](docs/hosted-gcp.md). The normative
 [security architecture](docs/security-architecture.md) defines trust boundaries,
-control requirements, red-team cases, and hosted launch gates. MCP server
+control requirements, red-team cases, and hosted launch gates; the approved
+[dispatch-broker contract](docs/dispatch-broker.md) defines exclusive task
+authority and queue delivery. MCP server
 implementers should use the [versioned Workspace contract](docs/mcp-contract.md).
 
 ## Development
