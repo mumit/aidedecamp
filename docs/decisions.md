@@ -2,6 +2,25 @@
 
 Newest first. This log records decisions that constrain current implementation.
 
+## 2026-07 — Provider credentials stay behind fixed broker operations
+
+- Hosted workers receive neither stored credentials nor OAuth access tokens. A
+  provider route accepts only an opaque one-time intent, maps its canonical
+  capability to one reviewed request, and returns a minimized, typed result.
+  The first route is the read-only Gmail `users/me/profile` operation and omits
+  `emailAddress`.
+- This makes destination allowlisting and data minimization structural,
+  prevents model- or caller-controlled URLs and user IDs, limits SSRF and token
+  exfiltration paths, and gives every decrypt/use a durable audit boundary.
+- Each additional provider operation needs its own schema, route authorization,
+  response minimization, negative tests, egress review, rate policy, and, for
+  writes, reconciliation design. Generic proxying and access-token-return
+  endpoints are prohibited.
+- Credential-use leasing is durably limited per tenant and exact capability,
+  rather than by an in-process counter, so horizontally scaled broker instances
+  share one boundary. Content-free anomaly markers drive an operational alert;
+  tenant or provider content is not copied into logs or metric labels.
+
 ## 2026-07 — Ambiguous effects open durable reconciliation
 
 - A worker that cannot prove pre-effect audit, executor outcome, post-effect

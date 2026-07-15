@@ -55,6 +55,20 @@ variable "worker_image" {
   }
 }
 
+variable "alert_notification_channels" {
+  description = "Monitoring notification-channel resource names for runtime security alerts."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for channel in var.alert_notification_channels :
+      can(regex("^projects/[^/]+/notificationChannels/[0-9]+$", channel))
+    ])
+    error_message = "alert_notification_channels entries must be full Monitoring notification-channel resource names."
+  }
+}
+
 variable "labels" {
   description = "Additional non-sensitive resource labels."
   type        = map(string)

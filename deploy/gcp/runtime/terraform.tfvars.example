@@ -7,6 +7,12 @@ enable_dispatch_broker  = false
 secret_broker_image     = "northamerica-northeast1-docker.pkg.dev/PROJECT/REPOSITORY/attune-secret-broker@sha256:REPLACE"
 worker_image            = "northamerica-northeast1-docker.pkg.dev/PROJECT/REPOSITORY/attune-worker@sha256:REPLACE"
 
+# Required before customer credentials. Empty still creates a visible incident
+# in Cloud Monitoring but sends no page.
+alert_notification_channels = [
+  # "projects/PROJECT/notificationChannels/NUMERIC_ID",
+]
+
 labels = {
   owner       = "platform"
   cost_center = "attune"

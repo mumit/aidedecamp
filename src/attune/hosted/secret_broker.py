@@ -1,4 +1,4 @@
-"""Fail-closed core for connector credential installation and revocation."""
+"""Fail-closed core for connector credential mutation and fixed provider use."""
 
 from __future__ import annotations
 
@@ -6,8 +6,11 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Protocol
 from uuid import UUID
 
+from .google_provider import GoogleProvider, ProviderFailure
 from .vault import LeasedCredentialIntent, PostgresSecretBrokerRepository
 from .vault_crypto import EnvelopeCipher
+
+GOOGLE_GMAIL_PROFILE_ACTION = "credential.use.google.gmail.profile.read"
 
 
 class SecretAudit(Protocol):
@@ -23,6 +26,7 @@ class SecretAudit(Protocol):
 @dataclass(frozen=True)
 class SecretBrokerResult:
     status_code: int
+    body: Mapping[str, Any] | None = None
 
 
 class SecretBroker:
@@ -32,10 +36,12 @@ class SecretBroker:
         vault: PostgresSecretBrokerRepository,
         cipher: EnvelopeCipher,
         audit: SecretAudit,
+        google: GoogleProvider | None = None,
     ):
         self._vault = vault
         self._cipher = cipher
         self._audit = audit
+        self._google = google
 
     def install(
         self, intent_id: UUID, credential: Mapping[str, Any]
@@ -82,6 +88,70 @@ class SecretBroker:
             if self._record(intent, action="credential.revoke", outcome="observed")
             else 503
         )
+
+    def google_gmail_profile(self, intent_id: UUID) -> SecretBrokerResult:
+        intent = self._lease(intent_id, "worker", "use")
+        if intent is None:
+            return SecretBrokerResult(404)
+        if (
+            intent.provider != "google"
+            or intent.capability != "google.gmail.profile.read"
+            or intent.encrypted is None
+            or intent.credential_version is None
+            or self._google is None
+        ):
+            return self._finish_failure(intent, status_code=404, outcome="denied")
+        if not self._record(
+            intent, action=GOOGLE_GMAIL_PROFILE_ACTION, outcome="allowed"
+        ):
+            return SecretBrokerResult(503)
+        try:
+            credential = self._cipher.decrypt(
+                intent.encrypted,
+                tenant_id=intent.tenant.tenant_id,
+                connector_id=intent.connector_id,
+                provider=intent.provider,
+                credential_version=intent.credential_version,
+            )
+            profile = self._google.gmail_profile(credential)
+        except ProviderFailure:
+            return self._finish_failure(intent, status_code=502, outcome="failed")
+        except Exception:
+            return self._finish_failure(intent, status_code=503, outcome="failed")
+        if not self._record(
+            intent, action=GOOGLE_GMAIL_PROFILE_ACTION, outcome="observed"
+        ):
+            return SecretBrokerResult(503)
+        try:
+            finalized = self._vault.finalize(
+                intent.id, producer_kind="worker", outcome="consumed"
+            )
+        except Exception:
+            finalized = False
+        return (
+            SecretBrokerResult(200, profile.response())
+            if finalized
+            else SecretBrokerResult(503)
+        )
+
+    def _finish_failure(
+        self,
+        intent: LeasedCredentialIntent,
+        *,
+        status_code: int,
+        outcome: str,
+    ) -> SecretBrokerResult:
+        if not self._record(
+            intent, action=GOOGLE_GMAIL_PROFILE_ACTION, outcome=outcome
+        ):
+            return SecretBrokerResult(503)
+        try:
+            finalized = self._vault.finalize(
+                intent.id, producer_kind="worker", outcome="failed"
+            )
+        except Exception:
+            finalized = False
+        return SecretBrokerResult(status_code if finalized else 503)
 
     def _lease(
         self, intent_id: UUID, producer_kind: str, operation: str

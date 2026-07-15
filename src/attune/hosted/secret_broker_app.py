@@ -10,6 +10,7 @@ from .cloud_sql import iam_connection
 from .secret_audit import SecretBrokerAudit
 from .secret_broker import SecretBroker
 from .secret_broker_service import create_app
+from .google_provider import GoogleProvider
 from .vault import PostgresSecretBrokerRepository
 from .vault_crypto import EnvelopeCipher, GoogleKmsKeyWrapper
 
@@ -29,6 +30,7 @@ def create_production_app():
             GoogleKmsKeyWrapper(os.environ["ATTUNE_CONNECTOR_KMS_KEY"])
         ),
         audit=audit,
+        google=GoogleProvider(),
     )
     return create_app(
         broker,
@@ -36,6 +38,7 @@ def create_production_app():
         expected_control_plane=os.environ[
             "ATTUNE_CONTROL_PLANE_SERVICE_ACCOUNT"
         ],
+        expected_worker=os.environ["ATTUNE_WORKER_SERVICE_ACCOUNT"],
     )
 
 

@@ -29,14 +29,31 @@ request body for that one-time intent; secret values are excluded from logs,
 errors, traces, audit metadata, environment variables, and Terraform state.
 
 The deployed GCP boundary has two independent authentication checks. Cloud Run
-IAM permits invocation only by the control-plane service account, and the
+IAM permits invocation only by the control-plane and worker service accounts,
+and every route independently permits exactly one of those callers. The
 application verifies the Google-signed token's issuer, exact custom audience,
 verified service-account email, subject, and bounded lifetime. The body is
 limited to 70 KB and is exactly `{intent_id, credential}` for installation or
-`{intent_id}` for revocation. The intent must be a canonical UUID; tenant,
+`{intent_id}` for revocation and provider use. The intent must be a canonical UUID; tenant,
 connector, provider, capability, KMS resource, and destination fields are not
 accepted from the caller. In particular, there is no caller-authoritative
 tenant field.
+
+| Route | Exact caller | Canonical intent | Effect |
+|---|---|---|---|
+| `/v1/credentials/install` | control plane | `control_plane/install` | encrypt and version a credential |
+| `/v1/credentials/revoke` | control plane | `control_plane/revoke` | revoke the active credential |
+| `/v1/providers/google/gmail/profile` | worker | `worker/use/google.gmail.profile.read` | return bounded mailbox counters and history ID |
+
+The first provider operation is intentionally narrow and read-only. The broker
+accepts no URL, Google user ID, query, or provider argument. It exchanges the
+refresh token only at `https://oauth2.googleapis.com/token`, disables HTTP
+redirects and ambient proxy environment variables, and calls only Gmail's fixed
+`users/me/profile` endpoint. Both
+responses have strict status, type, timeout, and 32 KB size checks. The worker
+receives only `history_id`, `messages_total`, and `threads_total`; the Gmail
+profile's email address and the OAuth access token never leave the broker.
+Credentials with a caller-controlled token endpoint are rejected.
 
 Before encryption or revocation, the broker creates a tenant-bound,
 content-free `allowed` audit intent through its forced-RLS database identity and
@@ -47,10 +64,26 @@ fails closed. Audit contains only the action, outcome, workload actor type, and
 a one-way connector reference; credential values and provider content never
 enter the audit contract.
 
-For provider use, prefer broker-mediated fixed operations over returning access
-tokens to workers. Any exception that releases a short-lived credential must be
+Provider use is broker-mediated; access tokens are not returned to workers.
+Every accepted use requires a fresh, expiring worker intent for the exact
+registered capability, durable content-free audit before decrypt, durable audit
+after the provider result, and atomic finalization of the intent. Provider or
+credential failures are recorded without response bodies or secret-bearing
+exception text. Because this first operation is read-only, a post-effect audit
+or finalization failure may safely retry after the lease expires. Any future
+exception that releases a short-lived credential must be
 capability-, workload-, connector-, destination-, and expiry-bound, documented,
 and adversarially tested.
+
+The database lease function also enforces a durable limit of 60 credential-use
+leases per tenant and exact capability in a rolling minute. A transaction-level
+advisory lock serializes each bucket across broker instances, and runtime roles
+cannot modify intent counters or timestamps. A hash collision can delay an
+unrelated bucket but cannot add quota. Denied/limited, provider-failed, and
+unavailable use results emit the same fixed content-free anomaly marker; a
+Cloud Logging metric opens an incident after more than five markers in five
+minutes. Notification channels are deployment configuration and are mandatory
+before customer credentials.
 
 ## Implementation status
 
@@ -63,6 +96,9 @@ its dedicated IAM database identity, the connector KMS key, and the private
 audit writer; its runtime environment contains resource identifiers but no
 credential values. A synthetic live wrap/unwrap passed under the broker identity
 and verified KMS CRC32C integrity; the ephemeral validation job was removed.
-Full intent-to-ciphertext-to-audit evidence, broker-mediated Google operations,
-reconciliation/alerting, and the remaining hosted launch gates are still
-required. No customer credential is authorized until those gates pass.
+The first broker-mediated Google operation is implemented and tested offline,
+but is not registered as a worker job route and has not been exercised against
+Google. A dedicated non-production Google identity, approved fixed-destination
+egress validation, a paging notification channel, and full
+intent-to-ciphertext-to-provider-to-audit evidence remain launch gates. No
+customer credential is authorized until those gates pass.

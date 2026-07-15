@@ -265,8 +265,15 @@ entries, export jobs, and connector references. See the
 The hosted connector-vault implementation follows the envelope-encryption and
 opaque-intent contract in [`secret-broker.md`](secret-broker.md): a fresh
 AES-256-GCM DEK per credential version, tenant/connector/provider/version-bound
-associated data, KMS-wrapped DEKs, exact control-plane workload authentication,
-content-free intent-based audit, and no caller-authoritative tenant field.
+associated data, KMS-wrapped DEKs, route-specific control-plane or worker
+authentication, content-free intent-based audit, and no caller-authoritative
+tenant field. Its first provider-use capability is a fixed read-only Gmail
+profile operation: no caller URL or user ID, no redirects, bounded responses,
+no access-token release, and no returned email address. It remains unavailable
+to normal hosted jobs until the test-identity, egress, paging, and end-to-end
+evidence gates are satisfied. Credential-use leases are serialized and limited
+per tenant and capability in PostgreSQL, and fixed content-free failure markers
+feed a Cloud Monitoring alert.
 
 ## 8. Agent and capability containment
 

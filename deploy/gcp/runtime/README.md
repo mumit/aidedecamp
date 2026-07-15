@@ -25,11 +25,23 @@ security-sensitive work.
 
 The secret broker accepts only an opaque credential-intent UUID, plus the
 credential object for an install. Cloud Run IAM permits only the control-plane
-service account to invoke it. A stable custom audience is checked again inside
-the application, and caller-supplied tenant or connector authority is rejected.
+and worker service accounts to invoke it. Application authorization remains
+route-specific: only the control plane can install or revoke, and only the
+worker can invoke fixed provider-use routes. A stable custom audience is checked
+again inside the application, and caller-supplied tenant or connector authority is rejected.
 The broker alone can use the connector credential KMS key and its narrow
 database functions. It requires the private audit writer before and after a
 mutation and fails closed on ambiguous results.
+
+The initial read-only Gmail profile route is not yet in the worker route
+registry and must not be enabled with customer credentials. Before that gate
+opens, validate fixed Google endpoint egress with a dedicated non-production
+Google identity and attach a paging notification channel to the use-anomaly
+alert. The database enforces 60 use leases per tenant/capability/minute. The
+runtime creates a content-free log metric and opens a Monitoring incident after
+more than five denied/limited, provider-failed, or unavailable results in five
+minutes. An empty `alert_notification_channels` list creates the incident but
+sends no page and is not acceptable once customer credentials are authorized.
 
 ## Deterministic worker boundary
 
@@ -108,10 +120,22 @@ terraform plan -out=runtime.tfplan
 terraform apply runtime.tfplan
 ```
 
+Before staging or production, create a restricted Cloud Monitoring notification
+channel and put its full resource name in `alert_notification_channels`. Treat
+channel verification and a test page as deployment evidence; do not put webhook
+secrets or addresses in committed variables.
+
+On the first apply, Google Monitoring can take several minutes to discover a
+new logs-based metric. If alert-policy creation returns `Cannot find metric(s)`
+after the metric itself was created, do not alter or import state: wait for
+metric propagation and rerun the same reviewed Terraform apply. The existing
+metric refreshes from state and only the policy is then created.
+
 Verify that all services have internal ingress and reject unauthenticated
 invocation. The audit-writer IAM policy must list only its four expected
-workloads; the broker policy must list only the control plane. Verify the broker
-custom audience; the worker policy must list only the task-delivery identity.
+workloads; the broker policy must list only the control plane and worker. Verify
+the broker custom audience and route-specific application checks; the worker
+policy must list only the task-delivery identity.
 Verify that no runtime service account has a user-managed key. Do not place
 tenant data, tokens, or credentials in Terraform variables, state, labels,
 probes, or deployment logs.

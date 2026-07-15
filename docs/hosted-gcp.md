@@ -154,8 +154,13 @@ acceptable substitutes.
    gate is complete.
 3. **Secret broker:** private install/revoke service, serialized encrypted
    lifecycle, exact workload authentication, intent-only audit, and live KMS
-   evidence are implemented in development. Broker-mediated provider use,
-   full end-to-end evidence, reconciliation, and operational alerting remain.
+   evidence are implemented in development. The first fixed, read-only,
+   response-minimized Gmail profile operation is deployed but not registered as
+   a hosted worker job and has no live provider evidence. Dedicated test
+   identity and egress validation, a paging channel, full end-to-end evidence,
+   write reconciliation, and broader operational alerting remain. The durable
+   per-tenant/capability use limit and a content-free use-anomaly alert are
+   implemented in development.
 4. **Control plane:** OIDC/passkey login and explicit connector identity links.
 5. **Ingress and workers:** provider verification, replay resistance,
    reconciliation, deterministic capabilities, and kill switches.

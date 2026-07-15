@@ -183,12 +183,16 @@ def test_secret_broker_is_private_exact_identity_and_kms_bound():
 
     assert 'custom_audiences' in terraform
     assert 'ATTUNE_CONTROL_PLANE_SERVICE_ACCOUNT' in terraform
+    assert 'ATTUNE_WORKER_SERVICE_ACCOUNT' in terraform
     assert 'ATTUNE_CONNECTOR_KMS_KEY' in terraform
     assert 'secret_broker_invoker' in terraform
+    assert 'secret_broker_use_anomaly' in terraform
+    assert 'alert_notification_channels' in terraform
     assert 'allUsers' not in terraform
     assert 'USER 65532:65532' in dockerfile
     assert 'no caller-authoritative tenant field' in normalized_architecture
     assert 'content-free `allowed` audit intent' in normalized_architecture
+    assert 'access tokens are not returned' in normalized_architecture
 
 
 def test_worker_is_private_deterministic_and_queue_routed():

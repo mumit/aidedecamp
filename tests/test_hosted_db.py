@@ -44,6 +44,10 @@ from attune.hosted.repositories import (
 )
 from attune.hosted.reconciliation import PostgresJobReconciliationRepository
 from attune.hosted.tenant import TenantContext, tenant_transaction
+from attune.hosted.vault import (
+    PostgresCredentialIntentRepository,
+    PostgresSecretBrokerRepository,
+)
 
 TENANT_A = UUID("10000000-0000-4000-8000-000000000001")
 TENANT_B = UUID("20000000-0000-4000-8000-000000000002")
@@ -53,6 +57,8 @@ MEMORY_A = UUID("10000000-0000-4000-8000-000000000021")
 MEMORY_B = UUID("20000000-0000-4000-8000-000000000022")
 INSTALLATION_A = UUID("10000000-0000-4000-8000-000000000031")
 CONNECTOR_A = UUID("10000000-0000-4000-8000-000000000041")
+RATE_CONNECTOR = UUID("10000000-0000-4000-8000-000000000061")
+RATE_CREDENTIAL = UUID("10000000-0000-4000-8000-000000000062")
 
 ROLE_BINDINGS = {
     "attune_control_plane": "attune_test_control",
@@ -69,7 +75,7 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
         migration.name for migration in migrations
     )
     assert migrations[0].name == "0001_tenant_boundary.sql"
-    assert migrations[-1].name == "0011_reconciliation_intake_guard.sql"
+    assert migrations[-1].name == "0012_credential_use_rate_limit.sql"
     assert all(
         migration.checksum == hashlib.sha256(migration.sql.encode()).hexdigest()
         for migration in migrations
@@ -164,7 +170,7 @@ def initialized_database(database_url: str):
             cursor.execute(f'CREATE ROLE "{role}" NOLOGIN INHERIT')
     admin.autocommit = False
 
-    assert apply_migrations(admin) == 11
+    assert apply_migrations(admin) == 12
     with admin.cursor() as cursor:
         cursor.execute(
             "GRANT attune_worker TO attune_test_stale_member"
@@ -1231,3 +1237,88 @@ def test_credential_intents_are_tenant_bound_and_broker_function_only(
         )
         assert cursor.fetchone() == ("revoked", credential_id)
     initialized_database.rollback()
+
+
+def test_credential_use_rate_is_atomic_per_tenant_and_capability(
+    initialized_database, database_url
+):
+    with initialized_database.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO attune.connectors
+                (tenant_id, id, principal_id, installation_id, provider,
+                 credential_ref, status)
+            VALUES (%s, %s, %s, %s, 'google', %s, 'active')
+            """,
+            (
+                TENANT_A,
+                RATE_CONNECTOR,
+                PRINCIPAL_A,
+                INSTALLATION_A,
+                RATE_CREDENTIAL,
+            ),
+        )
+        cursor.execute(
+            """
+            INSERT INTO attune.connector_credentials
+                (tenant_id, id, connector_id, credential_version,
+                 ciphertext, nonce, wrapped_dek, key_resource)
+            VALUES (%s, %s, %s, 1, %s, %s, %s, %s)
+            """,
+            (
+                TENANT_A,
+                RATE_CREDENTIAL,
+                RATE_CONNECTOR,
+                b"ciphertext-with-tag",
+                bytes(12),
+                b"wrapped-dek",
+                "projects/test/locations/test/keyRings/test/cryptoKeys/rate",
+            ),
+        )
+    initialized_database.commit()
+
+    producer = PostgresCredentialIntentRepository(
+        _role_connection_factory(database_url, ROLE_BINDINGS["attune_worker"]),
+        producer_kind="worker",
+    )
+    broker = PostgresSecretBrokerRepository(
+        _role_connection_factory(
+            database_url, ROLE_BINDINGS["attune_secret_broker"]
+        )
+    )
+    expires = datetime.now(timezone.utc) + timedelta(minutes=5)
+    for index in range(60):
+        intent = producer.request(
+            TenantContext(TENANT_A),
+            connector_id=RATE_CONNECTOR,
+            operation="use",
+            capability="google.gmail.profile.read",
+            idempotency_key=hashlib.sha256(f"rate-{index}".encode()).digest(),
+            expires_at=expires,
+        )
+        assert broker.lease(intent.id, producer_kind="worker") is not None
+        assert broker.finalize(
+            intent.id, producer_kind="worker", outcome="failed"
+        )
+
+    limited = producer.request(
+        TenantContext(TENANT_A),
+        connector_id=RATE_CONNECTOR,
+        operation="use",
+        capability="google.gmail.profile.read",
+        idempotency_key=hashlib.sha256(b"rate-limited").digest(),
+        expires_at=expires,
+    )
+    assert broker.lease(limited.id, producer_kind="worker") is None
+
+    separate_capability = producer.request(
+        TenantContext(TENANT_A),
+        connector_id=RATE_CONNECTOR,
+        operation="use",
+        capability="google.calendar.profile.read",
+        idempotency_key=hashlib.sha256(b"rate-separate").digest(),
+        expires_at=expires,
+    )
+    assert broker.lease(
+        separate_capability.id, producer_kind="worker"
+    ) is not None

@@ -447,6 +447,10 @@ resource "google_cloud_run_v2_service" "secret_broker" {
         name  = "ATTUNE_CONTROL_PLANE_SERVICE_ACCOUNT"
         value = local.foundation.workload_identities.control_plane
       }
+      env {
+        name  = "ATTUNE_WORKER_SERVICE_ACCOUNT"
+        value = local.foundation.workload_identities.worker
+      }
 
       startup_probe {
         initial_delay_seconds = 1
@@ -492,4 +496,66 @@ resource "google_cloud_run_v2_service_iam_member" "secret_broker_invoker" {
   name     = google_cloud_run_v2_service.secret_broker.name
   role     = "roles/run.invoker"
   member   = "serviceAccount:${local.foundation.workload_identities.control_plane}"
+}
+
+resource "google_cloud_run_v2_service_iam_member" "secret_broker_worker_invoker" {
+  project  = local.foundation.project_id
+  location = local.foundation.region
+  name     = google_cloud_run_v2_service.secret_broker.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${local.foundation.workload_identities.worker}"
+}
+
+resource "google_logging_metric" "secret_broker_use_anomaly" {
+  project = local.foundation.project_id
+  name    = "${local.prefix}-secret-broker-use-anomaly"
+  filter = join(" AND ", [
+    "resource.type=\"cloud_run_revision\"",
+    "resource.labels.service_name=\"${google_cloud_run_v2_service.secret_broker.name}\"",
+    "severity>=WARNING",
+    "textPayload:\"attune_secret_broker_use_anomaly\"",
+  ])
+
+  metric_descriptor {
+    metric_kind  = "DELTA"
+    value_type   = "INT64"
+    unit         = "1"
+    display_name = "Attune secret-broker use anomalies"
+  }
+}
+
+resource "google_monitoring_alert_policy" "secret_broker_use_anomaly" {
+  project      = local.foundation.project_id
+  display_name = "${local.prefix} secret-broker use anomalies"
+  combiner     = "OR"
+  enabled      = true
+
+  documentation {
+    content   = <<-EOT
+      The private secret broker returned more than five denied/rate-limited,
+      provider-failed, or unavailable credential-use results within five
+      minutes. Investigate workload identity, intent volume, provider health,
+      and audit availability. The signal contains no tenant or provider data.
+    EOT
+    mime_type = "text/markdown"
+  }
+
+  conditions {
+    display_name = "More than five use anomalies in five minutes"
+    condition_threshold {
+      filter          = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.secret_broker_use_anomaly.name}\" AND resource.type=\"cloud_run_revision\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 5
+      duration        = "0s"
+
+      aggregations {
+        alignment_period     = "300s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+    }
+  }
+
+  notification_channels = var.alert_notification_channels
+  user_labels           = local.common_labels
 }
