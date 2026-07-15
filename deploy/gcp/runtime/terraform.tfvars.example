@@ -7,6 +7,10 @@ enable_dispatch_broker  = false
 secret_broker_image     = "northamerica-northeast1-docker.pkg.dev/PROJECT/REPOSITORY/attune-secret-broker@sha256:REPLACE"
 worker_image            = "northamerica-northeast1-docker.pkg.dev/PROJECT/REPOSITORY/attune-worker@sha256:REPLACE"
 
+# Keep false until the credential-free egress probe, a verified paging channel,
+# and the dedicated non-production Google identity are ready.
+enable_google_gmail_profile = false
+
 # Required before customer credentials. Empty still creates a visible incident
 # in Cloud Monitoring but sends no page.
 alert_notification_channels = [

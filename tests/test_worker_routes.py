@@ -37,3 +37,15 @@ def test_only_registered_smoke_route_has_no_external_effect_arguments():
             TenantContext(UUID("10000000-0000-4000-8000-000000000712")),
             job({"url": "https://untrusted.example"}),
         )
+
+
+def test_google_profile_route_is_registered_only_with_explicit_executor():
+    calls = []
+    routes = registered_routes(google_gmail_profile=lambda *args: calls.append(args))
+    assert set(routes) == {"platform.smoke", "google.gmail.profile.read"}
+    route = routes["google.gmail.profile.read"]
+    assert route.capability == "google.gmail.profile.read"
+    context = TenantContext(UUID("10000000-0000-4000-8000-000000000712"))
+    profile_job = job({"connector_id": "10000000-0000-4000-8000-000000000713"})
+    route.execute(context, profile_job)
+    assert calls == [(context, profile_job)]

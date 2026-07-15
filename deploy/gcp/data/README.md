@@ -98,15 +98,16 @@ Cloud Tasks OIDC authenticates the Google-managed delivery and exact dispatch
 service account; it does not sign arbitrary body fields on behalf of Attune.
 The dispatch core therefore binds purpose and capability again inside the
 atomic database claim and refuses to execute when the audit boundary is
-unavailable. A live provider executor remains prohibited until its queue has
+unavailable. Live provider-executor activation remains prohibited until its queue has
 fixed target routing and least-privilege producers, the private audit writer
 exists, and the executor passes deterministic capability and ambiguous-effect
 review. Deploying a generic handler before those controls would turn an
 identifier envelope into unintended authority. The private intent-only audit
 writer, credential-mutation secret broker, dispatch broker, fixed jobs-queue
 route, and content-free deterministic smoke worker are now deployed from
-`deploy/gcp/runtime`. Provider capability executors and broker-mediated
-provider operations remain required.
+`deploy/gcp/runtime`. The first fixed Gmail profile executor now exists behind a
+disabled-by-default runtime gate; authenticated provider and operational
+evidence remain required before activation.
 
 Connector rows hold only opaque credential references. Credential ciphertext
 arrives with the separate connector-vault/secret-broker phase. No secret value

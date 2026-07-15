@@ -105,9 +105,12 @@ its dedicated IAM database identity, the connector KMS key, and the private
 audit writer; its runtime environment contains resource identifiers but no
 credential values. A synthetic live wrap/unwrap passed under the broker identity
 and verified KMS CRC32C integrity; the ephemeral validation job was removed.
-The first broker-mediated Google operation is implemented and tested offline,
-but is not registered as a worker job route and has not been exercised with an
-authorized Google identity. Its exact-host private egress boundary is
+The first broker-mediated Google operation and its deterministic worker
+executor are implemented, tested, and deployed dormant in development, but the
+worker and dispatch registries remain disabled by default and it has not been
+exercised with an authorized Google identity. The worker accepts only a
+canonical connector UUID, creates a two-minute tenant-bound use intent, and
+receives only the minimized profile result. Its exact-host private egress boundary is
 declarative, and its credential-free live probe passed in development on
 2026-07-14; repeat the probe after each material network or image change. A
 dedicated non-production Google identity, a paging

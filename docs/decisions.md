@@ -2,6 +2,23 @@
 
 Newest first. This log records decisions that constrain current implementation.
 
+## 2026-07 — Provider routes activate atomically and fail closed
+
+- `google.gmail.profile.read` is present in neither the worker nor dispatch
+  registry by default. One Terraform variable adds it to both, avoiding a
+  producer/consumer mismatch during release.
+- Terraform rejects activation unless the fixed dispatch broker is enabled and
+  at least one Monitoring notification channel is configured. Operators must
+  separately prove channel verification, a test page, dedicated test identity,
+  credential-free egress, and authenticated end-to-end evidence.
+- The worker accepts only a canonical connector UUID, creates its own
+  tenant-bound two-minute use intent with a stable job-bound idempotency key,
+  and calls a typed broker client with a fixed route and bounded response.
+  Provider URLs, user IDs, credentials, and access tokens are not job fields.
+- This was selected over shipping an always-registered but undocumented route,
+  separate worker/dispatch toggles, or treating a successful Terraform plan as
+  authorization for customer traffic.
+
 ## 2026-07 — Fixed Google egress uses exact private DNS without NAT
 
 - The GCP application subnet uses Private Google Access and no Cloud NAT.

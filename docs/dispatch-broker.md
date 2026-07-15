@@ -162,9 +162,13 @@ the queue body a credential.
 The function-only repository, fail-closed broker core, canonical Cloud Tasks
 adapter, intent-only audit adapter, strict private HTTP boundary, production
 composition root, and non-root container are implemented. The development
-runtime deploys the broker only with the registered `platform.smoke` route,
+runtime deploys the broker only with the registered `platform.smoke` route by
+default,
 after the jobs queue is configured to override every task to the deterministic
 worker's exact HTTPS method, path, delivery identity, and OIDC audience.
+The fixed `google.gmail.profile.read` route exists behind one activation
+variable that updates both dispatch and worker registries; Terraform rejects
+activation without the dispatch broker and a paging notification channel.
 
 The broker must not receive customer traffic until all of the following pass:
 
@@ -179,6 +183,7 @@ The broker must not receive customer traffic until all of the following pass:
    content or secret material.
 
 The content-free `platform.smoke` route now passes this infrastructure gate in
-development. It does not authorize a provider capability or customer traffic;
-those routes still require their own effect, approval, and reconciliation
-evidence.
+development. The dormant Gmail profile route does not authorize a provider
+credential or customer traffic; test identity, verified paging, authenticated
+effect, revocation, and reconciliation evidence remain required before
+activation.

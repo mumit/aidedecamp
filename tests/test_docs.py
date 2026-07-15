@@ -141,13 +141,14 @@ def test_hosted_data_boundary_is_private_pinned_and_fail_closed():
     assert "Customer data remains prohibited" in normalized_guide
     assert "Provider content and executable arguments" in normalized_guide
     assert "does not sign arbitrary body fields" in normalized_guide
-    assert "live provider executor remains prohibited" in normalized_guide
+    assert "Live provider-executor activation remains prohibited" in guide
     assert "memberless `NOLOGIN BYPASSRLS` roles" in normalized_guide
 
 
 def test_dispatch_broker_boundary_is_documented_and_fail_closed():
     architecture = (ROOT / "docs" / "security-architecture.md").read_text()
     broker = (ROOT / "docs" / "dispatch-broker.md").read_text()
+    normalized_broker = " ".join(broker.split())
     decisions = (ROOT / "docs" / "decisions.md").read_text()
 
     assert "SEC-207" in architecture
@@ -155,7 +156,10 @@ def test_dispatch_broker_boundary_is_documented_and_fail_closed():
     assert "only Cloud Tasks producer" in broker
     assert "Direct producer enqueue" in broker
     assert "exactly one canonical `intent_id`" in broker
-    assert "only with the registered `platform.smoke` route" in broker
+    assert (
+        "only with the registered `platform.smoke` route by default"
+        in normalized_broker
+    )
     assert (ROOT / "deploy" / "dispatch-broker" / "Dockerfile").exists()
     assert "A private broker exclusively owns hosted task dispatch" in decisions
 
@@ -213,4 +217,7 @@ def test_worker_is_private_deterministic_and_queue_routed():
     assert 'custom_audiences' in terraform
     assert 'USER 65532:65532' in dockerfile
     assert 'platform.smoke' in routes
-    assert 'gmail' not in routes and 'calendar' not in routes
+    assert 'google_gmail_profile: JobExecutor | None = None' in routes
+    assert 'enable_google_gmail_profile' in terraform
+    assert 'length(var.alert_notification_channels) > 0' in terraform
+    assert '!var.enable_google_gmail_profile || var.enable_dispatch_broker' in terraform

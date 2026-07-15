@@ -55,6 +55,12 @@ variable "worker_image" {
   }
 }
 
+variable "enable_google_gmail_profile" {
+  description = "Register the fixed Gmail profile worker route after its security gates pass."
+  type        = bool
+  default     = false
+}
+
 variable "alert_notification_channels" {
   description = "Monitoring notification-channel resource names for runtime security alerts."
   type        = list(string)

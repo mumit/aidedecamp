@@ -192,6 +192,18 @@ resource "google_cloud_run_v2_service" "worker" {
         name  = "ATTUNE_TASK_DISPATCH_SERVICE_ACCOUNT"
         value = local.foundation.workload_identities.task_dispatch
       }
+      env {
+        name  = "ATTUNE_ENABLE_GOOGLE_GMAIL_PROFILE"
+        value = tostring(var.enable_google_gmail_profile)
+      }
+      env {
+        name  = "ATTUNE_SECRET_BROKER_URL"
+        value = google_cloud_run_v2_service.secret_broker.uri
+      }
+      env {
+        name  = "ATTUNE_SECRET_BROKER_AUDIENCE"
+        value = local.secret_broker_audience
+      }
 
       startup_probe {
         initial_delay_seconds = 1
@@ -230,6 +242,19 @@ resource "google_cloud_run_v2_service" "worker" {
 
   lifecycle {
     prevent_destroy = true
+
+    precondition {
+      condition = (
+        !var.enable_google_gmail_profile ||
+        length(var.alert_notification_channels) > 0
+      )
+      error_message = "Google Gmail profile activation requires at least one verified paging notification channel."
+    }
+
+    precondition {
+      condition     = !var.enable_google_gmail_profile || var.enable_dispatch_broker
+      error_message = "Google Gmail profile activation requires the fixed dispatch broker."
+    }
   }
 }
 
@@ -319,14 +344,24 @@ resource "google_cloud_run_v2_service" "dispatch_broker" {
       }
       env {
         name = "ATTUNE_DISPATCH_ROUTES"
-        value = jsonencode([
-          {
-            purpose    = "platform.smoke"
-            queue      = local.foundation.jobs_queue
-            target_url = "${google_cloud_run_v2_service.worker.uri}/v1/tasks/dispatch"
-            audience   = local.worker_audience
-          }
-        ])
+        value = jsonencode(concat(
+          [
+            {
+              purpose    = "platform.smoke"
+              queue      = local.foundation.jobs_queue
+              target_url = "${google_cloud_run_v2_service.worker.uri}/v1/tasks/dispatch"
+              audience   = local.worker_audience
+            }
+          ],
+          var.enable_google_gmail_profile ? [
+            {
+              purpose    = "google.gmail.profile.read"
+              queue      = local.foundation.jobs_queue
+              target_url = "${google_cloud_run_v2_service.worker.uri}/v1/tasks/dispatch"
+              audience   = local.worker_audience
+            }
+          ] : [],
+        ))
       }
 
       startup_probe {

@@ -271,7 +271,11 @@ tenant field. Its first provider-use capability is a fixed read-only Gmail
 profile operation: no caller URL or user ID, no redirects, bounded responses,
 no access-token release, and no returned email address. It remains unavailable
 to normal hosted jobs until the test-identity, egress, paging, and end-to-end
-evidence gates are satisfied. Credential-use leases are serialized and limited
+evidence gates are satisfied. Its dormant worker executor accepts one canonical
+connector UUID, derives a stable job-bound idempotency key, creates a two-minute
+use intent, and calls only the typed broker client. Terraform requires the fixed
+dispatch broker and a notification channel before registering the route.
+Credential-use leases are serialized and limited
 per tenant and capability in PostgreSQL, and fixed content-free failure markers
 feed a Cloud Monitoring alert.
 

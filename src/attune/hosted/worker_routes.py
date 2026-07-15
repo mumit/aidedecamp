@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .repositories import HostedJob
 from .tenant import TenantContext
-from .worker_dispatch import TaskRoute
+from .worker_dispatch import JobExecutor, TaskRoute
 
 
 def platform_smoke(context: TenantContext, job: HostedJob) -> None:
@@ -14,6 +14,16 @@ def platform_smoke(context: TenantContext, job: HostedJob) -> None:
         raise ValueError("platform smoke payload does not match the contract")
 
 
-def registered_routes() -> dict[str, TaskRoute]:
-    route = TaskRoute("platform.smoke", "platform.smoke", platform_smoke)
-    return {route.purpose: route}
+def registered_routes(
+    *, google_gmail_profile: JobExecutor | None = None
+) -> dict[str, TaskRoute]:
+    smoke = TaskRoute("platform.smoke", "platform.smoke", platform_smoke)
+    routes = {smoke.purpose: smoke}
+    if google_gmail_profile is not None:
+        profile = TaskRoute(
+            "google.gmail.profile.read",
+            "google.gmail.profile.read",
+            google_gmail_profile,
+        )
+        routes[profile.purpose] = profile
+    return routes

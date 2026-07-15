@@ -33,13 +33,15 @@ The broker alone can use the connector credential KMS key and its narrow
 database functions. It requires the private audit writer before and after a
 mutation and fails closed on ambiguous results.
 
-The initial read-only Gmail profile route is not yet in the worker route
-registry and must not be enabled with customer credentials. The development
-credential-free exact-endpoint egress probe passed on 2026-07-14; repeat it
-after a material network or image change. Before the gate opens, use a dedicated
-non-production Google identity for the authenticated evidence and attach a
-paging notification channel to the use-anomaly alert. The database enforces 60
-use leases per tenant/capability/minute. The
+The initial read-only Gmail profile executor is implemented but dormant by
+default. `enable_google_gmail_profile = false` leaves both worker and dispatch
+registries smoke-only. Terraform refuses activation unless the fixed dispatch
+broker is enabled and at least one paging notification channel is configured.
+The development credential-free exact-endpoint egress probe passed on
+2026-07-14; repeat it after a material network or image change. Before the gate
+opens, use a dedicated non-production Google identity for authenticated
+evidence and verify a test page. The database enforces 60 use leases per
+tenant/capability/minute. The
 runtime creates a content-free log metric and opens a Monitoring incident after
 more than five denied/limited, provider-failed, or unavailable results in five
 minutes. An empty `alert_notification_channels` list creates the incident but
@@ -52,7 +54,11 @@ The worker accepts only the minimal versioned Cloud Tasks envelope at
 custom audience, then atomically rebinds tenant, job kind, and capability to
 canonical PostgreSQL state. The initial `platform.smoke` executor accepts only
 `{"probe":"dispatch-v1"}` and has no provider, model, network, secret, or
-customer-content effect. Required audit failure or executor ambiguity moves the
+customer-content effect. The dormant Gmail executor accepts exactly one
+canonical `connector_id`, creates its own two-minute worker-use intent, and
+calls only the broker's response-minimized profile operation. URLs, Google user
+IDs, provider arguments, credentials, and access tokens are not job fields.
+Required audit failure or executor ambiguity moves the
 job to reconciliation rather than retrying an uncertain effect. That transition
 now atomically opens a tenant-bound, content-free reconciliation record with a
 fixed reason; workers cannot resolve or delete it.
@@ -63,8 +69,9 @@ The broker accepts only an opaque dispatch-intent UUID from the exact control,
 ingress, or worker identity. It resolves tenant, purpose, capability, delivery
 ID, and task name through its narrow database functions, requires durable audit
 before task creation, and can enqueue only the foundation jobs queue. Runtime
-configuration contains only the `platform.smoke` route, while the queue itself
-independently forces the worker target and delivery identity.
+configuration contains only the `platform.smoke` route by default. The Gmail
+route is added to both registries only by the gated activation variable, while
+the queue independently forces the worker target and delivery identity.
 
 Services that invoke another internal Cloud Run service use Direct VPC
 `ALL_TRAFFIC` egress. This is required because an internal service is addressed
@@ -126,6 +133,31 @@ Before staging or production, create a restricted Cloud Monitoring notification
 channel and put its full resource name in `alert_notification_channels`. Treat
 channel verification and a test page as deployment evidence; do not put webhook
 secrets or addresses in committed variables.
+
+### Gmail profile activation journey
+
+Activation is an operator release gate, not an end-user setting:
+
+1. keep `enable_google_gmail_profile = false` while creating and verifying the
+   paging channel;
+2. repeat the credential-free exact-endpoint egress job with the reviewed worker
+   image;
+3. create the OAuth client outside Terraform, add its value to Secret Manager
+   through a secret-aware local input, and authorize only a dedicated
+   non-production Google account;
+4. exercise install, one-time worker intent, broker decrypt/use, minimized
+   response, audit, anomaly alert, revocation, and reconciliation evidence;
+5. set `enable_google_gmail_profile = true`, retain the verified notification
+   channel resource name, review an immutable-image Terraform plan, and apply;
+6. confirm the worker and dispatch broker expose exactly `platform.smoke` and
+   `google.gmail.profile.read`, then run the bounded end-to-end test before any
+   wider rollout.
+
+Do not activate merely because Terraform accepts the variables. The control
+plane and dedicated test installation must exist, the page must be observed,
+and the evidence must be attached to the release record. End users eventually
+experience this as “Connect Google” followed by a bounded connection test; they
+never see Terraform, service accounts, KMS, or credential intents.
 
 On the first apply, Google Monitoring can take several minutes to discover a
 new logs-based metric. If alert-policy creation returns `Cannot find metric(s)`

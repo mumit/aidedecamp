@@ -7,8 +7,11 @@ import os
 from .audit import PostgresAuditProducerRepository
 from .audit_client import AuditWriterClient
 from .cloud_sql import iam_connection
+from .google_gmail_profile_executor import GoogleGmailProfileExecutor
 from .repositories import PostgresJobRepository
 from .reconciliation import PostgresJobReconciliationRepository
+from .secret_broker_client import SecretBrokerClient
+from .vault import PostgresCredentialIntentRepository
 from .worker_audit import WorkerAudit
 from .worker_dispatch import WorkerDispatcher
 from .worker_routes import registered_routes
@@ -23,11 +26,26 @@ def create_production_app():
         ),
         AuditWriterClient(os.environ["ATTUNE_AUDIT_WRITER_URL"]),
     )
+    google_gmail_profile = None
+    enabled = os.environ.get("ATTUNE_ENABLE_GOOGLE_GMAIL_PROFILE", "false")
+    if enabled not in {"true", "false"}:
+        raise ValueError("ATTUNE_ENABLE_GOOGLE_GMAIL_PROFILE must be true or false")
+    if enabled == "true":
+        google_gmail_profile = GoogleGmailProfileExecutor(
+            PostgresCredentialIntentRepository(
+                iam_connection,
+                producer_kind="worker",
+            ),
+            SecretBrokerClient(
+                os.environ["ATTUNE_SECRET_BROKER_URL"],
+                os.environ["ATTUNE_SECRET_BROKER_AUDIENCE"],
+            ),
+        )
     dispatcher = WorkerDispatcher(
         jobs=PostgresJobRepository(iam_connection),
         audit=audit,
         reconciliations=PostgresJobReconciliationRepository(iam_connection),
-        routes=registered_routes(),
+        routes=registered_routes(google_gmail_profile=google_gmail_profile),
         expected_audience=os.environ["ATTUNE_EXPECTED_AUDIENCE"],
         expected_service_account=os.environ[
             "ATTUNE_TASK_DISPATCH_SERVICE_ACCOUNT"
