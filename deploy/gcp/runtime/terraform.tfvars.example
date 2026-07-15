@@ -1,6 +1,9 @@
 state_bucket            = "attune-development-example-attune-tfstate"
 foundation_state_prefix = "foundation"
 audit_writer_image      = "northamerica-northeast1-docker.pkg.dev/PROJECT/REPOSITORY/attune-audit-writer@sha256:REPLACE"
+dispatch_broker_image   = "northamerica-northeast1-docker.pkg.dev/PROJECT/REPOSITORY/attune-dispatch-broker@sha256:REPLACE"
+# Change only after the foundation jobs queue has its reviewed fixed override.
+enable_dispatch_broker  = false
 secret_broker_image     = "northamerica-northeast1-docker.pkg.dev/PROJECT/REPOSITORY/attune-secret-broker@sha256:REPLACE"
 worker_image            = "northamerica-northeast1-docker.pkg.dev/PROJECT/REPOSITORY/attune-worker@sha256:REPLACE"
 

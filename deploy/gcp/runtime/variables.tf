@@ -19,6 +19,22 @@ variable "audit_writer_image" {
   }
 }
 
+variable "dispatch_broker_image" {
+  description = "Artifact Registry dispatch-broker image pinned by sha256 digest."
+  type        = string
+
+  validation {
+    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.dispatch_broker_image))
+    error_message = "dispatch_broker_image must be an immutable @sha256 Artifact Registry reference."
+  }
+}
+
+variable "enable_dispatch_broker" {
+  description = "Deploy dispatch only after the jobs queue fixed override is applied."
+  type        = bool
+  default     = false
+}
+
 variable "secret_broker_image" {
   description = "Artifact Registry secret-broker image pinned by sha256 digest."
   type        = string

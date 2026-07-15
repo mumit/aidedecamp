@@ -10,6 +10,19 @@ output "audit_writer" {
   }
 }
 
+output "dispatch_broker" {
+  description = "Private fixed-route dispatch-broker service identifiers."
+  value = var.enable_dispatch_broker ? {
+    project         = local.foundation.project_id
+    region          = local.foundation.region
+    name            = google_cloud_run_v2_service.dispatch_broker[0].name
+    uri             = google_cloud_run_v2_service.dispatch_broker[0].uri
+    audience        = local.dispatch_broker_audience
+    service_account = local.foundation.workload_identities.dispatch_broker
+    image           = var.dispatch_broker_image
+  } : null
+}
+
 output "secret_broker" {
   description = "Private secret-broker service identifiers."
   value = {

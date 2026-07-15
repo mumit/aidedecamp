@@ -15,7 +15,7 @@ to the first GCP implementation.
 | Web control plane | Cloud Run behind external HTTPS load balancing and Cloud Armor | No | Yes |
 | Provider/channel ingress | Dedicated Cloud Run service with verified Slack, Chat, Calendar, and Pub/Sub handlers | Signing material only where verification requires it | Yes |
 | Durable dispatch | Cloud Tasks with a dedicated OIDC dispatch identity | No | No |
-| Dispatch broker | Private Cloud Run service and the only Cloud Tasks enqueuer | No | IAM and database boundary implemented; service pending |
+| Dispatch broker | Private Cloud Run service and the only Cloud Tasks enqueuer | No | Fixed smoke route implemented in development; IAM only |
 | Tenant worker | Private Cloud Run service, one authenticated job envelope per request | No | Deterministic smoke route implemented in development; IAM only |
 | Secret broker | Private Cloud Run service with the only connector-vault KMS identity | Yes | Implemented in development; IAM only |
 | Relational/vector data | Private-IP Cloud SQL PostgreSQL with IAM authentication, RLS, and `vector` | No | No |
@@ -143,9 +143,10 @@ acceptable substitutes.
    authenticated envelope and fail-closed dispatch core exist. The durable
    dispatch boundary, exclusive broker IAM, tenant-bound audit outbox, and
    private audit-writer service are implemented in development. The strict
-   dispatch-broker service code and fixed-route Cloud Tasks adapter also exist,
-   but remain undeployed until fixed queue routing, deterministic capability
-   executors, and the live worker HTTP adapter complete this gate.
+   dispatch-broker service, fixed jobs-queue override, and deterministic smoke
+   worker are deployed in development. Provider capability executors, ingress
+   queue routing, reconciliation operations, and adversarial live evidence
+   remain before this gate is complete.
 3. **Secret broker:** private install/revoke service, serialized encrypted
    lifecycle, exact workload authentication, intent-only audit, and live KMS
    evidence are implemented in development. Broker-mediated provider use,

@@ -148,7 +148,7 @@ def test_dispatch_broker_boundary_is_documented_and_fail_closed():
     assert "only Cloud Tasks producer" in broker
     assert "Direct producer enqueue" in broker
     assert "exactly one canonical `intent_id`" in broker
-    assert "deliberately not present in `deploy/gcp/runtime`" in broker
+    assert "only with the registered `platform.smoke` route" in broker
     assert (ROOT / "deploy" / "dispatch-broker" / "Dockerfile").exists()
     assert "A private broker exclusively owns hosted task dispatch" in decisions
 

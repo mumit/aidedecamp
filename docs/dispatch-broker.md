@@ -161,10 +161,10 @@ the queue body a credential.
 
 The function-only repository, fail-closed broker core, canonical Cloud Tasks
 adapter, intent-only audit adapter, strict private HTTP boundary, production
-composition root, and non-root container are implemented. The broker is
-deliberately not present in `deploy/gcp/runtime` yet: deploying it before a
-fixed queue override and deterministic worker handler exist would create a
-generic dispatch surface without an authorized destination.
+composition root, and non-root container are implemented. The development
+runtime deploys the broker only with the registered `platform.smoke` route,
+after the jobs queue is configured to override every task to the deterministic
+worker's exact HTTPS method, path, delivery identity, and OIDC audience.
 
 The broker must not receive customer traffic until all of the following pass:
 

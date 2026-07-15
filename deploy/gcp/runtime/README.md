@@ -3,8 +3,8 @@
 This independent Terraform root deploys private hosted services after the
 foundation and database migrations pass. It currently deploys the audit writer,
 credential-mutation secret broker, and a deterministic worker with only the
-content-free `platform.smoke` route. The dispatch broker joins this root only
-after the jobs queue has its reviewed fixed routing override.
+content-free `platform.smoke` route. It also deploys the dispatch broker after
+the jobs queue has its reviewed fixed routing override.
 
 ## Audit-writer boundary
 
@@ -41,6 +41,15 @@ canonical PostgreSQL state. The initial `platform.smoke` executor accepts only
 customer-content effect. Required audit failure or executor ambiguity moves the
 job to reconciliation rather than retrying an uncertain effect.
 
+## Dispatch-broker boundary
+
+The broker accepts only an opaque dispatch-intent UUID from the exact control,
+ingress, or worker identity. It resolves tenant, purpose, capability, delivery
+ID, and task name through its narrow database functions, requires durable audit
+before task creation, and can enqueue only the foundation jobs queue. Runtime
+configuration contains only the `platform.smoke` route, while the queue itself
+independently forces the worker target and delivery identity.
+
 ## Development deployment
 
 Apply `deploy/gcp/data` and successfully execute its migrator before deploying
@@ -53,6 +62,7 @@ export REPOSITORY="attune-development"
 export AUDIT_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/attune-audit-writer"
 export BROKER_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/attune-secret-broker"
 export WORKER_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/attune-worker"
+export DISPATCH_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/attune-dispatch-broker"
 
 docker buildx build --platform=linux/amd64 --push \
   -f deploy/audit-writer/Dockerfile -t "${AUDIT_IMAGE}:audit-writer-v1" .
@@ -60,6 +70,8 @@ docker buildx build --platform=linux/amd64 --push \
   -f deploy/secret-broker/Dockerfile -t "${BROKER_IMAGE}:secret-broker-v1" .
 docker buildx build --platform=linux/amd64 --push \
   -f deploy/worker/Dockerfile -t "${WORKER_IMAGE}:worker-v1" .
+docker buildx build --platform=linux/amd64 --push \
+  -f deploy/dispatch-broker/Dockerfile -t "${DISPATCH_IMAGE}:dispatch-v1" .
 gcloud artifacts docker images describe "${AUDIT_IMAGE}:audit-writer-v1" \
   --project="$PROJECT_ID" \
   --format='value(image_summary.fully_qualified_digest)'
@@ -67,6 +79,9 @@ gcloud artifacts docker images describe "${BROKER_IMAGE}:secret-broker-v1" \
   --project="$PROJECT_ID" \
   --format='value(image_summary.fully_qualified_digest)'
 gcloud artifacts docker images describe "${WORKER_IMAGE}:worker-v1" \
+  --project="$PROJECT_ID" \
+  --format='value(image_summary.fully_qualified_digest)'
+gcloud artifacts docker images describe "${DISPATCH_IMAGE}:dispatch-v1" \
   --project="$PROJECT_ID" \
   --format='value(image_summary.fully_qualified_digest)'
 ```
@@ -97,7 +112,9 @@ hostname and custom audience into the two nullable jobs-worker variables in the
 foundation root, review the queue-only in-place plan, and apply it. Confirm the
 queue override forces HTTPS, POST, `/v1/tasks/dispatch`, the task-delivery
 identity, and the exact audience before adding the dispatch broker to this
-runtime root.
+runtime root. `enable_dispatch_broker` defaults to `false`; change it to `true`
+only after the foundation queue-only apply is complete and a new saved runtime
+plan shows the broker plus exactly three producer invoker grants.
 
 For a release candidate, validate the live connector key using the exact
 digest already reviewed in `terraform.tfvars`. This creates no tenant or
