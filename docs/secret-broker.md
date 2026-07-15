@@ -57,9 +57,12 @@ and adversarially tested.
 The envelope-encryption core, immutable forced-RLS vault schema, one-time
 intent functions, serialized installation/revocation lifecycle, private HTTP
 adapter, authenticated audit client, production composition root, non-root
-container, and private Cloud Run definition are implemented. The service uses
+container, and private Cloud Run service are implemented and deployed in the
+development project. The service uses
 its dedicated IAM database identity, the connector KMS key, and the private
 audit writer; its runtime environment contains resource identifiers but no
-credential values. Broker-mediated Google operations, live end-to-end KMS
-evidence, reconciliation/alerting, and the remaining hosted launch gates are
-still required. No customer credential is authorized until those gates pass.
+credential values. A synthetic live wrap/unwrap passed under the broker identity
+and verified KMS CRC32C integrity; the ephemeral validation job was removed.
+Full intent-to-ciphertext-to-audit evidence, broker-mediated Google operations,
+reconciliation/alerting, and the remaining hosted launch gates are still
+required. No customer credential is authorized until those gates pass.

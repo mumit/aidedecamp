@@ -73,3 +73,29 @@ workloads; the broker policy must list only the control plane. Verify the broker
 custom audience and that neither service account has a user-managed key. Do not
 place tenant data, tokens, or credentials in Terraform variables, state,
 labels, probes, or deployment logs.
+
+For a release candidate, validate the live connector key using the exact
+digest already reviewed in `terraform.tfvars`. This creates no tenant or
+credential record: it generates a random 256-bit value in memory, verifies a
+KMS wrap/unwrap with CRC32C integrity, clears the plaintext buffers, and prints
+only pass/fail. The job is intentionally ephemeral so the KMS-capable identity
+does not gain another standing execution surface:
+
+```bash
+# Use the secret_broker.image value from `terraform output -json` for IMAGE.
+export IMAGE="northamerica-northeast1-docker.pkg.dev/PROJECT/REPOSITORY/attune-secret-broker@sha256:DIGEST"
+export BROKER_SA="attune-ENVIRONMENT-secrets@PROJECT.iam.gserviceaccount.com"
+export KMS_KEY="projects/PROJECT/locations/REGION/keyRings/attune-ENVIRONMENT/cryptoKeys/connector-credentials"
+
+gcloud run jobs create "attune-ENVIRONMENT-kms-smoke" \
+  --project="$PROJECT_ID" --region="$REGION" --image="$IMAGE" \
+  --service-account="$BROKER_SA" \
+  --set-env-vars="ATTUNE_CONNECTOR_KMS_KEY=$KMS_KEY" \
+  --command=python --args=-m,attune.hosted.kms_smoke \
+  --tasks=1 --max-retries=0 --task-timeout=120s --execute-now --wait
+gcloud run jobs delete "attune-ENVIRONMENT-kms-smoke" \
+  --project="$PROJECT_ID" --region="$REGION" --quiet
+```
+
+Do not retain the job, replace the random input with a real credential, or put
+secret values in command arguments or environment variables.
