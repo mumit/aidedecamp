@@ -50,6 +50,7 @@ hosted-service = [
     "cryptography>=42,<50",
     "flask>=3.1,<4",
     "google-cloud-kms>=3,<4",
+    "google-cloud-tasks>=2,<3",
     "google-crc32c>=1.7,<2",
     "gunicorn>=23,<24",
     "requests>=2.32,<3",

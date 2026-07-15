@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from typing import Mapping, Protocol
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from .dispatch import LeasedDispatch, PostgresDispatchBrokerRepository
@@ -41,10 +42,26 @@ class BrokerRoute:
             raise ValueError("route purpose must contain between 1 and 80 characters")
         if not self.queue.startswith("projects/") or "/queues/" not in self.queue:
             raise ValueError("route queue must be a full Cloud Tasks queue name")
-        if not self.target_url.startswith("https://"):
-            raise ValueError("route target must be HTTPS")
-        if self.audience != self.target_url:
-            raise ValueError("route audience must exactly equal its target URL")
+        target = urlsplit(self.target_url)
+        audience = urlsplit(self.audience)
+        if any(
+            any((
+                parsed.scheme != "https",
+                not parsed.hostname,
+                parsed.username is not None,
+                parsed.password is not None,
+                bool(parsed.query),
+                bool(parsed.fragment),
+            ))
+            for parsed in (target, audience)
+        ):
+            raise ValueError("route target and audience must be HTTPS URLs")
+        if audience.path not in {"", "/"}:
+            raise ValueError("route audience must be an HTTPS origin")
+        if target.netloc != audience.netloc:
+            raise ValueError("route target and audience origins must match")
+        if len(target.path) > 255:
+            raise ValueError("route target path is too long")
 
 
 @dataclass(frozen=True)
@@ -81,14 +98,14 @@ class DispatchBroker:
             return BrokerResult(404)
         if leased.state == "dispatched":
             return BrokerResult(
-                204 if self._audit.record(intent_id, outcome="observed") else 503
+                204 if self._record(intent_id, outcome="observed") else 503
             )
 
         route = self._routes.get(leased.purpose)
         if route is None:
             self._fail(leased, producer_kind, "route_not_registered")
             return BrokerResult(403)
-        if not self._audit.record(intent_id, outcome="allowed"):
+        if not self._record(intent_id, outcome="allowed"):
             return BrokerResult(503)
 
         body = _task_body(leased)
@@ -109,8 +126,23 @@ class DispatchBroker:
         if not finalized:
             return BrokerResult(503)
         return BrokerResult(
-            204 if self._audit.record(intent_id, outcome="observed") else 503
+            204 if self._record(intent_id, outcome="observed") else 503
         )
+
+    def _record(
+        self,
+        intent_id: UUID,
+        *,
+        outcome: str,
+        error_code: str | None = None,
+    ) -> bool:
+        try:
+            fields = {"outcome": outcome}
+            if error_code is not None:
+                fields["error_code"] = error_code
+            return self._audit.record(intent_id, **fields)
+        except Exception:
+            return False
 
     def _fail(
         self, leased: LeasedDispatch, producer_kind: str, error_code: str
@@ -119,9 +151,7 @@ class DispatchBroker:
             if self._intents.finalize(
                 leased.id, producer_kind=producer_kind, outcome="failed"
             ):
-                self._audit.record(
-                    leased.id, outcome="failed", error_code=error_code
-                )
+                self._record(leased.id, outcome="failed", error_code=error_code)
         except Exception:
             pass
 

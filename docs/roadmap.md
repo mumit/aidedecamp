@@ -28,10 +28,9 @@ deployment wrapper around the current local process. Work proceeds in this
 order:
 
 1. validate the no-customer-data GCP foundation in development and staging;
-2. finish the private dispatch-broker service, fixed queue routing,
-   deterministic capability routes, and live HTTP worker adapter on the
-   implemented tenant-aware data core, durable dispatch intent/IAM boundary,
-   and private audit-writer service;
+2. deploy the implemented private dispatch-broker service and Cloud Tasks
+   adapter only after fixed queue routing, deterministic capability routes, and
+   a live HTTP worker adapter exist on the tenant-aware data core;
 3. extend the implemented encrypted connector vault and private install/revoke
    broker with broker-mediated provider operations, reconciliation, alerting,
    and full intent-to-audit live evidence;

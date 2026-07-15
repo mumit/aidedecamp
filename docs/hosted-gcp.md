@@ -142,9 +142,10 @@ acceptable substitutes.
    tamper-evident audit path now exist. All durable repositories plus the
    authenticated envelope and fail-closed dispatch core exist. The durable
    dispatch boundary, exclusive broker IAM, tenant-bound audit outbox, and
-   private audit-writer service are implemented in development. Fixed queue
-   routing, the dispatch-broker service, deterministic capability executors,
-   and live worker HTTP adapter must complete this gate.
+   private audit-writer service are implemented in development. The strict
+   dispatch-broker service code and fixed-route Cloud Tasks adapter also exist,
+   but remain undeployed until fixed queue routing, deterministic capability
+   executors, and the live worker HTTP adapter complete this gate.
 3. **Secret broker:** private install/revoke service, serialized encrypted
    lifecycle, exact workload authentication, intent-only audit, and live KMS
    evidence are implemented in development. Broker-mediated provider use,

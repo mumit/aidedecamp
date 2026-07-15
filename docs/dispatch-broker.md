@@ -21,6 +21,13 @@ The broker removes that ambient authority. Producers can request dispatch only
 for canonical state they created within an already verified tenant transaction.
 They cannot call Cloud Tasks or mint the worker's delivery identity directly.
 
+The private HTTP adapter derives `control_plane`, `ingress`, or `worker` from a
+Google-signed OIDC token whose issuer, exact custom audience, verified email,
+subject, and lifetime are checked. All three identities must be distinct and
+configured. The body is at most 1 KiB and exactly one canonical `intent_id`;
+producer, tenant, queue, target, purpose, capability, task name, and delivery
+identity fields are rejected at the request boundary.
+
 ## Trust flow
 
 ```mermaid
@@ -101,7 +108,10 @@ Task name is deterministic from the intent ID:
 ## Queue and worker contract
 
 Each queue has an infrastructure-controlled routing override for one exact
-service and path. User input and task bodies cannot select a URL. The broker
+service and path. User input and task bodies cannot select a URL. Route
+configuration requires an HTTPS target and a path-free HTTPS OIDC audience on
+the same origin; credentials, query strings, fragments, redirects, and
+cross-origin audiences are rejected. The broker
 maps producer class and purpose to a fixed queue; unsupported combinations are
 denied and audited.
 
@@ -148,6 +158,13 @@ the queue body a credential.
 
 ## Deployment gate
 
+The function-only repository, fail-closed broker core, canonical Cloud Tasks
+adapter, intent-only audit adapter, strict private HTTP boundary, production
+composition root, and non-root container are implemented. The broker is
+deliberately not present in `deploy/gcp/runtime` yet: deploying it before a
+fixed queue override and deterministic worker handler exist would create a
+generic dispatch surface without an authorized destination.
+
 The broker must not receive customer traffic until all of the following pass:
 
 1. producers have lost direct queue and delivery-identity permissions;
@@ -155,8 +172,8 @@ The broker must not receive customer traffic until all of the following pass:
 3. intent lease/finalize functions pass cross-tenant, producer-substitution,
    expiry, crash, replay, and `AlreadyExists` tests;
 4. the private audit writer is available and failure-tested (the intent-only
-   writer is implemented in development; end-to-end broker integration remains
-   part of this gate);
+   client path is implemented; live end-to-end broker integration remains part
+   of this gate);
 5. worker routes are registered deterministic capabilities; and
 6. Terraform, IAM, task creation, logs, and support output contain no customer
    content or secret material.

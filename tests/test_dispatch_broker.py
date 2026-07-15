@@ -68,6 +68,11 @@ class Audit:
         return next(self.results)
 
 
+class FailingAudit:
+    def record(self, *args, **kwargs):
+        raise RuntimeError("audit unavailable")
+
+
 def broker(intents, tasks, audit, routes=None):
     route = BrokerRoute("platform.smoke", QUEUE, URL, URL)
     return DispatchBroker(
@@ -111,6 +116,15 @@ def test_broker_creates_no_task_when_pre_audit_fails():
     assert result.status_code == 503
     assert tasks.created == []
     assert intents.finalized == []
+
+
+def test_broker_fails_closed_when_audit_raises():
+    intents, tasks = Intents(leased()), Tasks()
+    result = broker(intents, tasks, FailingAudit()).dispatch(
+        INTENT, producer_kind="worker"
+    )
+    assert result.status_code == 503
+    assert tasks.created == []
 
 
 def test_broker_treats_deterministic_already_exists_as_success():
