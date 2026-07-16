@@ -126,6 +126,20 @@ BEGIN
 END
 $revoke_owner$;
 
+-- The prior migration assigned this SECURITY DEFINER function to the
+-- memberless link executor. A non-superuser migrator must temporarily become
+-- that owner to replace it; membership alone is not sufficient for
+-- CREATE OR REPLACE FUNCTION.
+GRANT UPDATE ON attune.installations TO attune_channel_link_executor;
+GRANT DELETE ON attune.hosted_channel_routes TO attune_channel_link_executor;
+DO $grant_link_owner$
+BEGIN
+    EXECUTE pg_catalog.format('GRANT attune_channel_link_executor TO %I', current_user);
+END
+$grant_link_owner$;
+GRANT CREATE ON SCHEMA attune TO attune_channel_link_executor;
+SET LOCAL ROLE attune_channel_link_executor;
+
 CREATE OR REPLACE FUNCTION attune.consume_google_chat_link_v2(
     p_secret_hash bytea, p_claim_hash bytea,
     p_installation_ref_hash bytea, p_actor_ref_hash bytea,
@@ -298,24 +312,14 @@ BEGIN
 END
 $function$;
 
+RESET ROLE;
+
 REVOKE ALL ON FUNCTION attune.consume_google_chat_link_v2(
     bytea,bytea,bytea,bytea,bytea,uuid,bytea,bytea,bytea,text,integer
 ) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION attune.consume_google_chat_link_v2(
     bytea,bytea,bytea,bytea,bytea,uuid,bytea,bytea,bytea,text,integer
 ) TO attune_channel_broker;
-GRANT UPDATE ON attune.installations TO attune_channel_link_executor;
-GRANT DELETE ON attune.hosted_channel_routes TO attune_channel_link_executor;
-
-DO $grant_link_owner$
-BEGIN
-    EXECUTE pg_catalog.format('GRANT attune_channel_link_executor TO %I', current_user);
-END
-$grant_link_owner$;
-GRANT CREATE ON SCHEMA attune TO attune_channel_link_executor;
-ALTER FUNCTION attune.consume_google_chat_link_v2(
-    bytea,bytea,bytea,bytea,bytea,uuid,bytea,bytea,bytea,text,integer
-) OWNER TO attune_channel_link_executor;
 REVOKE CREATE ON SCHEMA attune FROM attune_channel_link_executor;
 DO $revoke_link_owner$
 BEGIN

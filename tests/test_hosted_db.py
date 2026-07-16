@@ -140,6 +140,11 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
     assert "attune_channel_lifecycle_executor" in lifecycle
     assert "disconnect_hosted_channel_destination" in lifecycle
     assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_lifecycle_executor" in lifecycle
+    replace_link = lifecycle.index(
+        "CREATE OR REPLACE FUNCTION attune.consume_google_chat_link_v2"
+    )
+    assert lifecycle.index("SET LOCAL ROLE attune_channel_link_executor") < replace_link
+    assert lifecycle.index("RESET ROLE", replace_link) > replace_link
 
 
 def test_tenant_context_rejects_non_uuid_values():
