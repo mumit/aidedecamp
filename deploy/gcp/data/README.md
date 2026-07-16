@@ -572,6 +572,30 @@ nonzero result is a stop condition requiring a separately reviewed adoption or
 destruction decision. Run the real-PostgreSQL request/claim tests and require
 the migration verifier plus an empty Terraform plan afterward.
 
+Development evidence on 2026-07-16:
+
+- The real-PostgreSQL suite passed all 40 database tests, including fixed-scope
+  recent-session request, idempotent replay, invalid-scope refusal, direct
+  mutation denial, one-use claim, executor table denial, and request/claim
+  audit evidence. The full suite passed 971 tests with 34 skipped.
+- The foundation saved plan created only the export service account, Cloud SQL
+  client and instance-user grants, and IAM database user (`4 added, 0 changed,
+  0 destroyed`). Project IAM confirms those are its only two project roles.
+- The first migration execution `attune-development-database-migrate-rnnfb`
+  failed before schema mutation because the legacy-row preflight encountered
+  forced RLS. The corrected migration temporarily assumes its memberless
+  BYPASS owner inside the same transaction; refusal still rolls back both the
+  temporary membership and every schema change.
+- Migrator manifest digest
+  `sha256:c2f3b2e16e972816b1ffa0e47410a86c8a216a3d1df3ee384d3e0c4748fa9f9c`
+  updated only the three existing operator jobs in place. Execution
+  `attune-development-database-migrate-tg7ms` applied exactly migration 0029
+  and verified all 33 tenant tables plus the exact runtime/function-owner
+  boundary.
+- Both foundation and data plans were empty afterward. No export job, object,
+  key, storage permission, queue route, control-plane endpoint, or UI was
+  created.
+
 ## Production gates
 
 Before this job or schema is promoted beyond development:

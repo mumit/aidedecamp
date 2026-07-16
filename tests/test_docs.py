@@ -62,7 +62,7 @@ def test_protocol_retention_scheduler_is_paused_and_least_privileged():
 
     assert 'retention            = "retention"' in foundation
     assert 'retention_scheduler  = "ret-sched"' in foundation
-    assert 'if name != "retention_scheduler"' in foundation
+    assert 'if !contains(["export", "retention_scheduler"], name)' in foundation
     assert '"oauth_exchange", "retention_scheduler"' in foundation
     assert 'service_account = local.foundation.workload_identities.retention' in data_main
     assert 'command = ["python", "-m", "attune.hosted.protocol_retention"]' in data_main
@@ -364,7 +364,7 @@ def test_oauth_callback_identity_has_no_data_or_log_writer_authority():
     iam = (ROOT / "deploy" / "gcp" / "foundation" / "iam.tf").read_text()
 
     assert re.search(r'oauth_callback\s*=\s*"oauth-cb"', iam)
-    assert 'if !contains(["oauth_callback", "oauth_exchange", "retention_scheduler"], name)' in iam
+    assert 'if !contains(["export", "oauth_callback", "oauth_exchange", "retention_scheduler"], name)' in iam
     database_identity_set = iam.split(
         'resource "google_project_iam_member" "database_client"', 1
     )[1].split('resource "google_cloud_tasks_queue_iam_member"', 1)[0]
