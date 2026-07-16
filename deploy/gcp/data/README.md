@@ -168,6 +168,14 @@ PostgreSQL suite covers cross-tenant refusal, direct-mutation denial, exact
 document/grant creation, idempotency, recent-auth expiry, and external-change
 detection.
 
+Development rollout evidence was collected on 2026-07-16 UTC from commit
+`5ba3668`. Immutable migrator digest
+`sha256:9b39090eb54f83926055bc0ff5036ed5a43425cf50a2c6670061f7c684ad8b41`
+was applied to both private jobs. Execution
+`attune-development-database-migrate-rtw9v` applied exactly one migration and
+reported 28 tenant tables forced through RLS; the following data plan was
+empty. No policy or autonomy grant was created by the migration.
+
 Connector rows hold only opaque credential references. Credential ciphertext
 arrives with the separate connector-vault/secret-broker phase. No secret value
 belongs in these migrations, Terraform state, Cloud Run environment variables,

@@ -233,6 +233,16 @@ function-owned database mutation described in
 edge paths are exposed. Enabling the UI still does not connect the gateway to a
 model planner, dispatch producer, worker, or provider effect.
 
+Development rollout evidence was collected on 2026-07-16 UTC from commit
+`5ba3668`. Migration 0019 applied exactly once and the live verifier again
+reported 28 tenant tables forced through RLS. The new control plane was first
+deployed with hosted policy disabled, then the reviewed edge gate was enabled.
+After Cloud Armor convergence, an unauthenticated policy read reached
+application authorization and returned 401; the signed-in owner saw the exact
+R0 automatic and excluded actions. No confirmation was submitted and no policy
+or autonomy grant was created during rollout. Both Terraform roots were empty
+after deployment.
+
 ## Operator workflow
 
 The operated platform is provisioned by a restricted platform identity from

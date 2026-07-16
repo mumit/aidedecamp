@@ -94,6 +94,15 @@ body, and ten-minute recent-authentication checks. Apply and verify migration
 `0019_hosted_read_only_policy.sql` before enabling this gate; do not infer
 activation from a successful Terraform apply.
 
+Development rollout on 2026-07-16 UTC first deployed control-plane digest
+`sha256:ba9db1696aa534c206be9294caee8c1a821a40da5c5600a92ea753cf0738402e`
+with this gate explicitly false. After migration 0019 passed, a second saved
+plan enabled only the audit-writer binding and Cloud Armor priority `885`.
+After global policy convergence, an unauthenticated review received 401 from
+the application and the signed-in owner saw the fixed R0 review. The enable
+button was deliberately not invoked as deployment evidence; policy activation
+remains a distinct owner ceremony. The final edge plan was empty.
+
 These controls establish URL non-retention; they do not by themselves activate
 OAuth. The server-side transaction, PKCE exchange, callback-to-exchange
 workload identity, and private broker handoff are implemented. A separate
