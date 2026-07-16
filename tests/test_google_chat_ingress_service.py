@@ -68,7 +68,7 @@ def test_ingress_verifies_google_and_forwards_no_tenant_authority():
 
 def test_non_link_and_broker_failure_are_content_bounded_and_generic():
     invalid = event()
-    invalid["message"]["text"] = "hello"
+    invalid["message"]["argumentText"] = "hello"
     response = client(Broker()).post(
         "/v1/provider/google-chat/events",
         headers={"Authorization": "Bearer chat"},

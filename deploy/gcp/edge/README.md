@@ -212,10 +212,11 @@ state. This is non-secret routing metadata.
 
 ## Google Chat ingress activation evidence
 
-Development deployed the Google Chat ingress backend on 2026-07-16 UTC with
-immutable digest
-`sha256:abd3ff681cf4f576f00bcdc7ed509de7f3e3ddd3e0c85d22ab7acfac2411ad94`.
-Revision `attune-development-google-chat-ingress-00001-sql` is Ready with its
+Development deployed the Google Chat ingress backend on 2026-07-16 UTC. The
+current immutable digest is
+`sha256:0939fb4e023eaff6dfe00bdaebfa137ca9e6fa8a89e7c6e016a899975662a638`.
+Revision `attune-development-google-chat-ingress-00002-7rg` receives 100% of
+traffic with its
 default URL disabled and `internal-and-cloud-load-balancing` ingress. The
 serverless NEG and dedicated backend retain request logging disabled.
 
@@ -239,6 +240,15 @@ unauthenticated exact-path POST, an invalid bearer token, GET on the exact
 path, and POST on a near-miss path; `/healthz` remained 200. The post-apply
 Terraform plan was empty. These facts establish provider and edge activation,
 not successful owner linking or message delivery.
+
+The first owner DM proved Google authentication and routing, but also exposed
+that Google puts the mention-stripped command body in `message.argumentText`;
+`message.text` can retain Chat-app addressing. The corrected ingress prefers
+the provider-canonical `argumentText`, applies the same exact `/link CODE`
+regex to it, and falls back to exact `text` only when the output-only field is
+absent. The image-only plan contained zero adds, one in-place change, and zero
+destroys. After deployment, unauthenticated and invalid-bearer requests still
+returned 403, health returned 200, and Terraform converged empty.
 
 ## Workspace OAuth activation
 

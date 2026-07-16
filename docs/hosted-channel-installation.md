@@ -149,6 +149,14 @@ private broker the transient app, actor, DM, and code values—but never a tenan
 or database identifier. The broker alone derives keyed references and resolves
 the tenant through the one-use claim ceremony.
 
+For an interactive `MESSAGE`, the command parser prefers Google Chat's
+`message.argumentText`, whose contract removes Chat-app mentions. It never
+strips or normalizes user text itself: the selected field must still match the
+single exact `/link CODE` grammar. If the output-only field is absent, the
+parser accepts only an exact `message.text` fallback. Sender and space equality,
+human actor type, direct-message type, token identity, and exact audience are
+validated independently of the command body.
+
 ## Development rollout
 
 On 2026-07-16 UTC, commit `27cda78` was deployed dormant-first. Migration
@@ -201,3 +209,14 @@ empty. `enable_google_chat_ingress` and
 `google_chat_provider_ready` are now true in development. A real Google Chat
 delivery and owner-DM link ceremony are still required before gate 3 is
 complete.
+
+The first real owner DM reached the verified ingress and received the expected
+unlinked response without invoking the private broker. The first link attempt
+then revealed the provider-field distinction above: the old revision parsed
+`message.text` instead of the mention-stripped `message.argumentText`. No code
+was consumed. The corrected image is pinned to
+`sha256:0939fb4e023eaff6dfe00bdaebfa137ca9e6fa8a89e7c6e016a899975662a638`
+on revision `attune-development-google-chat-ingress-00002-7rg`. All 897 tests
+passed; live unauthenticated and invalid-bearer probes remained 403; health was
+200; and the post-deployment Terraform plan was empty. A fresh one-time code is
+required for the resumed ceremony.

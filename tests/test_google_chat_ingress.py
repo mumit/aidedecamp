@@ -9,7 +9,8 @@ def event():
         "user": {"name": "users/123456", "type": "HUMAN"},
         "space": {"name": "spaces/AAAA-test", "type": "DIRECT_MESSAGE"},
         "message": {
-            "text": f"/link {CODE}",
+            "text": f"<users/123456-app> /link {CODE}",
+            "argumentText": f"/link {CODE}",
             "sender": {"name": "users/123456", "type": "HUMAN"},
             "space": {"name": "spaces/AAAA-test", "type": "DIRECT_MESSAGE"},
         },
@@ -51,5 +52,20 @@ def test_decode_requires_exact_link_command_without_hidden_or_extra_text():
         f"/link {CODE}\n",
     ):
         value = event()
-        value["message"]["text"] = text
+        value["message"]["argumentText"] = text
         assert decode_owner_dm_link(value) is None
+
+
+def test_decode_prefers_provider_canonical_argument_text_and_supports_exact_fallback():
+    value = event()
+    value["message"]["text"] = f"hidden prefix /link {CODE} hidden suffix"
+    assert decode_owner_dm_link(value) is not None
+
+    value = event()
+    del value["message"]["argumentText"]
+    value["message"]["text"] = f"/link {CODE}"
+    assert decode_owner_dm_link(value) is not None
+
+    value = event()
+    value["message"]["argumentText"] = None
+    assert decode_owner_dm_link(value) is None

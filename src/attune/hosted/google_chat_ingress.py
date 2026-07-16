@@ -47,7 +47,11 @@ def decode_owner_dm_link(event: object) -> GoogleChatOwnerDmLink | None:
         or not _SPACE_REF.fullmatch(destination_ref)
     ):
         return None
-    text = message.get("text")
+    # Google supplies argumentText with Chat-app mentions removed.  Prefer that
+    # provider-canonical command body when present; text can contain the app
+    # mention even in a direct-message interaction.  Retain the exact-text
+    # fallback for valid events from clients that omit the output-only field.
+    text = message.get("argumentText", message.get("text"))
     if not isinstance(text, str):
         return None
     matched = _LINK_MESSAGE.fullmatch(text)
