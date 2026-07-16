@@ -440,6 +440,8 @@ error-severity job log, and a structured possible-backlog signal. Google Cloud
 documents that a single JSON line on Cloud Run stdout becomes `jsonPayload`,
 which is why the metric filters use the fixed `event` and boolean fields. An
 empty channel list may create incidents but is not acceptable before scheduling.
+Both conditions align over 60 seconds so a single bounded job signal does not
+inherit the unrelated five-minute anomaly window used by runtime rate alerts.
 
 Development evidence on 2026-07-16:
 

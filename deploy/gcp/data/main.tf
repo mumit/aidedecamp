@@ -369,7 +369,7 @@ resource "google_monitoring_alert_policy" "protocol_retention_failure" {
       duration        = "0s"
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = "60s"
         per_series_aligner   = "ALIGN_SUM"
         cross_series_reducer = "REDUCE_SUM"
       }
@@ -400,7 +400,7 @@ resource "google_monitoring_alert_policy" "protocol_retention_backlog" {
       duration        = "0s"
 
       aggregations {
-        alignment_period     = "300s"
+        alignment_period     = "60s"
         per_series_aligner   = "ALIGN_SUM"
         cross_series_reducer = "REDUCE_SUM"
       }
