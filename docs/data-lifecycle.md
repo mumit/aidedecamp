@@ -135,10 +135,13 @@ restore. It never falls back to activating the snapshot.
    sessions, and processed provider events. The database function holds a
    singleton transaction lock and atomically emits per-tenant, content-free
    audit intents. Its Cloud Run job is deployed and a content-free empty run is
-   verified in development, but it has no schedule pending live synthetic
-   deletion/audit evidence plus live alert verification. The implementation
+   verified in development, but it has no schedule pending an independent
+   scheduler boundary. The implementation
    emits aggregate structured output, bounds both rows and batches, and defines
-   paged failure and possible-backlog policies. Operational records and
+   paged failure and possible-backlog policies; both incident paths are live
+   verified. Nonzero deletion, recent-record survival, direct-table denial,
+   and audit creation are verified against real PostgreSQL without adding a
+   broad synthetic-data identity to the operated project. Operational records and
    conversation/memory policies across database, vectors, caches, and task
    payloads remain later slices.
 3. **Export path:** dedicated identity, temporary encrypted object store,

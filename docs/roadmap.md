@@ -101,8 +101,9 @@ slice is implemented: the live database verifier now requires an exact,
 reviewed lifecycle classification for every tenant-bearing relation. A bounded,
 audited expired-protocol retention executor and manual Cloud Run job are live;
 its empty execution, IAM boundary, migration verifier, and drift convergence
-are verified. It remains unscheduled pending live synthetic deletion/audit
-evidence and failure/backlog alerting. Customer content retention and controls
+are verified. Its failure and backlog incidents now page through the verified
+development channel. It remains unscheduled pending a separate scheduler
+identity and paused-first activation. Customer content retention and controls
 are not active yet. Slack installation/lifecycle,
 export/deletion, support repair, customer-visible audit, adversarial assurance,
 and external security review remain later independent slices.

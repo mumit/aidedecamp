@@ -467,6 +467,31 @@ behavior, and drift convergence. It does not replace the real-PostgreSQL
 synthetic deletion/audit regression and does not satisfy the remaining live
 synthetic-delete, alerting, or scheduling gates.
 
+Alert evidence on 2026-07-16:
+
+- Migrator manifest digest
+  `sha256:cc4ca5d9361cb5ca54a9f7dcf477b37b3e2b8146902798021319e809ae8cc82f`
+  added structured aggregate output and a four-batch ceiling.
+- Execution `attune-development-protocol-retention-8dh7b` produced one parsed
+  `jsonPayload` record with `batches=1`, `backlog_possible=false`, and zero
+  deletions; it included no identifier or content.
+- The first Terraform apply created both log metrics but hit Monitoring's
+  documented new-metric propagation delay. A fresh saved plan created only the
+  two policies after propagation; both use the verified development paging
+  channel.
+- A labeled synthetic log that performed no database operation created failure
+  incident `0.oablhld1hj8h` and possible-backlog incident `0.oablhld1hj88` on
+  the exact `cloud_run_job` resource. Earlier five-minute-window test incidents
+  closed automatically; the final policies use 60-second alignment.
+- Verification execution `attune-development-database-migrate-gkq4z` applied
+  zero migrations and passed the 33-table/privilege verifier. The data plan was
+  empty afterward.
+
+The real-PostgreSQL suite supplies nonzero synthetic deletion, recent-record
+survival, direct-table denial, and per-tenant audit-intent evidence without
+creating a broad synthetic-data identity in the operated project. A staging
+restore/synthetic exercise remains required before production scheduling.
+
 ## Production gates
 
 Before this job or schema is promoted beyond development:
