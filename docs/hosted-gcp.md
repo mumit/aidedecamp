@@ -266,6 +266,13 @@ access reached application authorization and returned 401; both Terraform
 roots were empty after deployment. No channel preference, installation,
 destination, ingress, or message was created during rollout.
 
+The owner then completed the separate preference ceremony on 2026-07-16 UTC.
+The application rejected stale-session attempts with 409, accepted a freshly
+authenticated PUT with 200, and completed both mandatory private audit writes.
+Canonical readback showed Google Chat and Slack selected for interaction and
+briefs with the channel step `authorized`. Provider installation and exact
+owner-only destination verification remain required.
+
 ## Operator workflow
 
 The operated platform is provisioned by a restricted platform identity from

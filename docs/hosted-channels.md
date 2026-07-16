@@ -78,3 +78,10 @@ none. After global policy convergence, an unauthenticated request reached
 application authorization and returned `401 {"error":"invalid_session"}`.
 The final edge plan was empty. Deployment did not create or save a channel
 preference; that remains a distinct, recently authenticated owner ceremony.
+
+The owner completed that ceremony later on 2026-07-16 UTC. Stale-session
+submissions were refused with 409. After fresh authentication, the PUT returned
+200 and both mandatory private audit writes returned 200. Readback showed the
+canonical `authorized` state with Google Chat and Slack selected independently
+for both conversation and morning briefs. No installation, destination,
+ingress, credential, or message was inferred from that success.
