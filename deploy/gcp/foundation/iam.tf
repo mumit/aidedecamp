@@ -5,6 +5,7 @@ locals {
     oauth_callback       = "oauth-cb"
     oauth_exchange       = "oauth-xchg"
     dispatch_broker      = "task-broker"
+    export               = "export"
     ingress              = "ingress"
     identity_provisioner = "id-prov"
     model_gateway        = "model"
@@ -27,7 +28,7 @@ resource "google_service_account" "workload" {
 resource "google_project_iam_member" "runtime_logging" {
   for_each = {
     for name, account in google_service_account.workload : name => account
-    if !contains(["oauth_callback", "oauth_exchange", "retention_scheduler"], name)
+    if !contains(["export", "oauth_callback", "oauth_exchange", "retention_scheduler"], name)
   }
   project = var.project_id
   role    = "roles/logging.logWriter"
@@ -37,7 +38,7 @@ resource "google_project_iam_member" "runtime_logging" {
 resource "google_project_iam_member" "runtime_metrics" {
   for_each = {
     for name, account in google_service_account.workload : name => account
-    if name != "retention_scheduler"
+    if !contains(["export", "retention_scheduler"], name)
   }
   project = var.project_id
   role    = "roles/monitoring.metricWriter"
@@ -50,6 +51,7 @@ resource "google_project_iam_member" "database_client" {
     "channel_broker",
     "control_plane",
     "dispatch_broker",
+    "export",
     "oauth_exchange",
     "identity_provisioner",
     "retention",
@@ -67,6 +69,7 @@ resource "google_project_iam_member" "database_instance_user" {
     "channel_broker",
     "control_plane",
     "dispatch_broker",
+    "export",
     "oauth_exchange",
     "identity_provisioner",
     "retention",
@@ -84,6 +87,7 @@ resource "google_sql_user" "workload" {
     "channel_broker",
     "control_plane",
     "dispatch_broker",
+    "export",
     "oauth_exchange",
     "identity_provisioner",
     "retention",

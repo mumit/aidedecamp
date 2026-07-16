@@ -116,6 +116,7 @@ ROLE_BINDINGS = {
     "attune_oauth_exchange": "attune_test_oauth_exchange",
     "attune_identity_provisioner": "attune_test_identity_provisioner",
     "attune_retention": "attune_test_retention",
+    "attune_export": "attune_test_export",
 }
 
 
@@ -125,26 +126,26 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
         migration.name for migration in migrations
     )
     assert migrations[0].name == "0001_tenant_boundary.sql"
-    assert migrations[-1].name == "0028_protocol_retention.sql"
+    assert migrations[-1].name == "0029_customer_export_authority.sql"
     assert all(
         migration.checksum == hashlib.sha256(migration.sql.encode()).hexdigest()
         for migration in migrations
     )
-    channel_broker = migrations[-6].sql
+    channel_broker = migrations[-7].sql
     assert "GRANT attune_channel_link_executor TO %I" in channel_broker
     assert "GRANT CREATE ON SCHEMA attune TO attune_channel_link_executor" in channel_broker
     assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_link_executor" in channel_broker
     assert "REVOKE attune_channel_link_executor FROM %I" in channel_broker
-    conversation = migrations[-5].sql
+    conversation = migrations[-6].sql
     assert "LIMIT 2" in conversation
     assert "GRANT attune_channel_message_executor TO %I" in conversation
     assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_message_executor" in conversation
     assert "TO attune_channel_broker" in conversation
-    delivery = migrations[-4].sql
+    delivery = migrations[-5].sql
     assert "hosted_channel_deliveries" in delivery
     assert "already_delivered boolean" in delivery
     assert "TO attune_channel_broker" in delivery
-    lifecycle = migrations[-3].sql
+    lifecycle = migrations[-4].sql
     assert "attune_channel_lifecycle_executor" in lifecycle
     assert "disconnect_hosted_channel_destination" in lifecycle
     assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_lifecycle_executor" in lifecycle
@@ -153,16 +154,22 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
     )
     assert lifecycle.index("SET LOCAL ROLE attune_channel_link_executor") < replace_link
     assert lifecycle.index("RESET ROLE", replace_link) > replace_link
-    relink_context = migrations[-2].sql
+    relink_context = migrations[-3].sql
     assert "destination.status = 'revoked'" in relink_context
     assert "SET LOCAL ROLE attune_channel_link_executor" in relink_context
-    retention = migrations[-1].sql
+    retention = migrations[-2].sql
     assert "CREATE ROLE attune_retention_executor" in retention
     assert "prune_expired_protocol_records" in retention
     assert "pg_try_advisory_xact_lock" in retention
     assert "FOR UPDATE" not in retention
     assert "interval '24 hours'" in retention
     assert "interval '7 days'" in retention
+    export = migrations[-1].sql
+    assert "legacy export jobs require explicit reviewed adoption" in export
+    assert "request_customer_export" in export
+    assert "claim_customer_export" in export
+    assert "recent owner session is required" in export
+    assert "REVOKE INSERT, UPDATE ON attune.export_jobs" in export
 
 
 def test_tenant_context_rejects_non_uuid_values():
@@ -293,7 +300,7 @@ def initialized_database(database_url: str):
             cursor.execute(f'CREATE ROLE "{role}" NOLOGIN INHERIT')
     admin.autocommit = False
 
-    assert apply_migrations(admin) == 28
+    assert apply_migrations(admin) == 29
     with admin.cursor() as cursor:
         cursor.execute("GRANT attune_worker TO attune_test_stale_member")
     admin.commit()
@@ -1829,30 +1836,6 @@ def test_autonomy_and_lifecycle_objects_fail_closed_across_tenants(
     finally:
         control.close()
 
-    export = lifecycle.request_export(
-        TenantContext(TENANT_A),
-        requested_by=PRINCIPAL_A,
-        scope={"object": "account"},
-    )
-    assert (
-        lifecycle.transition_export(
-            TenantContext(TENANT_B),
-            export.id,
-            expected_state="requested",
-            state="running",
-        )
-        is None
-    )
-    assert (
-        lifecycle.transition_export(
-            TenantContext(TENANT_A),
-            export.id,
-            expected_state="requested",
-            state="running",
-        )
-        is not None
-    )
-
     object_hash = hashlib.sha256(b"memory-object").digest()
     marker = lifecycle.request_deletion(
         TenantContext(TENANT_A),
@@ -2666,6 +2649,101 @@ def test_initial_identity_provisioning_is_idempotent_conflict_closed_and_functio
         connection.rollback()
     finally:
         connection.close()
+
+
+def test_customer_export_request_and_claim_are_fixed_recent_and_function_only(
+    initialized_database, database_url
+):
+    psycopg = pytest.importorskip("psycopg")
+    session_id = UUID("10000000-0000-4000-8000-000000000093")
+    request_key = hashlib.sha256(b"export-request-a").digest()
+    run_id = UUID("10000000-0000-4000-8000-000000000094")
+    _reset_role(initialized_database)
+    with tenant_transaction(initialized_database, TenantContext(TENANT_A)) as cursor:
+        cursor.execute(
+            """
+            INSERT INTO attune.identity_sessions
+                (tenant_id, id, principal_id, token_hash, csrf_hash, expires_at)
+            VALUES (%s, %s, %s, %s, %s, clock_timestamp() + interval '1 hour')
+            """,
+            (
+                TENANT_A,
+                session_id,
+                PRINCIPAL_A,
+                hashlib.sha256(b"export-token").digest(),
+                hashlib.sha256(b"export-csrf").digest(),
+            ),
+        )
+
+    control = _role_connection_factory(
+        database_url, ROLE_BINDINGS["attune_control_plane"]
+    )()
+    try:
+        with tenant_transaction(control, TenantContext(TENANT_A)) as cursor:
+            cursor.execute(
+                "SELECT * FROM attune.request_customer_export(%s,%s,%s,%s)",
+                (PRINCIPAL_A, session_id, "account", request_key),
+            )
+            requested = cursor.fetchone()
+        with tenant_transaction(control, TenantContext(TENANT_A)) as cursor:
+            cursor.execute(
+                "SELECT * FROM attune.request_customer_export(%s,%s,%s,%s)",
+                (PRINCIPAL_A, session_id, "account", request_key),
+            )
+            assert cursor.fetchone()[0] == requested[0]
+        with tenant_transaction(control, TenantContext(TENANT_A)) as cursor:
+            with pytest.raises(psycopg.errors.InvalidParameterValue):
+                cursor.execute(
+                    "SELECT * FROM attune.request_customer_export(%s,%s,%s,%s)",
+                    (PRINCIPAL_A, session_id, "all_tables", hashlib.sha256(b"bad").digest()),
+                )
+        control.rollback()
+        with tenant_transaction(control, TenantContext(TENANT_A)) as cursor:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                cursor.execute(
+                    "UPDATE attune.export_jobs SET state = 'failed' WHERE id = %s",
+                    (requested[0],),
+                )
+        control.rollback()
+    finally:
+        control.close()
+
+    executor = _role_connection_factory(
+        database_url, ROLE_BINDINGS["attune_export"]
+    )()
+    try:
+        with executor.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM attune.claim_customer_export(%s,%s)",
+                (requested[0], run_id),
+            )
+            claimed = cursor.fetchone()
+        executor.commit()
+        assert claimed[:4] == (TENANT_A, requested[0], PRINCIPAL_A, "account")
+        with executor.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM attune.claim_customer_export(%s,%s)",
+                (requested[0], UUID("10000000-0000-4000-8000-000000000095")),
+            )
+            assert cursor.fetchone() is None
+        executor.commit()
+        with executor.cursor() as cursor:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                cursor.execute("SELECT * FROM attune.export_jobs")
+        executor.rollback()
+    finally:
+        executor.close()
+
+    with tenant_transaction(initialized_database, TenantContext(TENANT_A)) as cursor:
+        cursor.execute(
+            "SELECT action, outcome FROM attune.audit_intents "
+            "WHERE target_ref_hash = %s",
+            (hashlib.sha256(str(requested[0]).encode()).digest(),),
+        )
+        assert cursor.fetchall() == [
+            ("export.requested", "observed"),
+            ("export.claimed", "observed"),
+        ]
 
 
 def test_protocol_retention_prunes_only_expired_records_and_audits_per_tenant(

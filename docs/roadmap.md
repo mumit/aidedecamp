@@ -110,6 +110,11 @@ are not active yet. Slack installation/lifecycle,
 export/deletion, support repair, customer-visible audit, adversarial assurance,
 and external security review remain later independent slices.
 
+The first customer-export authority slice is implemented but not deployed:
+four server-defined scopes, recent-owner-session binding, idempotent request,
+one-use executor claim, atomic audit evidence, and function-only mutation. It
+contains no ready/publish transition and grants no storage or KMS authority.
+
 The first platform mapping is [`hosted-gcp.md`](hosted-gcp.md), and the initial
 declarative substrate is `deploy/gcp/foundation`. Applying that foundation does
 not authorize customer data or constitute a hosted launch.

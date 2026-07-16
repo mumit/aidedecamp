@@ -29,6 +29,7 @@ RUNTIME_ROLES = (
     "attune_oauth_exchange",
     "attune_identity_provisioner",
     "attune_retention",
+    "attune_export",
 )
 
 FUNCTION_OWNER_ROLES = (
@@ -44,6 +45,7 @@ FUNCTION_OWNER_ROLES = (
     "attune_channel_message_executor",
     "attune_channel_lifecycle_executor",
     "attune_retention_executor",
+    "attune_export_coordinator",
 )
 
 FUNCTION_OWNER_TABLE_PRIVILEGES = frozenset(
@@ -261,6 +263,13 @@ FUNCTION_OWNER_TABLE_PRIVILEGES = frozenset(
         ("attune_retention_executor", "attune.provider_events", "DELETE"),
         ("attune_retention_executor", "attune.audit_intents", "SELECT"),
         ("attune_retention_executor", "attune.audit_intents", "INSERT"),
+        ("attune_export_coordinator", "attune.export_jobs", "SELECT"),
+        ("attune_export_coordinator", "attune.export_jobs", "INSERT"),
+        ("attune_export_coordinator", "attune.export_jobs", "UPDATE"),
+        ("attune_export_coordinator", "attune.identity_sessions", "SELECT"),
+        ("attune_export_coordinator", "attune.principals", "SELECT"),
+        ("attune_export_coordinator", "attune.audit_intents", "SELECT"),
+        ("attune_export_coordinator", "attune.audit_intents", "INSERT"),
     }
 )
 
@@ -572,6 +581,7 @@ def verify_database_boundary(connection: Any, bindings: dict[str, str]) -> None:
             "attune_channel_message_executor": (True, False, True, False),
             "attune_channel_lifecycle_executor": (True, False, False, False),
             "attune_retention_executor": (True, False, True, False),
+            "attune_export_coordinator": (True, False, True, False),
         }:
             raise RuntimeError("function owner schema privileges do not match policy")
 

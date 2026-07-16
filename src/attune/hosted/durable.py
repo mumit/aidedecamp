@@ -67,16 +67,6 @@ class HostedAutonomyGrant:
 
 
 @dataclass(frozen=True)
-class HostedExport:
-    id: UUID
-    requested_by: UUID
-    scope: dict[str, Any]
-    state: str
-    object_ref: UUID | None
-    expires_at: datetime | None
-
-
-@dataclass(frozen=True)
 class HostedDeletionMarker:
     id: UUID
     requested_by: UUID
@@ -417,7 +407,6 @@ class PostgresAutonomyRepository:
 
 
 class PostgresLifecycleRepository:
-    _EXPORT_STATES = {"running", "ready", "expired", "failed", "cancelled"}
     _DELETION_STATES = {"running", "completed", "failed"}
 
     def __init__(self, connection_factory: ConnectionFactory):
@@ -456,68 +445,6 @@ class PostgresLifecycleRepository:
                     ),
                 )
                 return cursor.fetchone()[0]
-
-    def request_export(
-        self,
-        context: TenantContext,
-        *,
-        requested_by: UUID,
-        scope: dict[str, Any],
-    ) -> HostedExport:
-        _bounded_object("scope", scope, 16_384)
-        with closing(self._connect()) as connection:
-            with tenant_transaction(connection, context) as cursor:
-                cursor.execute(
-                    """
-                    INSERT INTO attune.export_jobs
-                        (tenant_id, requested_by, scope)
-                    VALUES (%s, %s, %s::jsonb)
-                    RETURNING id, requested_by, scope, state, object_ref,
-                              expires_at
-                    """,
-                    (context.tenant_id, requested_by, _canonical_json(scope)),
-                )
-                return HostedExport(*cursor.fetchone())
-
-    def transition_export(
-        self,
-        context: TenantContext,
-        export_id: UUID,
-        *,
-        expected_state: str,
-        state: str,
-        object_ref: UUID | None = None,
-        expires_at: datetime | None = None,
-    ) -> HostedExport | None:
-        if state not in self._EXPORT_STATES:
-            raise ValueError("invalid export state")
-        if state == "ready":
-            if object_ref is None or expires_at is None or expires_at.tzinfo is None:
-                raise ValueError("ready exports require object_ref and aware expiry")
-        elif object_ref is not None or expires_at is not None:
-            raise ValueError("only ready exports may publish an object")
-        with closing(self._connect()) as connection:
-            with tenant_transaction(connection, context) as cursor:
-                cursor.execute(
-                    """
-                    UPDATE attune.export_jobs
-                       SET state = %s, object_ref = %s, expires_at = %s,
-                           updated_at = clock_timestamp()
-                     WHERE tenant_id = %s AND id = %s AND state = %s
-                    RETURNING id, requested_by, scope, state, object_ref,
-                              expires_at
-                    """,
-                    (
-                        state,
-                        object_ref,
-                        expires_at,
-                        context.tenant_id,
-                        export_id,
-                        expected_state,
-                    ),
-                )
-                row = cursor.fetchone()
-                return HostedExport(*row) if row is not None else None
 
     def request_deletion(
         self,

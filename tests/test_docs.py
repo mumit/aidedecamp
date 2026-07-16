@@ -79,6 +79,19 @@ def test_protocol_retention_scheduler_is_paused_and_least_privileged():
     assert "deployed paused" in data_guide
 
 
+def test_customer_export_identity_is_database_only_and_dormant():
+    foundation = (ROOT / "deploy" / "gcp" / "foundation" / "iam.tf").read_text()
+    data_main = (ROOT / "deploy" / "gcp" / "data" / "main.tf").read_text()
+
+    assert 'export               = "export"' in foundation
+    assert '["export", "retention_scheduler"]' in foundation
+    assert '["export", "oauth_callback", "oauth_exchange", "retention_scheduler"]' in foundation
+    assert "attune_export = trimsuffix(" in data_main
+    assert "workload_identities.export" in data_main
+    assert "google_cloud_run_v2_job\" \"customer_export" not in data_main
+    assert 'workload["export"]' not in foundation
+
+
 def test_qdrant_compose_images_are_pinned_and_loopback_bound():
     compose = (ROOT / "deploy" / "compose.yml").read_text()
     local = (ROOT / "src" / "attune" / "resources" / "local-compose.yml").read_text()

@@ -547,6 +547,31 @@ survival, direct-table denial, and per-tenant audit-intent evidence without
 creating a broad synthetic-data identity in the operated project. A staging
 restore/synthetic exercise remains required before production activation.
 
+## Dormant customer-export authority
+
+Migration `0029_customer_export_authority.sql` is a database-only request and
+claim boundary. It fails closed if any legacy `export_jobs` row exists, because
+arbitrary historical scope JSON cannot be safely inferred. The migration:
+
+- revokes direct export-job mutation from control-plane and worker roles;
+- accepts only `account`, `conversations`, `memories`, or `activity` through a
+  recent identity session and 32-byte idempotency key;
+- permits one active request per owner and scope;
+- gives the distinct `attune_export` role only a one-use five-minute claim
+  function, with no table privileges; and
+- emits content-free request and claim audit intents atomically.
+
+The dormant foundation identity receives only Cloud SQL client/login and its
+IAM database user; it has no telemetry-writer grant. No export Cloud Run job,
+bucket, KMS key, object permission,
+queue authority, ready transition, download endpoint, or UI is created. Do not
+describe customer export as available after applying this migration.
+
+Before applying, prove `SELECT count(*) FROM attune.export_jobs` is zero. A
+nonzero result is a stop condition requiring a separately reviewed adoption or
+destruction decision. Run the real-PostgreSQL request/claim tests and require
+the migration verifier plus an empty Terraform plan afterward.
+
 ## Production gates
 
 Before this job or schema is promoted beyond development:

@@ -35,6 +35,10 @@ locals {
       local.foundation.workload_identities.dispatch_broker,
       ".gserviceaccount.com",
     )
+    attune_export = trimsuffix(
+      local.foundation.workload_identities.export,
+      ".gserviceaccount.com",
+    )
     attune_secret_broker = trimsuffix(
       local.foundation.workload_identities.secret_broker,
       ".gserviceaccount.com",
