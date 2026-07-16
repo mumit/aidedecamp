@@ -299,12 +299,26 @@ GRANT SELECT, INSERT ON attune.audit_intents TO attune_channel_link_executor;
 GRANT SELECT, INSERT ON attune.installations TO attune_channel_link_executor;
 GRANT SELECT, INSERT ON attune.hosted_channel_destinations
 TO attune_channel_link_executor;
+DO $grant_owner$
+BEGIN
+    EXECUTE pg_catalog.format(
+        'GRANT attune_channel_link_executor TO %I', current_user
+    );
+END
+$grant_owner$;
 ALTER FUNCTION attune.claim_google_chat_link(bytea,bytea,timestamptz)
 OWNER TO attune_channel_link_executor;
 ALTER FUNCTION attune.release_google_chat_link_claim(bytea,bytea)
 OWNER TO attune_channel_link_executor;
 ALTER FUNCTION attune.consume_google_chat_link(bytea,bytea,bytea,bytea,bytea)
 OWNER TO attune_channel_link_executor;
+DO $revoke_owner$
+BEGIN
+    EXECUTE pg_catalog.format(
+        'REVOKE attune_channel_link_executor FROM %I', current_user
+    );
+END
+$revoke_owner$;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA attune REVOKE ALL ON TABLES FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES IN SCHEMA attune REVOKE ALL ON FUNCTIONS FROM PUBLIC;

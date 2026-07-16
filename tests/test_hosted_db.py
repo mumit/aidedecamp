@@ -119,6 +119,9 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
         migration.checksum == hashlib.sha256(migration.sql.encode()).hexdigest()
         for migration in migrations
     )
+    channel_broker = migrations[-1].sql
+    assert "GRANT attune_channel_link_executor TO %I" in channel_broker
+    assert "REVOKE attune_channel_link_executor FROM %I" in channel_broker
 
 
 def test_tenant_context_rejects_non_uuid_values():
