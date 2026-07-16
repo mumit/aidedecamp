@@ -16,6 +16,7 @@ def event():
             "spaceType": "DIRECT_MESSAGE",
         },
         "message": {
+            "name": "spaces/AAAA-test/messages/message-123",
             "text": f"<users/123456-app> /link {CODE}",
             "argumentText": f"/link {CODE}",
             "sender": {"name": "users/123456", "type": "HUMAN"},
@@ -124,5 +125,6 @@ def test_decode_owner_dm_message_preserves_untrusted_text_and_redacts_repr():
     assert decoded is not None
     assert decoded.text == "what is on my calendar?"
     assert decoded.actor_ref == "users/123456"
+    assert decoded.message_ref == "spaces/AAAA-test/messages/message-123"
     assert "calendar" not in repr(decoded)
     assert "users/123456" not in repr(decoded)

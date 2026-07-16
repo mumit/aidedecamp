@@ -11,7 +11,7 @@ from .channel_broker import GoogleChatLinkBroker
 from .task_envelope import _google_token_verifier, _verify_claims
 
 LOG = logging.getLogger(__name__)
-MAX_REQUEST_BYTES = 2048
+MAX_REQUEST_BYTES = 12_288
 
 
 def create_app(
@@ -105,5 +105,35 @@ def create_app(
         return jsonify(
             {"status": "delivered", "destination_status": result.destination_status}
         )
+
+    @app.post("/v1/google-chat/accept-message")
+    def accept_message():
+        if not authorized(expected_ingress):
+            return jsonify({"error": "forbidden"}), 403
+        if not request.is_json:
+            return jsonify({"error": "invalid_request"}), 400
+        body = request.get_json(silent=True)
+        expected = {
+            "version", "app_ref", "actor_ref", "destination_ref",
+            "message_ref", "text",
+        }
+        if not isinstance(body, dict) or set(body) != expected or body.get("version") != 1:
+            return jsonify({"error": "invalid_request"}), 400
+        try:
+            result = broker.accept_message(
+                app_ref=body["app_ref"], actor_ref=body["actor_ref"],
+                destination_ref=body["destination_ref"],
+                message_ref=body["message_ref"], text=body["text"],
+            )
+        except ValueError:
+            return jsonify({"error": "invalid_request"}), 400
+        except Exception as error:
+            LOG.warning("channel message acceptance failed (%s)", type(error).__name__)
+            return jsonify({"error": "message_unavailable"}), 503
+        return jsonify({
+            "status": "accepted",
+            "dispatch_intent_id": str(result.dispatch_intent_id),
+            "accepted_new": result.accepted_new,
+        })
 
     return app

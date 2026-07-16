@@ -1,4 +1,5 @@
 import time
+from uuid import UUID
 
 from attune.hosted.google_chat_ingress_service import CHAT_CALLER, create_app
 from test_google_chat_ingress import event
@@ -18,6 +19,22 @@ class Broker:
             raise self.error
         return self.result
 
+    def accept_google_chat_message(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.error:
+            raise self.error
+        return UUID("10000000-0000-4000-8000-000000000099")
+
+
+class Dispatch:
+    def __init__(self, result=True):
+        self.result = result
+        self.calls = []
+
+    def dispatch(self, intent_id):
+        self.calls.append(intent_id)
+        return self.result
+
 
 def claims(token, audience):
     now = int(time.time())
@@ -32,12 +49,14 @@ def claims(token, audience):
     }
 
 
-def client(broker):
+def client(broker, *, dispatch=None, conversations_enabled=False):
     return create_app(
         broker,
         expected_audience=AUDIENCE,
         app_project_number="624765747204",
         token_verifier=claims,
+        dispatch_broker=dispatch,
+        conversations_enabled=conversations_enabled,
     ).test_client()
 
 
@@ -99,3 +118,26 @@ def test_non_link_and_broker_failure_are_content_bounded_and_generic():
     )
     assert response.status_code == 200
     assert b"sensitive user and space" not in response.data
+
+
+def test_enabled_conversation_accepts_then_dispatches_without_tenant_authority():
+    broker = Broker()
+    dispatch = Dispatch()
+    value = event()
+    value["message"]["argumentText"] = "what is on my calendar?"
+    response = client(
+        broker, dispatch=dispatch, conversations_enabled=True
+    ).post(
+        "/v1/provider/google-chat/events",
+        headers={"Authorization": "Bearer chat"},
+        json=value,
+    )
+    assert response.get_json() == {"text": "Working on it."}
+    assert broker.calls == [{
+        "app_ref": "projects/624765747204",
+        "actor_ref": "users/123456",
+        "destination_ref": "spaces/AAAA-test",
+        "message_ref": "spaces/AAAA-test/messages/message-123",
+        "text": "what is on my calendar?",
+    }]
+    assert dispatch.calls == [UUID("10000000-0000-4000-8000-000000000099")]

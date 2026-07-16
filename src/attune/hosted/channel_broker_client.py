@@ -83,6 +83,40 @@ class ChannelBrokerClient:
             return False
         return body == {"status": "delivered", "destination_status": "active"}
 
+    def accept_google_chat_message(
+        self, *, app_ref: str, actor_ref: str, destination_ref: str,
+        message_ref: str, text: str,
+    ) -> UUID:
+        token = self._token_provider(self._audience)
+        if not isinstance(token, str) or not token:
+            raise RuntimeError("channel broker identity token is unavailable")
+        response = self._session.post(
+            f"{self._service_url}/v1/google-chat/accept-message",
+            json={
+                "version": 1, "app_ref": app_ref, "actor_ref": actor_ref,
+                "destination_ref": destination_ref, "message_ref": message_ref,
+                "text": text,
+            },
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=self._timeout,
+            allow_redirects=False,
+        )
+        if response.status_code != 200:
+            raise RuntimeError("channel message was not accepted")
+        try:
+            body = response.json()
+            intent_id = UUID(body["dispatch_intent_id"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise RuntimeError("channel message acceptance is invalid") from error
+        if (
+            not isinstance(body, dict)
+            or set(body) != {"status", "dispatch_intent_id", "accepted_new"}
+            or body["status"] != "accepted"
+            or not isinstance(body["accepted_new"], bool)
+        ):
+            raise RuntimeError("channel message acceptance is invalid")
+        return intent_id
+
 
 def _https_origin(value: str) -> str:
     parsed = urlsplit(value)

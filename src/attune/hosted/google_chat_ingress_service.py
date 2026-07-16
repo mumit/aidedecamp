@@ -19,6 +19,11 @@ MAX_REQUEST_BYTES = 16_384
 
 class ChannelBroker(Protocol):
     def link_google_chat_owner_dm(self, **kwargs) -> bool: ...
+    def accept_google_chat_message(self, **kwargs): ...
+
+
+class DispatchBroker(Protocol):
+    def dispatch(self, intent_id) -> bool: ...
 
 
 def create_app(
@@ -26,6 +31,8 @@ def create_app(
     *,
     expected_audience: str,
     app_project_number: str,
+    dispatch_broker: DispatchBroker | None = None,
+    conversations_enabled: bool = False,
     token_verifier: Callable[[str, str], Mapping[str, Any]] | None = None,
 ):
     from flask import Flask, jsonify, request
@@ -81,14 +88,32 @@ def create_app(
                     "Google Chat event did not match owner-DM link (%s)", rejection
                 )
                 return jsonify({"text": "Send /link followed by your one-time Attune code in a direct message."})
-            return jsonify(
-                {
-                    "text": (
-                        "Attune conversations are not active in this development environment yet. "
-                        "Your verified Chat connection does not need a new link code."
-                    )
-                }
-            )
+            if not conversations_enabled:
+                return jsonify(
+                    {
+                        "text": (
+                            "Attune conversations are not active in this development environment yet. "
+                            "Your verified Chat connection does not need a new link code."
+                        )
+                    }
+                )
+            if dispatch_broker is None:
+                return jsonify({"text": "Attune could not accept that message. Please try again."})
+            try:
+                intent_id = broker.accept_google_chat_message(
+                    app_ref=f"projects/{app_project_number}",
+                    actor_ref=message.actor_ref,
+                    destination_ref=message.destination_ref,
+                    message_ref=message.message_ref,
+                    text=message.text,
+                )
+                dispatched = dispatch_broker.dispatch(intent_id)
+            except Exception as error:
+                LOG.warning("Google Chat message ingress failed (%s)", type(error).__name__)
+                dispatched = False
+            if not dispatched:
+                return jsonify({"text": "Attune could not accept that message. Please try again."})
+            return jsonify({"text": "Working on it."})
         try:
             linked = broker.link_google_chat_owner_dm(
                 link_code=link.link_code,

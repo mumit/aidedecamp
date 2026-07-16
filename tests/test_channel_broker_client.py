@@ -1,4 +1,5 @@
 from attune.hosted.channel_broker_client import ChannelBrokerClient
+from uuid import UUID
 
 URL = "https://channel-broker.example.run.app"
 AUDIENCE = "https://channel-broker.attune.internal"
@@ -75,3 +76,23 @@ def test_client_delivery_sends_only_canonical_destination_binding():
     url, call = session.calls[0]
     assert url == f"{URL}/v1/google-chat/test-delivery"
     assert call["json"] == {"version": 1, "destination_id": str(destination)}
+
+
+def test_client_message_acceptance_returns_only_opaque_dispatch_intent():
+    body = {
+        "status": "accepted",
+        "dispatch_intent_id": "10000000-0000-4000-8000-000000000111",
+        "accepted_new": True,
+    }
+    session = Session(Response(body=body))
+    client = ChannelBrokerClient(
+        URL, AUDIENCE, token_provider=lambda _: "token", session=session
+    )
+    intent = client.accept_google_chat_message(
+        app_ref="projects/624765747204", actor_ref="users/123456",
+        destination_ref="spaces/AAAA-test",
+        message_ref="spaces/AAAA-test/messages/message-123", text="hello",
+    )
+    assert intent == UUID("10000000-0000-4000-8000-000000000111")
+    assert session.calls[0][0] == f"{URL}/v1/google-chat/accept-message"
+    assert "tenant_id" not in session.calls[0][1]["json"]

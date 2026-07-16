@@ -5,6 +5,7 @@ from uuid import UUID
 import pytest
 
 from attune.hosted.channel_broker import (
+    AcceptedGoogleChatMessage,
     ChannelReferenceHasher,
     ClaimedGoogleChatDelivery,
     ClaimedGoogleChatLink,
@@ -21,6 +22,8 @@ PRE_AUDIT = UUID("10000000-0000-4000-8000-000000000101")
 OUTCOME_AUDIT = UUID("10000000-0000-4000-8000-000000000102")
 DELIVERY_PRE_AUDIT = UUID("10000000-0000-4000-8000-000000000108")
 DELIVERY_OUTCOME_AUDIT = UUID("10000000-0000-4000-8000-000000000109")
+MESSAGE_AUDIT = UUID("10000000-0000-4000-8000-000000000110")
+MESSAGE_DISPATCH = UUID("10000000-0000-4000-8000-000000000111")
 
 
 class Repository:
@@ -30,6 +33,7 @@ class Repository:
         self.consumes = []
         self.delivery_claims = []
         self.delivery_completions = []
+        self.messages = []
 
     def claim(self, **kwargs):
         self.claims.append(kwargs)
@@ -72,6 +76,12 @@ class Repository:
         return CompletedGoogleChatDelivery(
             "active" if kwargs["succeeded"] else "pending_test",
             DELIVERY_OUTCOME_AUDIT,
+        )
+
+    def accept_message(self, **kwargs):
+        self.messages.append(kwargs)
+        return AcceptedGoogleChatMessage(
+            MESSAGE_DISPATCH, MESSAGE_AUDIT, True
         )
 
 
@@ -230,3 +240,22 @@ def test_delivery_failure_remains_pending_and_never_claims_success():
             destination_id=DESTINATION, now=NOW
         )
     assert repository.delivery_completions[-1]["succeeded"] is False
+
+
+def test_message_acceptance_hashes_all_provider_authority_and_writes_audit():
+    repository, writer = Repository(), Writer((True,))
+    accepted = broker(repository, writer).accept_message(
+        app_ref="projects/624765747204",
+        actor_ref="users/123456",
+        destination_ref="spaces/AAAA-test",
+        message_ref="spaces/AAAA-test/messages/message-123",
+        text="what is on my calendar?",
+    )
+    assert accepted.dispatch_intent_id == MESSAGE_DISPATCH
+    assert writer.calls == [MESSAGE_AUDIT]
+    call = repository.messages[0]
+    assert call["text"] == "what is on my calendar?"
+    assert len({
+        call["installation_ref_hash"], call["actor_ref_hash"],
+        call["destination_ref_hash"], call["message_ref_hash"],
+    }) == 4

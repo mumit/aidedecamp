@@ -9,6 +9,9 @@ _LINK_MESSAGE = re.compile(r"^/link ([A-Za-z0-9_-]{43})$")
 _LINK_ARGUMENT = re.compile(r"^ ?/link ([A-Za-z0-9_-]{43})$")
 _ACTOR_REF = re.compile(r"^users/[A-Za-z0-9._-]{1,180}$")
 _SPACE_REF = re.compile(r"^spaces/[A-Za-z0-9_-]{1,180}$")
+_MESSAGE_REF = re.compile(
+    r"^spaces/[A-Za-z0-9_-]{1,180}/messages/[A-Za-z0-9._-]{1,180}$"
+)
 
 
 @dataclass(frozen=True, repr=False)
@@ -26,6 +29,7 @@ class GoogleChatOwnerDmMessage:
     text: str
     actor_ref: str
     destination_ref: str
+    message_ref: str
 
     def __repr__(self) -> str:
         return "GoogleChatOwnerDmMessage(text=<redacted>, actor_ref=<redacted>, destination_ref=<redacted>)"
@@ -95,9 +99,17 @@ def decode_owner_dm_message_diagnostic(
     argument_text = message.get("argumentText")
     canonical_argument = isinstance(argument_text, str) and bool(argument_text)
     text = argument_text if canonical_argument else message.get("text")
-    if not isinstance(text, str):
+    message_ref = message.get("name")
+    if (
+        not isinstance(text, str) or not 1 <= len(text) <= 8_000
+        or not isinstance(message_ref, str)
+        or not _MESSAGE_REF.fullmatch(message_ref)
+        or not message_ref.startswith(destination_ref + "/messages/")
+    ):
         return None, "command_body"
-    return GoogleChatOwnerDmMessage(text, actor_ref, destination_ref), "accepted"
+    return GoogleChatOwnerDmMessage(
+        text, actor_ref, destination_ref, message_ref
+    ), "accepted"
 
 
 def _uses_canonical_argument(event: object) -> bool:

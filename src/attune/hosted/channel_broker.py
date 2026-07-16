@@ -20,6 +20,9 @@ _LINK_CODE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _APP_REF = re.compile(r"^projects/[1-9][0-9]{5,20}$")
 _ACTOR_REF = re.compile(r"^users/[A-Za-z0-9._-]{1,180}$")
 _DESTINATION_REF = re.compile(r"^spaces/[A-Za-z0-9_-]{1,180}$")
+_MESSAGE_REF = re.compile(
+    r"^spaces/[A-Za-z0-9_-]{1,180}/messages/[A-Za-z0-9._-]{1,180}$"
+)
 
 
 def decode_channel_reference_key(value: bytes) -> bytes:
@@ -79,6 +82,13 @@ class ClaimedGoogleChatDelivery:
 class CompletedGoogleChatDelivery:
     destination_status: str
     outcome_audit_intent_id: UUID
+
+
+@dataclass(frozen=True)
+class AcceptedGoogleChatMessage:
+    dispatch_intent_id: UUID
+    pre_audit_intent_id: UUID
+    accepted_new: bool
 
 
 class GoogleChatSender(Protocol):
@@ -201,6 +211,36 @@ class PostgresChannelBrokerRepository:
         )
         return CompletedGoogleChatDelivery(*row)
 
+    def accept_message(
+        self,
+        *,
+        installation_ref_hash: bytes,
+        actor_ref_hash: bytes,
+        destination_ref_hash: bytes,
+        message_ref_hash: bytes,
+        text: str,
+    ) -> AcceptedGoogleChatMessage:
+        for name, value in (
+            ("installation_ref_hash", installation_ref_hash),
+            ("actor_ref_hash", actor_ref_hash),
+            ("destination_ref_hash", destination_ref_hash),
+            ("message_ref_hash", message_ref_hash),
+        ):
+            _fixed_hash(name, value)
+        if not isinstance(text, str) or not 1 <= len(text) <= 8_000:
+            raise ValueError("invalid Google Chat message")
+        row = self._call(
+            "SELECT * FROM attune.accept_google_chat_owner_message(%s, %s, %s, %s, %s)",
+            (
+                installation_ref_hash,
+                actor_ref_hash,
+                destination_ref_hash,
+                message_ref_hash,
+                text,
+            ),
+        )
+        return AcceptedGoogleChatMessage(*row)
+
     def _call(self, statement: str, values: tuple):
         with closing(self._connect()) as connection:
             try:
@@ -227,6 +267,7 @@ class ChannelReferenceHasher:
             "installation": _APP_REF,
             "actor": _ACTOR_REF,
             "destination": _DESTINATION_REF,
+            "message": _MESSAGE_REF,
         }
         pattern = patterns.get(kind)
         if pattern is None or not isinstance(value, str) or not pattern.fullmatch(value):
@@ -359,6 +400,30 @@ class GoogleChatLinkBroker:
         if not self._audit_writer.write(completed.outcome_audit_intent_id):
             raise RuntimeError("channel delivery outcome audit is unavailable")
         return completed
+
+    def accept_message(
+        self,
+        *,
+        app_ref: str,
+        actor_ref: str,
+        destination_ref: str,
+        message_ref: str,
+        text: str,
+    ) -> AcceptedGoogleChatMessage:
+        accepted = self._repository.accept_message(
+            installation_ref_hash=self._reference_hasher.hash(
+                "installation", app_ref
+            ),
+            actor_ref_hash=self._reference_hasher.hash("actor", actor_ref),
+            destination_ref_hash=self._reference_hasher.hash(
+                "destination", destination_ref
+            ),
+            message_ref_hash=self._reference_hasher.hash("message", message_ref),
+            text=text,
+        )
+        if not self._audit_writer.write(accepted.pre_audit_intent_id):
+            raise RuntimeError("channel message pre-effect audit is unavailable")
+        return accepted
 
     def _complete_failed(self, destination_id: UUID, claim_hash: bytes) -> None:
         try:

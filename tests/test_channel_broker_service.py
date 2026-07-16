@@ -1,5 +1,6 @@
 import time
 from types import SimpleNamespace
+from uuid import UUID
 
 from attune.hosted.channel_broker_service import create_app
 
@@ -31,6 +32,15 @@ class Broker:
         if self.error:
             raise self.error
         return SimpleNamespace(destination_status="active")
+
+    def accept_message(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.error:
+            raise self.error
+        return SimpleNamespace(
+            dispatch_intent_id=UUID("10000000-0000-4000-8000-000000000111"),
+            accepted_new=True,
+        )
 
 
 def claims(token, audience):
@@ -116,3 +126,34 @@ def test_delivery_accepts_only_control_plane_and_canonical_uuid():
     )
     assert response.status_code == 200
     assert response.get_json() == {"status": "delivered", "destination_status": "active"}
+
+
+def test_message_acceptance_is_ingress_only_and_rejects_tenant_authority():
+    broker = Broker()
+    body = {
+        "version": 1,
+        "app_ref": "projects/624765747204",
+        "actor_ref": "users/123456",
+        "destination_ref": "spaces/AAAA-test",
+        "message_ref": "spaces/AAAA-test/messages/message-123",
+        "text": "hello",
+    }
+    app = client(broker)
+    assert app.post(
+        "/v1/google-chat/accept-message",
+        headers={"Authorization": "Bearer control"}, json=body,
+    ).status_code == 403
+    assert app.post(
+        "/v1/google-chat/accept-message",
+        headers={"Authorization": "Bearer ingress"},
+        json={**body, "tenant_id": "attacker"},
+    ).status_code == 400
+    response = app.post(
+        "/v1/google-chat/accept-message",
+        headers={"Authorization": "Bearer ingress"}, json=body,
+    )
+    assert response.get_json() == {
+        "status": "accepted",
+        "dispatch_intent_id": "10000000-0000-4000-8000-000000000111",
+        "accepted_new": True,
+    }
