@@ -90,8 +90,12 @@ destination disconnect and deliberate replacement are implemented behind an
 independent default-off gate and enabled in the development environment:
 canonical ingress/delivery authority and the encrypted route are revoked
 immediately, and reconnection requires a fresh owner-DM link plus fixed
-delivery test. The edge and application activation are verified; the live
-owner disconnect/relink ceremony remains the final development evidence.
+delivery test. The edge and application activation plus the live owner
+disconnect, fail-closed message refusal, fresh link, fixed delivery test, and
+conversation recovery are verified. Relative dates are now grounded from an
+authoritative server clock and `America/Vancouver`, with a live repeat of the
+same Calendar question proving that prior email context no longer supplies the
+date.
 Workspace disconnect/reconnect was already live. Slack installation/lifecycle,
 retention controls,
 export/deletion, support repair, customer-visible audit, adversarial assurance,

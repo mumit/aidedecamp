@@ -332,4 +332,33 @@ requests per minute per IP. After global propagation, an unauthenticated
 request reached the application and returned the bounded `invalid_session`
 401; health remained 200 and both data and edge Terraform plans were empty.
 No destination was disconnected or relinked during infrastructure activation.
-The recent-authenticated owner ceremony remains separate live evidence.
+The recent-authenticated owner ceremony remained separate live evidence.
+
+That owner ceremony subsequently completed on 2026-07-16 UTC. Disconnection
+returned the setup state to unlinked, removed conversation authority, and an
+ordinary owner-DM message failed closed before dispatch. A fresh one-use link
+returned the durable destination to `pending_test`. The first delivery attempt
+then exposed an authenticated-encryption context defect: relink had encrypted
+the route against a candidate UUID before the database reused the canonical
+destination UUID, so decryption correctly failed with `InvalidTag` and no
+message was sent.
+
+Migration 0027, from commit `036b560`, makes the memberless link executor
+resolve a revoked canonical destination before encryption. Execution
+`attune-development-database-migrate-kmtjg` applied it once from immutable
+digest
+`sha256:89686c6318f633eece391a601943f1b11c85b5497262159d7e11e4e31c53b6b5`;
+the verifier again reported 33 tenant tables forced through RLS and Terraform
+converged empty. A second explicit disconnect and fresh link then delivered the
+fixed connection test, activated canonical readback, and accepted and answered
+an ordinary Calendar message. The lifecycle regression now covers acceptance
+after verified relink, not merely route recreation.
+
+The live Calendar response also revealed that the answer model had inferred
+“today” from earlier email context. Worker digest
+`sha256:3cc73486d435505462749d51bb5c0c7b4f34cecaa4a0da7ae228e6fbcc1d8a5a`
+now receives an authoritative server datetime in `America/Vancouver` outside
+untrusted conversation and Workspace results. A one-resource in-place rollout
+became Ready with no warnings and an empty Terraform plan. Repeating the same
+“tomorrow” question returned the correct date and Calendar answer without
+using the earlier email as temporal authority.
