@@ -306,12 +306,14 @@ BEGIN
     );
 END
 $grant_owner$;
+GRANT CREATE ON SCHEMA attune TO attune_channel_link_executor;
 ALTER FUNCTION attune.claim_google_chat_link(bytea,bytea,timestamptz)
 OWNER TO attune_channel_link_executor;
 ALTER FUNCTION attune.release_google_chat_link_claim(bytea,bytea)
 OWNER TO attune_channel_link_executor;
 ALTER FUNCTION attune.consume_google_chat_link(bytea,bytea,bytea,bytea,bytea)
 OWNER TO attune_channel_link_executor;
+REVOKE CREATE ON SCHEMA attune FROM attune_channel_link_executor;
 DO $revoke_owner$
 BEGIN
     EXECUTE pg_catalog.format(

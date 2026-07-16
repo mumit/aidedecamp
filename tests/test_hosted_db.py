@@ -121,6 +121,8 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
     )
     channel_broker = migrations[-1].sql
     assert "GRANT attune_channel_link_executor TO %I" in channel_broker
+    assert "GRANT CREATE ON SCHEMA attune TO attune_channel_link_executor" in channel_broker
+    assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_link_executor" in channel_broker
     assert "REVOKE attune_channel_link_executor FROM %I" in channel_broker
 
 
