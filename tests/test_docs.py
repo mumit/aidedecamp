@@ -288,6 +288,11 @@ def test_control_plane_edge_is_locked_before_oauth_activation():
     assert "--require-hashes" in callback_dockerfile
     assert '".[hosted-service]"' not in callback_dockerfile
 
+    chat_backend = terraform.split(
+        'resource "google_compute_backend_service" "google_chat_ingress"', 1
+    )[1].split('resource "google_compute_global_address"', 1)[0]
+    assert "timeout_sec" not in chat_backend
+
 
 def test_oauth_callback_identity_has_no_data_or_log_writer_authority():
     iam = (ROOT / "deploy" / "gcp" / "foundation" / "iam.tf").read_text()

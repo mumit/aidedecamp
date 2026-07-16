@@ -945,7 +945,6 @@ resource "google_compute_backend_service" "google_chat_ingress" {
   name                  = "${local.prefix}-google-chat-ingress"
   protocol              = "HTTPS"
   load_balancing_scheme = "EXTERNAL_MANAGED"
-  timeout_sec           = 15
   security_policy       = google_compute_security_policy.google_chat_ingress[0].id
 
   backend {
