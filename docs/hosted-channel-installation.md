@@ -131,3 +131,16 @@ fails closed and moves the affected route out of active service.
 
 Successful Terraform, OAuth redirect, app addition, inbound event, or outbound
 API response alone is never activation evidence.
+
+## Development dormant rollout
+
+On 2026-07-16 UTC, commit `27cda78` was deployed dormant-first. Migration
+0021 ran once in execution `attune-development-database-migrate-rlc6q`; the
+live verifier reported 31 tenant tables forced through RLS. Control-plane
+digest
+`sha256:7a084cd8776ce1b2130bf5d55287ee19f50ac8491e5ba2c23144699ae0176089`
+was then deployed with `ATTUNE_HOSTED_CHANNEL_SETUP_ENABLED=false`. Health
+returned 200, the installation-status route remained blocked at the edge with
+403, and both data and edge Terraform plans converged empty. No setup attempt,
+link, destination, provider credential, ingress, or message was created. This
+evidence satisfies activation gates 1 and 2 only.

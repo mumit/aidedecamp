@@ -273,6 +273,17 @@ Canonical readback showed Google Chat and Slack selected for interaction and
 briefs with the channel step `authorized`. Provider installation and exact
 owner-only destination verification remain required.
 
+The next channel-installation state slice was deployed dormant-first on
+2026-07-16 UTC from commit `27cda78`. Migration 0021 applied exactly once in
+execution `attune-development-database-migrate-rlc6q`, and the live verifier
+reported 31 tenant tables forced through RLS. Control-plane digest
+`sha256:7a084cd8776ce1b2130bf5d55287ee19f50ac8491e5ba2c23144699ae0176089`
+was deployed with its setup gate explicitly false. Health returned 200, Cloud
+Armor continued to deny the installation-status path with 403, and both
+Terraform roots converged empty. No link, destination, provider credential,
+ingress, or message was created. The private channel broker and verified
+provider ingress remain prerequisites to enabling edge priority `887`.
+
 ## Operator workflow
 
 The operated platform is provisioned by a restricted platform identity from

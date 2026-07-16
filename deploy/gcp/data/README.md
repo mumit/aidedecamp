@@ -190,6 +190,21 @@ was applied to both private jobs. Execution
 reported 29 tenant tables forced through RLS; the following data plan was
 empty. The migration created no channel preference or provider authority.
 
+Migration `0021_hosted_channel_installation_state.sql` adds forced-RLS setup
+transactions and owner-DM destination bindings, plus the fixed
+recent-session setup-start function. Direct installation mutation remains
+revoked from the ordinary control-plane role, and no provider callback
+consumer or runtime consume grant exists in this slice.
+
+Development rollout evidence was collected on 2026-07-16 UTC from commit
+`27cda78`. Immutable migrator digest
+`sha256:d240b09386c35d79d664a4d66dcb13dd8efd2a696c2427dbc5d4ec8ffd8a0c83`
+was applied to both private jobs. Execution
+`attune-development-database-migrate-rlc6q` applied exactly one migration and
+reported 31 tenant tables forced through RLS; the following data plan was
+empty. No setup attempt, link, destination, provider credential, or message
+was created by the migration.
+
 Connector rows hold only opaque credential references. Credential ciphertext
 arrives with the separate connector-vault/secret-broker phase. No secret value
 belongs in these migrations, Terraform state, Cloud Run environment variables,

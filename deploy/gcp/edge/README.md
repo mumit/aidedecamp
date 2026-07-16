@@ -136,6 +136,14 @@ provider callback, consume the link, create a destination, store a provider
 credential, or send a test. Keep it false until the private channel broker and
 verified Google Chat ingress have passed their separate activation gates.
 
+Development rollout on 2026-07-16 UTC deployed control-plane digest
+`sha256:7a084cd8776ce1b2130bf5d55287ee19f50ac8491e5ba2c23144699ae0176089`
+with this setup gate explicitly false after migration 0021 passed. The saved
+edge plan changed only the control-plane image and added the false environment
+setting; it added or destroyed no resources. Health returned 200, the exact
+installation-status path remained denied by Cloud Armor with 403, and the
+following edge plan was empty. Priority `887` was not activated.
+
 These controls establish URL non-retention; they do not by themselves activate
 OAuth. The server-side transaction, PKCE exchange, callback-to-exchange
 workload identity, and private broker handoff are implemented. A separate
