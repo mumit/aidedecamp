@@ -117,26 +117,26 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
         migration.name for migration in migrations
     )
     assert migrations[0].name == "0001_tenant_boundary.sql"
-    assert migrations[-1].name == "0026_google_chat_destination_lifecycle.sql"
+    assert migrations[-1].name == "0027_google_chat_relink_route_context.sql"
     assert all(
         migration.checksum == hashlib.sha256(migration.sql.encode()).hexdigest()
         for migration in migrations
     )
-    channel_broker = migrations[-4].sql
+    channel_broker = migrations[-5].sql
     assert "GRANT attune_channel_link_executor TO %I" in channel_broker
     assert "GRANT CREATE ON SCHEMA attune TO attune_channel_link_executor" in channel_broker
     assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_link_executor" in channel_broker
     assert "REVOKE attune_channel_link_executor FROM %I" in channel_broker
-    conversation = migrations[-3].sql
+    conversation = migrations[-4].sql
     assert "LIMIT 2" in conversation
     assert "GRANT attune_channel_message_executor TO %I" in conversation
     assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_message_executor" in conversation
     assert "TO attune_channel_broker" in conversation
-    delivery = migrations[-2].sql
+    delivery = migrations[-3].sql
     assert "hosted_channel_deliveries" in delivery
     assert "already_delivered boolean" in delivery
     assert "TO attune_channel_broker" in delivery
-    lifecycle = migrations[-1].sql
+    lifecycle = migrations[-2].sql
     assert "attune_channel_lifecycle_executor" in lifecycle
     assert "disconnect_hosted_channel_destination" in lifecycle
     assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_lifecycle_executor" in lifecycle
@@ -145,6 +145,9 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
     )
     assert lifecycle.index("SET LOCAL ROLE attune_channel_link_executor") < replace_link
     assert lifecycle.index("RESET ROLE", replace_link) > replace_link
+    relink_context = migrations[-1].sql
+    assert "destination.status = 'revoked'" in relink_context
+    assert "SET LOCAL ROLE attune_channel_link_executor" in relink_context
 
 
 def test_tenant_context_rejects_non_uuid_values():
@@ -255,7 +258,7 @@ def initialized_database(database_url: str):
             cursor.execute(f'CREATE ROLE "{role}" NOLOGIN INHERIT')
     admin.autocommit = False
 
-    assert apply_migrations(admin) == 26
+    assert apply_migrations(admin) == 27
     with admin.cursor() as cursor:
         cursor.execute("GRANT attune_worker TO attune_test_stale_member")
     admin.commit()
@@ -1198,7 +1201,7 @@ def test_google_chat_destination_disconnect_blocks_use_and_allows_explicit_relin
         claim_hash=claim_hash,
         candidate_id=candidate_id,
     )
-    assert resolved_id == candidate_id
+    assert resolved_id == destination_id
     linked = broker.consume(
         secret_hash=hashlib.sha256(secret).digest(),
         claim_hash=claim_hash,
