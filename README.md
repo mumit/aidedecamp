@@ -66,7 +66,10 @@ Identity Platform and Workspace consent clients. The normative
 [security architecture](docs/security-architecture.md) defines trust boundaries,
 control requirements, red-team cases, and hosted launch gates; the
 [hosted data-lifecycle contract](docs/data-lifecycle.md) defines retention,
-export, deletion, and backup restore suppression; the approved
+export, deletion, and backup restore suppression; the
+[hosted customer-export boundary](docs/customer-export.md) defines fixed
+scopes, dedicated identities, encrypted temporary objects, and the
+recent-authenticated download ceremony; the approved
 [dispatch-broker contract](docs/dispatch-broker.md) defines exclusive task
 authority and queue delivery, while the
 [audit-writer contract](docs/audit-writer.md) defines the intent-only path to

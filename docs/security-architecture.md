@@ -534,6 +534,8 @@ arguments.
 
 The lifecycle policy, complete storage inventory, customer ceremonies, and
 restore procedure are defined in [Hosted data lifecycle](data-lifecycle.md).
+The fixed-scope export identities, state machine, encryption, download, and
+cleanup contract are defined in [Hosted customer export](customer-export.md).
 
 ## 11. Data minimization and model handling
 

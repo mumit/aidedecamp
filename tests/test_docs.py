@@ -43,6 +43,18 @@ def test_hosted_lifecycle_contract_is_fail_closed_and_not_overstated():
     assert "first slice implemented, paused-first" in normalized
 
 
+def test_customer_export_contract_is_fixed_scope_and_not_overstated():
+    export = (ROOT / "docs" / "customer-export.md").read_text()
+    normalized = " ".join(export.split())
+
+    assert "does not constitute a working export" in normalized
+    assert "account and preferences" in normalized
+    assert "connector credentials" in normalized
+    assert "first successful download or after 24 hours" in normalized
+    assert "No principal receives bucket-wide read/list plus key-decrypt authority" in normalized
+    assert "must not present a decorative or nonfunctional download control" in normalized
+
+
 def test_protocol_retention_scheduler_is_paused_and_least_privileged():
     foundation = (ROOT / "deploy" / "gcp" / "foundation" / "iam.tf").read_text()
     data_main = (ROOT / "deploy" / "gcp" / "data" / "main.tf").read_text()
