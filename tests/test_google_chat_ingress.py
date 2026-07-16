@@ -10,12 +10,15 @@ def event():
     return {
         "type": "MESSAGE",
         "user": {"name": "users/123456", "type": "HUMAN"},
-        "space": {"name": "spaces/AAAA-test", "type": "DIRECT_MESSAGE"},
+        "space": {
+            "name": "spaces/AAAA-test",
+            "spaceType": "DIRECT_MESSAGE",
+        },
         "message": {
             "text": f"<users/123456-app> /link {CODE}",
             "argumentText": f"/link {CODE}",
             "sender": {"name": "users/123456", "type": "HUMAN"},
-            "space": {"name": "spaces/AAAA-test", "type": "DIRECT_MESSAGE"},
+            "space": {"name": "spaces/AAAA-test"},
         },
     }
 
@@ -31,7 +34,7 @@ def test_decode_accepts_only_matching_human_owner_dm_and_redacts_repr():
 def test_decode_rejects_group_actor_and_space_substitution():
     cases = []
     group = event()
-    group["space"]["type"] = "SPACE"
+    group["space"]["spaceType"] = "SPACE"
     cases.append(group)
     actor_swap = event()
     actor_swap["message"]["sender"]["name"] = "users/attacker"
@@ -39,11 +42,20 @@ def test_decode_rejects_group_actor_and_space_substitution():
     space_swap = event()
     space_swap["message"]["space"]["name"] = "spaces/attacker"
     cases.append(space_swap)
+    nested_space_conflict = event()
+    nested_space_conflict["message"]["space"]["spaceType"] = "SPACE"
+    cases.append(nested_space_conflict)
     bot = event()
     bot["user"]["type"] = "BOT"
     cases.append(bot)
     for value in cases:
         assert decode_owner_dm_link(value) is None
+
+
+def test_decode_supports_legacy_direct_message_type_field():
+    value = event()
+    value["space"]["type"] = value["space"].pop("spaceType")
+    assert decode_owner_dm_link(value) is not None
 
 
 def test_decode_requires_exact_link_command_without_hidden_or_extra_text():

@@ -214,8 +214,8 @@ state. This is non-secret routing metadata.
 
 Development deployed the Google Chat ingress backend on 2026-07-16 UTC. The
 current immutable digest is
-`sha256:680346f9a5ef83daabd8ecda41f5f5da476f81a10f645c7c6c4cf7f38dbf8841`.
-Revision `attune-development-google-chat-ingress-00003-j5j` receives 100% of
+`sha256:845e891947164c5f171535a5aef771c449abb9aada357461f1ed665c5985abbc`.
+Revision `attune-development-google-chat-ingress-00004-2rf` receives 100% of
 traffic with its
 default URL disabled and `internal-and-cloud-load-balancing` ingress. The
 serverless NEG and dedicated backend retain request logging disabled.
@@ -256,6 +256,14 @@ protobuf string in a direct message. The parser therefore treats absent and
 empty identically for fallback purposes; a whitespace or otherwise non-empty
 value remains authoritative and must match exactly. The service now emits only
 one of four bounded rejection categories, never event content or identifiers.
+
+The third live attempt exposed a fixture error in the space schema: the
+canonical REST field is `spaceType`, not `type`, and nested `message.space`
+does not guarantee the duplicated type. Revision `00004-2rf` requires the
+signed top-level `spaceType` to be `DIRECT_MESSAGE`, binds the nested resource
+name, and rejects a conflicting nested type. Its deployment again changed only
+the immutable image; negative authentication remained 403, health remained
+200, and Terraform converged empty.
 
 ## Workspace OAuth activation
 

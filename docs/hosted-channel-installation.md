@@ -157,6 +157,12 @@ the parser accepts only an exact `message.text` fallback. Sender and space
 equality, human actor type, direct-message type, token identity, and exact
 audience are validated independently of the command body.
 
+The signed top-level Event `space.spaceType` is authoritative for the
+`DIRECT_MESSAGE` check. The nested `message.space.name` must match the
+top-level resource name; if nested `spaceType` is present it must also be
+`DIRECT_MESSAGE`, but its absence is valid. The deprecated `type` spelling is
+accepted only as a fallback when canonical `spaceType` is absent.
+
 ## Development rollout
 
 On 2026-07-16 UTC, commit `27cda78` was deployed dormant-first. Migration
@@ -215,8 +221,8 @@ unlinked response without invoking the private broker. The first link attempt
 then revealed the provider-field distinction above: the old revision parsed
 `message.text` instead of the mention-stripped `message.argumentText`. No code
 was consumed. The corrected image is pinned to
-`sha256:680346f9a5ef83daabd8ecda41f5f5da476f81a10f645c7c6c4cf7f38dbf8841`
-on revision `attune-development-google-chat-ingress-00003-j5j`. All 898 tests
+`sha256:845e891947164c5f171535a5aef771c449abb9aada357461f1ed665c5985abbc`
+on revision `attune-development-google-chat-ingress-00004-2rf`. All 899 tests
 passed; live unauthenticated and invalid-bearer probes remained 403; health was
 200; and the post-deployment Terraform plan was empty. A fresh one-time code is
 required for the resumed ceremony.
@@ -228,3 +234,11 @@ whitespace or fall back after any other non-empty value. Content-free reason
 codes (`event_envelope`, `identity_envelope`, `actor_space_binding`, or
 `command_body`) provide bounded live diagnostics without retaining message,
 code, actor, or destination data.
+
+The third live attempt identified the separate space-schema fixture error:
+production sends canonical `spaceType`, while the original fixture used
+`type`, and the nested message space need not repeat the type. The current
+revision implements the top-level authority and nested-name binding described
+above. Its image-only plan changed one resource in place with no additions or
+destructions; negative authentication remained 403, health remained 200, and
+the final Terraform plan was empty.

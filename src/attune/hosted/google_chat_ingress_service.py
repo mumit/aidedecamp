@@ -67,7 +67,7 @@ def create_app(
         event = request.get_json(silent=True)
         link, rejection = decode_owner_dm_link_diagnostic(event)
         if link is None:
-            LOG.info(
+            LOG.warning(
                 "Google Chat event did not match owner-DM link (%s)", rejection
             )
             return jsonify({"text": "Send /link followed by your one-time Attune code in a direct message."})

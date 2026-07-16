@@ -551,6 +551,11 @@ minimal event, and returns promptly.
   to match the single command grammar, and accept `message.text` only as an
   exact fallback when `argumentText` is absent or empty. It MUST NOT strip,
   trim, or otherwise normalize attacker-controlled text into a valid command.
+- **SEC-701B.** Google Chat direct-message authorization MUST use the signed
+  top-level Event `space.spaceType`, bind `message.space.name` to that same
+  resource, and reject a conflicting nested `spaceType`. A missing nested type
+  is not proof of a non-DM because Google does not guarantee duplicated nested
+  space metadata.
 - **SEC-702.** Ingress MUST apply TLS, body/header limits, content-type checks,
   strict schemas, event-type allowlists, rate limits, deduplication, and safe
   parser configuration before queueing.

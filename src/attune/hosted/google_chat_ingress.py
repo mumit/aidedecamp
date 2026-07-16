@@ -40,12 +40,16 @@ def decode_owner_dm_link_diagnostic(
         return None, "identity_envelope"
     actor_ref = user.get("name")
     destination_ref = space.get("name")
+    space_type = space.get("spaceType", space.get("type"))
+    message_space_type = message_space.get(
+        "spaceType", message_space.get("type")
+    )
     if (
         user.get("type") != "HUMAN"
         or sender.get("type") != "HUMAN"
         or sender.get("name") != actor_ref
-        or space.get("type") != "DIRECT_MESSAGE"
-        or message_space.get("type") != "DIRECT_MESSAGE"
+        or space_type != "DIRECT_MESSAGE"
+        or message_space_type not in {None, "DIRECT_MESSAGE"}
         or message_space.get("name") != destination_ref
         or not isinstance(actor_ref, str)
         or not _ACTOR_REF.fullmatch(actor_ref)
