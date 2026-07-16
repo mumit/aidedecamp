@@ -110,15 +110,15 @@ its dedicated IAM database identity, the connector KMS key, and the private
 audit writer; its runtime environment contains resource identifiers but no
 credential values. A synthetic live wrap/unwrap passed under the broker identity
 and verified KMS CRC32C integrity; the ephemeral validation job was removed.
-The first broker-mediated Google operation and its deterministic worker
-executor are implemented, tested, and deployed dormant in development, but the
-worker and dispatch registries remain disabled by default and it has not been
-exercised with an authorized Google identity. The worker accepts only a
-canonical connector UUID, creates a two-minute tenant-bound use intent, and
-receives only the minimized profile result. Its exact-host private egress boundary is
+The fixed Gmail and Calendar broker operations and their composite deterministic
+worker executor are implemented, tested, and active in development. On
+2026-07-16 the dedicated identity produced successful `200` and `204` provider
+results, durable pre/post audit, worker success, and content-free browser
+verification; the standalone Gmail dispatch route was then disabled. The
+worker accepts only a canonical connector UUID and creates separate two-minute
+tenant-bound use intents. Its exact-host private egress boundary is
 declarative, and its credential-free live probe passed in development on
-2026-07-14; repeat the probe after each material network or image change. A
-dedicated non-production Google identity, a paging
-notification channel, and full
-intent-to-ciphertext-to-provider-to-audit evidence remain launch gates. No
-customer credential is authorized until those gates pass.
+2026-07-14; repeat the probe after each material network or image change. A new
+environment still requires a dedicated non-production identity, verified
+paging, and full intent-to-ciphertext-to-provider-to-audit evidence before
+customer credentials are authorized.

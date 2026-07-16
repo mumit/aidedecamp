@@ -164,20 +164,22 @@ acceptable substitutes.
 3. **Secret broker and OAuth exchange:** private install/revoke service, serialized encrypted
    lifecycle, exact workload authentication, intent-only audit, and live KMS
    evidence are implemented in development. The first fixed, read-only,
-   response-minimized Gmail profile operation is deployed and has authenticated
-   development evidence. A content-free Calendar primary-read and composite
-   Workspace verifier are implemented behind the same broker boundary; their
-   deterministic worker route remains disabled by default until deployment and
-   authenticated end-to-end evidence.
+   response-minimized Gmail profile operation is deployed. The content-free
+   Calendar primary-read and composite Workspace verifier are deployed behind
+   the same broker boundary and were exercised with the dedicated development
+   identity on 2026-07-16. Live evidence includes principal-bound dispatch,
+   separate Gmail and Calendar one-use intents, provider responses `200` and
+   `204`, durable pre/post audit, worker success, and content-free browser
+   verification. The standalone Gmail dispatch route was then disabled.
    Its no-NAT, exact-host private Google API boundary is declarative, and the
    credential-free egress probe passed in development on 2026-07-14. It must be
-   repeated after material network or image changes. A dedicated test identity,
-   a verified paging channel, full end-to-end evidence,
-   write reconciliation, and broader operational alerting remain. The durable
+   repeated after material network or image changes. Write reconciliation and
+   broader operational alerting remain. The durable
    per-tenant/capability use limit and a content-free use-anomaly alert are
    implemented in development. The private OAuth exchange, function-only
    transaction lease/finalize database boundary, callback-only invoker grant,
-   and fixed broker exchange operation are deployed dormant in development.
+   and fixed broker exchange operation are deployed and exercised in
+   development.
    The callback activation path and authenticated connector-start boundary are
    implemented and were activated for development evidence on 2026-07-15 with
    a separate broker-only client-secret version, exact redirect registration,

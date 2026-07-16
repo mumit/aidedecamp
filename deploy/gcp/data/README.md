@@ -146,9 +146,10 @@ review. Deploying a generic handler before those controls would turn an
 identifier envelope into unintended authority. The private intent-only audit
 writer, credential-mutation secret broker, dispatch broker, fixed jobs-queue
 route, and content-free deterministic smoke worker are now deployed from
-`deploy/gcp/runtime`. The first fixed Gmail profile executor now exists behind a
-disabled-by-default runtime gate; authenticated provider and operational
-evidence remain required before activation.
+`deploy/gcp/runtime`. The composite fixed Gmail/Calendar verifier exists behind
+a disabled-by-default runtime gate. Development activation produced
+authenticated provider, audit, and browser evidence on 2026-07-16; every new
+environment must reproduce the operational gates before activation.
 
 Connector rows hold only opaque credential references. Credential ciphertext
 arrives with the separate connector-vault/secret-broker phase. No secret value

@@ -43,9 +43,11 @@ profile and Calendar primary-read intents; Calendar provider metadata never
 leaves the broker. Terraform refuses activation unless the fixed dispatch
 broker is enabled and at least one paging notification channel is configured.
 The development credential-free exact-endpoint egress probe passed on
-2026-07-14; repeat it after a material network or image change. Before the gate
-opens, use a dedicated non-production Google identity for authenticated
-evidence and verify a test page. The database enforces 60 use leases per
+2026-07-14; repeat it after a material network or image change. The development
+gate opened on 2026-07-16 after the dedicated identity produced authenticated
+Gmail `200`, Calendar `204`, worker-success, audit, and content-free browser
+evidence. A new environment must reproduce that evidence before opening its
+gate. The database enforces 60 use leases per
 tenant/capability/minute. The
 runtime creates a content-free log metric and opens a Monitoring incident after
 more than five denied/limited, provider-failed, or unavailable results in five

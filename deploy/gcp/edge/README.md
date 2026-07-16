@@ -45,13 +45,14 @@ database, secret, KMS, queue, or provider authority and redirects to a
 credential-free result URL with HTTP 303. The foundation's immutable sink
 exports Cloud Audit logs only.
 
-When the runtime's reviewed Gmail profile gate is active, two additional
-bounded paths are exposed: CSRF-protected `POST /v1/connectors/google/test` and
-session-bound `GET /v1/connectors/google/tests/JOB_UUID`. The control plane
-derives connector and capability authority from its session and canonical
-database records, sends only an opaque intent to the private dispatch broker,
-and returns no mailbox or provider data. The runtime root must be applied first
-so the edge consumes its authoritative gate and broker output.
+When the runtime's reviewed Workspace verification gate is active, two
+additional bounded paths are exposed: CSRF-protected `POST
+/v1/connectors/google/test` and session-bound `GET
+/v1/connectors/google/tests/JOB_UUID`. The control plane derives connector and
+capability authority from its session and canonical database records, sends
+only an opaque intent to the private dispatch broker, and returns no mailbox,
+Calendar, or provider data. The runtime root must be applied first so the edge
+consumes its authoritative gate and broker output.
 
 These controls establish URL non-retention; they do not by themselves activate
 OAuth. The server-side transaction, PKCE exchange, callback-to-exchange
