@@ -1220,6 +1220,28 @@ def test_google_chat_destination_disconnect_blocks_use_and_allows_explicit_relin
     assert linked.destination_id == destination_id
     assert linked.destination_status == "pending_test"
     assert writer.write(linked.outcome_audit_intent_id) is not None
+    delivery_claim_hash = hashlib.sha256(b"replacement-delivery-claim").digest()
+    delivery = broker.claim_delivery(
+        destination_id=destination_id,
+        claim_hash=delivery_claim_hash,
+        expires_at=datetime.now(timezone.utc) + timedelta(seconds=30),
+    )
+    assert writer.write(delivery.pre_audit_intent_id) is not None
+    completed = broker.complete_delivery(
+        destination_id=destination_id,
+        claim_hash=delivery_claim_hash,
+        succeeded=True,
+    )
+    assert completed.destination_status == "active"
+    assert writer.write(completed.outcome_audit_intent_id) is not None
+    accepted = broker.accept_message(
+        installation_ref_hash=installation_hash,
+        actor_ref_hash=actor_hash,
+        destination_ref_hash=destination_hash,
+        message_ref_hash=hashlib.sha256(b"message-after-relink").digest(),
+        text="This must be accepted after verified relink",
+    )
+    assert accepted.accepted_new is True
 
 
 def test_rls_hides_other_tenant_rows_and_vectors(initialized_database):
