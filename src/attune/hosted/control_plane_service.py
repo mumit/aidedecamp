@@ -368,19 +368,22 @@ def create_app(
             token = request.cookies.get(SESSION_COOKIE, "")
             try:
                 session = sessions.read(token)  # type: ignore[union-attr]
+            except Exception:
+                session = None
+            if session is None:
+                return jsonify({"error": "invalid_session"}), 401
+            try:
                 state = (
                     google_connection_tests.status(  # type: ignore[union-attr]
                         session.context,
                         principal_id=session.principal_id,
                         job_id=job_id,
                     )
-                    if session is not None and google_connection_test_enabled
+                    if google_connection_test_enabled
                     else None
                 )
             except Exception:
                 return jsonify({"error": "test_unavailable"}), 503
-            if session is None:
-                return jsonify({"error": "invalid_session"}), 401
             if state is None:
                 return jsonify({"error": "test_not_found"}), 404
             return jsonify({"job_id": str(job_id), "state": state})

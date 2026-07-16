@@ -430,3 +430,21 @@ def test_google_connection_test_fails_closed_and_returns_only_opaque_state():
 def test_google_connection_test_configuration_fails_closed():
     with pytest.raises(ValueError, match="connection test"):
         identity_client(google_connection_test_enabled=True)
+
+
+def test_google_connection_test_status_maps_invalid_session_before_availability():
+    client = identity_client(
+        Sessions(opened=False),
+        google_oauth_enabled=True,
+        google_oauth_client_id=WORKSPACE_CLIENT_ID,
+        google_oauth_starts=OAuthStarts(),
+        google_connection_test_enabled=True,
+        google_connection_tests=ConnectionTests(
+            failure=RuntimeError("must not run without a session")
+        ),
+    )
+    response = client.get(
+        f"/v1/connectors/google/tests/{JOB_ID}", base_url=f"https://{HOST}"
+    )
+    assert response.status_code == 401
+    assert response.get_json() == {"error": "invalid_session"}
