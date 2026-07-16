@@ -100,6 +100,15 @@ names, connector ciphertext, route ciphertext, sessions, link secrets, raw
 embeddings, internal task authority, and unreviewed tables fail the job closed.
 Regex redaction is not the authorization boundary.
 
+The dormant archive builder now implements this envelope with fixed ZIP member
+names, timestamps, modes, schema version, scope-specific record kinds, member
+record counts and SHA-256 digests, and a whole-archive digest. It caps each
+record at 2 MiB, the archive at 50 MiB, total records at 100,000, and nesting at
+20 levels. It recursively normalizes field spelling before rejecting reviewed
+credential, authorization, identity-hash, route, claim, and audit-chain keys.
+It has no database projection, encryption key, object store, or download path
+yet and therefore does not make customer export available.
+
 ## Required evidence before activation
 
 - real-PostgreSQL cross-tenant, role, claim/replay, transition, and concurrency

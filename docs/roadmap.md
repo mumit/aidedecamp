@@ -114,6 +114,10 @@ The first customer-export authority slice is implemented but not deployed:
 four server-defined scopes, recent-owner-session binding, idempotent request,
 one-use executor claim, atomic audit evidence, and function-only mutation. It
 contains no ready/publish transition and grants no storage or KMS authority.
+The deterministic archive builder is also implemented and adversarially tested
+with fixed paths/schema/kinds, structural secret-negative validation, member
+and archive digests, and record/byte/depth ceilings. Reviewed database
+projections, envelope encryption, storage, cleanup, download, and UI remain.
 
 The first platform mapping is [`hosted-gcp.md`](hosted-gcp.md), and the initial
 declarative substrate is `deploy/gcp/foundation`. Applying that foundation does
