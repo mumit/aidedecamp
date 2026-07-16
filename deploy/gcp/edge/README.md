@@ -71,6 +71,13 @@ priority `883` accepted only the exact disconnect path after global policy
 convergence; an unauthenticated request reached the application and failed with
 401 rather than the policy's default deny.
 
+Hosted onboarding has its own default-off `enable_hosted_onboarding` gate. When
+enabled, Cloud Armor priority `884` exposes only `GET /v1/onboarding` and
+CSRF-protected empty-body `POST /v1/onboarding/start`; application methods and
+session authorization remain authoritative. The browser receives no tenant,
+principal, connector, provider, or resource identifiers. Apply migration
+`0018_hosted_onboarding.sql` before activating this edge gate.
+
 These controls establish URL non-retention; they do not by themselves activate
 OAuth. The server-side transaction, PKCE exchange, callback-to-exchange
 workload identity, and private broker handoff are implemented. A separate

@@ -87,6 +87,12 @@ variable "enable_google_workspace_oauth" {
   default     = false
 }
 
+variable "enable_hosted_onboarding" {
+  description = "Expose the tenant-bound versioned hosted onboarding state API."
+  type        = bool
+  default     = false
+}
+
 variable "google_oauth_provider_ready" {
   description = "Explicit operator attestation that the separate Workspace web client, exact redirect, consent screen, secret version, and negative tests are ready."
   type        = bool

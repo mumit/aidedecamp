@@ -43,7 +43,10 @@ The first hosted connection journey is:
    metadata, a connector identifier, a Google account identifier, or provider
    error details. The page reports **Google Workspace is connected and
    verified** only after both private reads succeed.
-6. Configure delivery and interaction channels, then activate briefs.
+6. Choose **Start guided setup**. Attune creates tenant-bound, resumable setup
+   progress and marks Workspace complete from the already verified connector;
+   it does not ask for configuration files or infrastructure credentials.
+7. Configure delivery and interaction channels, then activate briefs.
    Capability upgrades such as Gmail draft
    creation are separate, explicit consent and policy changes.
 
@@ -60,6 +63,11 @@ also wants that provider-side grant removed should remove Attune in Google
 Account's third-party connections. Provider-side revocation from Attune is a
 separate future ceremony because a provider outage must never prevent immediate
 local disconnection.
+
+The guided setup card always shows the next four product steps—Workspace,
+channels, policy, and activation. Closing the browser does not discard progress.
+Only fixed Attune ceremonies can advance a step; neither browser requests nor
+model-generated text can mark setup complete.
 
 Closing or denying the second screen leaves the Attune account signed in and
 unconnected. Retrying creates a fresh ten-minute transaction. A completed

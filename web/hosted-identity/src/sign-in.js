@@ -13,6 +13,8 @@ const button = document.querySelector("#google-sign-in");
 const workspace = document.querySelector("#workspace-connection");
 const workspaceButton = document.querySelector("#google-workspace-connect");
 const disconnectButton = document.querySelector("#google-workspace-disconnect");
+const onboarding = document.querySelector("#onboarding-progress");
+const onboardingStart = document.querySelector("#onboarding-start");
 const status = document.querySelector("#status");
 
 function show(message, kind = "info") {
@@ -229,6 +231,46 @@ async function disconnectWorkspace() {
 workspaceButton.addEventListener("click", startWorkspaceConnection);
 disconnectButton.addEventListener("click", disconnectWorkspace);
 
+function renderOnboarding(state) {
+  onboarding.hidden = false;
+  for (const item of onboarding.querySelectorAll("[data-step]")) {
+    const step = item.dataset.step;
+    item.dataset.status = state.steps?.[step] || "not_started";
+  }
+  onboardingStart.hidden = state.status !== "not_started";
+}
+
+async function showOnboarding(session) {
+  if (session.hosted_onboarding !== "available") return;
+  const state = await json(
+    await fetch("/v1/onboarding", {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    }),
+  );
+  renderOnboarding(state);
+}
+
+onboardingStart.addEventListener("click", async () => {
+  onboardingStart.disabled = true;
+  try {
+    const csrf = cookie("__Host-attune_csrf");
+    if (!csrf) throw new Error("missing session binding");
+    const state = await json(
+      await fetch("/v1/onboarding/start", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { Accept: "application/json", "X-Attune-CSRF": csrf },
+      }),
+    );
+    renderOnboarding(state);
+    show("Guided setup started. Your progress will be saved.", "success");
+  } catch {
+    onboardingStart.disabled = false;
+    show("Guided setup could not be started. Please try again.", "error");
+  }
+});
+
 async function showWorkspace(session) {
   workspace.hidden = false;
   if (session.google_workspace_oauth === "connected") {
@@ -268,6 +310,7 @@ async function main() {
     show(result[0], result[1]);
     button.hidden = true;
     await showWorkspace(session);
+    await showOnboarding(session);
     return;
   }
   const auth = await configure();
@@ -284,7 +327,10 @@ async function main() {
       show("Signed in to Attune.", "success");
       button.hidden = true;
       const session = await existingSession();
-      if (session) await showWorkspace(session);
+      if (session) {
+        await showWorkspace(session);
+        await showOnboarding(session);
+      }
     } catch (error) {
       if (error.status === 409) {
         show(

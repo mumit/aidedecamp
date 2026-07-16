@@ -72,6 +72,12 @@ class GoogleConnectorRevoker(Protocol):
     def disconnect(self, context, *, principal_id) -> None: ...
 
 
+class HostedOnboarding(Protocol):
+    def read(self, context, *, principal_id): ...
+
+    def start(self, context, *, principal_id): ...
+
+
 def create_app(
     expected_host: str,
     *,
@@ -87,6 +93,8 @@ def create_app(
     google_connection_tests: GoogleConnectionTester | None = None,
     google_connector_revocation_enabled: bool = False,
     google_connector_revocations: GoogleConnectorRevoker | None = None,
+    hosted_onboarding_enabled: bool = False,
+    hosted_onboarding: HostedOnboarding | None = None,
     token_verifier: Callable[[str, str], VerifiedIdentity] = (
         verify_identity_platform_token
     ),
@@ -130,6 +138,10 @@ def create_app(
         raise ValueError(
             "enabled Google connector revocation requires Google Workspace OAuth "
             "and a fixed revocation service"
+        )
+    if hosted_onboarding_enabled and (not identity_enabled or hosted_onboarding is None):
+        raise ValueError(
+            "enabled hosted onboarding requires identity and a tenant-bound repository"
         )
     app = Flask(__name__, static_url_path="/assets")
     app.config.update(
@@ -286,6 +298,9 @@ def create_app(
                 {
                     "authenticated": True,
                     "google_workspace_oauth": google_workspace_oauth,
+                    "hosted_onboarding": (
+                        "available" if hosted_onboarding_enabled else "not_configured"
+                    ),
                 }
             )
 
@@ -451,6 +466,40 @@ def create_app(
             response.delete_cookie(CSRF_COOKIE, path="/", secure=True)
             return response
 
+        @app.get("/v1/onboarding")
+        def read_hosted_onboarding():
+            if not hosted_onboarding_enabled:
+                return jsonify({"error": "onboarding_not_configured"}), 503
+            session = _read_session(request, sessions)  # type: ignore[arg-type]
+            if session is None:
+                return jsonify({"error": "invalid_session"}), 401
+            try:
+                state = hosted_onboarding.read(  # type: ignore[union-attr]
+                    session.context, principal_id=session.principal_id
+                )
+            except Exception:
+                return jsonify({"error": "onboarding_unavailable"}), 503
+            return jsonify(_public_onboarding(state))
+
+        @app.post("/v1/onboarding/start")
+        def start_hosted_onboarding():
+            if not hosted_onboarding_enabled:
+                return jsonify({"error": "onboarding_not_configured"}), 503
+            if request.content_length not in {None, 0}:
+                return jsonify({"error": "invalid_request"}), 400
+            session = _authorize_mutation(
+                request, expected_origin, sessions  # type: ignore[arg-type]
+            )
+            if session is None:
+                return jsonify({"error": "invalid_session"}), 401
+            try:
+                state = hosted_onboarding.start(  # type: ignore[union-attr]
+                    session.context, principal_id=session.principal_id
+                )
+            except Exception:
+                return jsonify({"error": "onboarding_unavailable"}), 503
+            return jsonify(_public_onboarding(state)), 201
+
     @app.errorhandler(400)
     def bad_request(_error):
         return jsonify({"error": "invalid_request"}), 400
@@ -482,3 +531,26 @@ def _authorize_mutation(request, expected_origin: str, sessions: SessionReposito
     if not csrf_cookie or not hmac.compare_digest(csrf_cookie, csrf_header):
         return None
     return sessions.authorize(token, csrf_cookie)
+
+
+def _read_session(request, sessions: SessionRepository):
+    token = request.cookies.get(SESSION_COOKIE, "")
+    try:
+        return sessions.read(token)
+    except Exception:
+        return None
+
+
+def _public_onboarding(state):
+    if state is None:
+        return {"schema_version": 1, "status": "not_started", "steps": {}}
+    return {
+        "schema_version": state.schema_version,
+        "status": state.status,
+        "steps": {
+            "workspace": state.workspace,
+            "channels": state.channels,
+            "policy": state.policy,
+            "activation": state.activation,
+        },
+    }

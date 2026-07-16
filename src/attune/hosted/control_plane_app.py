@@ -15,6 +15,7 @@ from .oauth import (
     PostgresGoogleConnectorRevocationRepository,
     PostgresGoogleOAuthStartRepository,
 )
+from .onboarding import PostgresHostedOnboardingRepository
 from .repositories import PostgresJobRepository
 from .secret_broker_mutation_client import SecretBrokerMutationClient
 
@@ -34,6 +35,14 @@ def create_production_app():
     if test_enabled_value not in {"true", "false"}:
         raise ValueError("ATTUNE_GOOGLE_CONNECTION_TEST_ENABLED must be true or false")
     test_enabled = test_enabled_value == "true"
+    onboarding_enabled_value = os.environ.get(
+        "ATTUNE_HOSTED_ONBOARDING_ENABLED", "false"
+    )
+    if onboarding_enabled_value not in {"true", "false"}:
+        raise ValueError("ATTUNE_HOSTED_ONBOARDING_ENABLED must be true or false")
+    onboarding_enabled = onboarding_enabled_value == "true"
+    if onboarding_enabled and not identity_enabled:
+        raise ValueError("hosted onboarding requires identity")
     if test_enabled and not oauth_enabled:
         raise ValueError("Google connection test requires Google Workspace OAuth")
     google_oauth = (
@@ -87,6 +96,12 @@ def create_production_app():
         google_connection_tests=google_tests,
         google_connector_revocation_enabled=oauth_enabled,
         google_connector_revocations=google_revocations,
+        hosted_onboarding_enabled=onboarding_enabled,
+        hosted_onboarding=(
+            PostgresHostedOnboardingRepository(iam_connection)
+            if onboarding_enabled
+            else None
+        ),
     )
 
 

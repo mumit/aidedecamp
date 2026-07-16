@@ -548,6 +548,13 @@ values.
 - **SEC-809.** Deployment providers, templates, migrations, and setup schema
   changes require the same supply-chain, review, negative-test, and rollback
   controls as runtime code.
+- **SEC-810.** Hosted onboarding state MUST be versioned, tenant-bound, and
+  stored server-side without credentials, free text, provider identifiers, or
+  caller-authoritative resource references. Starting or changing onboarding
+  requires a CSRF-authorized application session. The service MUST derive the
+  tenant, principal, existing connectors, and completed capabilities from
+  canonical state; the browser MAY receive only bounded step names and status
+  values. Ambiguous ownership and unsupported schema versions fail closed.
 
 The local setup target may use a narrowly defined subprocess adapter for
 Docker or service-manager commands. Arguments MUST be constructed as arrays

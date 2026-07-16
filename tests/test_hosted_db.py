@@ -49,6 +49,7 @@ from attune.hosted.oauth import (
     PostgresOAuthExchangeRepository,
     PostgresOAuthTransactionRepository,
 )
+from attune.hosted.onboarding import PostgresHostedOnboardingRepository
 from attune.hosted.identity import VerifiedIdentity
 from attune.hosted.identity_session import (
     IdentitySessionSecrets,
@@ -93,7 +94,7 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
         migration.name for migration in migrations
     )
     assert migrations[0].name == "0001_tenant_boundary.sql"
-    assert migrations[-1].name == "0017_google_oauth_scopes.sql"
+    assert migrations[-1].name == "0018_hosted_onboarding.sql"
     assert all(
         migration.checksum == hashlib.sha256(migration.sql.encode()).hexdigest()
         for migration in migrations
@@ -1577,6 +1578,28 @@ def test_google_oauth_start_is_atomic_principal_bound_and_refuses_replacement(
         )
         is None
     )
+
+
+def test_hosted_onboarding_is_tenant_bound_idempotent_and_server_seeded(
+    initialized_database, database_url
+):
+    repository = PostgresHostedOnboardingRepository(
+        _role_connection_factory(database_url, ROLE_BINDINGS["attune_control_plane"])
+    )
+    context = TenantContext(TENANT_A)
+    assert repository.read(context, principal_id=PRINCIPAL_A) is None
+    first = repository.start(context, principal_id=PRINCIPAL_A)
+    second = repository.start(context, principal_id=PRINCIPAL_A)
+    assert first == second
+    assert first.schema_version == 1
+    assert first.revision == 1
+    assert first.workspace == "not_started"
+    assert first.status == "in_progress"
+    assert (
+        repository.read(TenantContext(TENANT_B), principal_id=PRINCIPAL_A) is None
+    )
+    with pytest.raises(RuntimeError, match="principal"):
+        repository.start(context, principal_id=PRINCIPAL_B)
 
 
 def test_identity_session_is_unambiguous_csrf_bound_and_function_only(

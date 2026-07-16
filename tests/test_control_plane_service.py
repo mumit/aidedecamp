@@ -98,6 +98,34 @@ class Revocations:
             raise self.failure
 
 
+class Onboarding:
+    def __init__(self, state=None, failure=None):
+        self.state = state
+        self.failure = failure
+        self.calls = []
+
+    def read(self, context, *, principal_id):
+        self.calls.append(("read", context, principal_id))
+        if self.failure:
+            raise self.failure
+        return self.state
+
+    def start(self, context, *, principal_id):
+        self.calls.append(("start", context, principal_id))
+        if self.failure:
+            raise self.failure
+        return self.state
+
+
+class OnboardingState:
+    schema_version = 1
+    status = "in_progress"
+    workspace = "validated"
+    channels = "not_started"
+    policy = "not_started"
+    activation = "not_started"
+
+
 def verified(_token, project_id):
     assert project_id == PROJECT
     return VerifiedIdentity(
@@ -526,3 +554,55 @@ def test_google_connection_test_status_maps_invalid_session_before_availability(
     )
     assert response.status_code == 401
     assert response.get_json() == {"error": "invalid_session"}
+
+
+def test_hosted_onboarding_is_session_bound_explicit_and_minimized():
+    onboarding = Onboarding(OnboardingState())
+    client, _sessions = signed_in_client(
+        hosted_onboarding_enabled=True, hosted_onboarding=onboarding
+    )
+    read = client.get("/v1/onboarding", base_url=f"https://{HOST}")
+    assert read.get_json() == {
+        "schema_version": 1,
+        "status": "in_progress",
+        "steps": {
+            "workspace": "validated",
+            "channels": "not_started",
+            "policy": "not_started",
+            "activation": "not_started",
+        },
+    }
+    csrf = client.get_cookie("__Host-attune_csrf", domain=HOST).value
+    assert (
+        client.post(
+            "/v1/onboarding/start",
+            headers=same_origin(),
+            base_url=f"https://{HOST}",
+        ).status_code
+        == 401
+    )
+    started = client.post(
+        "/v1/onboarding/start",
+        headers={**same_origin(), "X-Attune-CSRF": csrf},
+        base_url=f"https://{HOST}",
+    )
+    assert started.status_code == 201
+    assert onboarding.calls == [
+        ("read", TenantContext(TENANT_ID), PRINCIPAL_ID),
+        ("start", TenantContext(TENANT_ID), PRINCIPAL_ID),
+    ]
+    assert "tenant" not in started.get_json()
+    assert "principal" not in started.get_json()
+
+
+def test_hosted_onboarding_configuration_and_failure_are_closed():
+    with pytest.raises(ValueError, match="onboarding"):
+        identity_client(hosted_onboarding_enabled=True)
+    client, _sessions = signed_in_client(
+        hosted_onboarding_enabled=True,
+        hosted_onboarding=Onboarding(failure=RuntimeError("private state")),
+    )
+    response = client.get("/v1/onboarding", base_url=f"https://{HOST}")
+    assert response.status_code == 503
+    assert response.get_json() == {"error": "onboarding_unavailable"}
+    assert b"private state" not in response.data

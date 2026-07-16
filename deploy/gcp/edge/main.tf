@@ -86,6 +86,10 @@ resource "google_cloud_run_v2_service" "control_plane" {
         name  = "ATTUNE_GOOGLE_CONNECTION_TEST_ENABLED"
         value = tostring(local.runtime.google_workspace_verification_enabled)
       }
+      env {
+        name  = "ATTUNE_HOSTED_ONBOARDING_ENABLED"
+        value = tostring(var.enable_hosted_onboarding)
+      }
       dynamic "env" {
         for_each = local.runtime.google_workspace_verification_enabled ? [1] : []
         content {
@@ -213,6 +217,10 @@ resource "google_cloud_run_v2_service" "control_plane" {
         var.enable_google_workspace_oauth && local.runtime.dispatch_broker != null
       )
       error_message = "The browser connection test requires active Workspace OAuth and the fixed dispatch broker."
+    }
+    precondition {
+      condition     = !var.enable_hosted_onboarding || var.enable_identity_sign_in
+      error_message = "Hosted onboarding requires active identity sign-in."
     }
   }
 }
@@ -401,6 +409,29 @@ resource "google_compute_security_policy" "edge" {
         enforce_on_key = "IP"
         rate_limit_threshold {
           count        = 10
+          interval_sec = 60
+        }
+      }
+    }
+  }
+
+  dynamic "rule" {
+    for_each = var.enable_hosted_onboarding ? [1] : []
+    content {
+      action      = "throttle"
+      priority    = 884
+      description = "Permit only authenticated hosted onboarding state paths"
+      match {
+        expr {
+          expression = "request.headers['host'] == '${var.hostname}' && (request.path == '/v1/onboarding' || request.path == '/v1/onboarding/start')"
+        }
+      }
+      rate_limit_options {
+        conform_action = "allow"
+        exceed_action  = "deny(429)"
+        enforce_on_key = "IP"
+        rate_limit_threshold {
+          count        = 30
           interval_sec = 60
         }
       }

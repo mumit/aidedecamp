@@ -136,6 +136,24 @@ button.danger {
   border-top: 1px solid rgb(23 33 28 / 10%);
 }
 
+#onboarding-progress {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgb(23 33 28 / 10%);
+}
+
+#onboarding-progress ol {
+  margin: 0 0 1.25rem;
+  padding-left: 1.4rem;
+  color: #526058;
+  line-height: 1.8;
+}
+
+#onboarding-progress li[data-status="validated"] {
+  color: #17633a;
+  font-weight: 650;
+}
+
 #workspace-connection p {
   margin: 0 0 1.25rem;
   color: #526058;

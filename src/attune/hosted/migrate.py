@@ -103,6 +103,7 @@ TENANT_TABLES = (
     "job_reconciliations",
     "oauth_transactions",
     "identity_sessions",
+    "hosted_onboarding_states",
 )
 
 

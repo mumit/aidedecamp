@@ -226,6 +226,16 @@ tests, and activate Attune. Hosted onboarding reuses the versioned setup-state
 concept, but stores only server-side, tenant-bound progress and opaque resource
 references—not `.env` files or credentials.
 
+The first versioned onboarding slice stores one typed,
+owner-principal-bound state per tenant. It has fixed Workspace, channels,
+policy, and activation steps using the resumable statuses from SEC-805. A
+signed-in user explicitly starts it through a same-origin CSRF-protected route
+with an empty body. The database seeds Workspace as validated only from the
+canonical active Google connector. The browser cannot submit tenant/principal
+IDs, step states, resource references, provider choices, or arbitrary details.
+Later channel and activation ceremonies will advance this record through fixed
+server-side operations rather than a generic step-update endpoint.
+
 ## GCP implementation references
 
 - [Cloud Run service identities](https://cloud.google.com/run/docs/securing/service-identity)
