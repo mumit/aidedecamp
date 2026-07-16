@@ -431,6 +431,20 @@ Newest first. This log records decisions that constrain current implementation.
 - Free-form mutations are recognized but refused. Writes remain in explicit,
   audited workflows with autonomy gates and human approval.
 
+## 2026-07 — Hosted channel conversation is asynchronous and brokered
+
+- Linking and fixed-content delivery verify a destination but do not activate
+  natural-language processing.
+- Verified ingress passes bounded provider facts to the private channel broker,
+  which alone resolves an active tenant binding and atomically deduplicates the
+  event, appends the user turn, and creates a fixed dispatch intent.
+- Hosted workers obtain bounded Workspace results through the secret broker and
+  bounded model results through a separate model gateway. They receive neither
+  OAuth refresh tokens nor model API credentials.
+- Responses return through the channel broker to the canonical encrypted
+  owner-DM route. The full contract and gates are in
+  [`hosted-conversation.md`](hosted-conversation.md).
+
 ## 2026-07 — Routes and MCP capability contracts fail fast
 
 - Selecting a channel route is an operational commitment. Doctor now treats

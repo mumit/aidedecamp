@@ -565,6 +565,16 @@ minimal event, and returns promptly.
   provider-, and version-bound associated data; only the broker may unwrap
   them. Provider URL, scope, text, and response-resource validation MUST be
   fixed in reviewed code, with pre-effect and outcome audit intents.
+- **SEC-701D.** Hosted natural-language channel messages MUST resolve tenant,
+  principal, installation, active owner-DM destination, interaction
+  preference, policy, connector, and capability from verified provider facts
+  through a replay-safe server-side transaction. Public ingress MUST NOT
+  receive database, Workspace, model, memory, or outbound-provider authority.
+- **SEC-701E.** A hosted model gateway MUST accept only fixed task names and
+  bounded role/content messages. Infrastructure MUST fix the provider origin
+  and models; callers MUST NOT supply URLs, credentials, headers, tools, or
+  callbacks. The gateway MUST have no tenant database or Workspace authority,
+  and workers MUST NOT receive the model credential.
 - **SEC-702.** Ingress MUST apply TLS, body/header limits, content-type checks,
   strict schemas, event-type allowlists, rate limits, deduplication, and safe
   parser configuration before queueing.
