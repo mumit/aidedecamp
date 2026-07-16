@@ -103,6 +103,12 @@ the application and the signed-in owner saw the fixed R0 review. The enable
 button was deliberately not invoked as deployment evidence; policy activation
 remains a distinct owner ceremony. The final edge plan was empty.
 
+The owner completed that separate ceremony later on 2026-07-16 UTC. A stale
+session was refused with 409; after fresh authentication, the confirmation
+returned 200 through priority `885`, with both mandatory private audit-writer
+requests returning 200. This is activation evidence for the development
+tenant, not permission to auto-confirm policy during future deployments.
+
 These controls establish URL non-retention; they do not by themselves activate
 OAuth. The server-side transaction, PKCE exchange, callback-to-exchange
 workload identity, and private broker handoff are implemented. A separate

@@ -243,6 +243,12 @@ R0 automatic and excluded actions. No confirmation was submitted and no policy
 or autonomy grant was created during rollout. Both Terraform roots were empty
 after deployment.
 
+The owner then completed the separate confirmation ceremony on 2026-07-16
+UTC. The application refused the stale session with 409, accepted a freshly
+authenticated confirmation with 200, completed both mandatory private audit
+writes, and returned only after rereading `validated` policy state. Deployment
+automation did not submit the confirmation.
+
 ## Operator workflow
 
 The operated platform is provisioned by a restricted platform identity from

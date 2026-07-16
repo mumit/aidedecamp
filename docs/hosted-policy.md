@@ -88,3 +88,14 @@ This ceremony creates policy authority only. The typed capability gateway is
 still not connected to a model planner or dispatch producer, so the grant
 cannot cause a provider call until the remaining execution gates in
 [`capability-gateway.md`](capability-gateway.md) are implemented and reviewed.
+
+## Development activation evidence
+
+On 2026-07-16 UTC, the owner's first confirmation correctly returned 409 for a
+session older than ten minutes. After fresh authentication, the same exact
+empty-body confirmation returned 200 through Cloud Armor priority `885`.
+The private audit writer returned 200 for both mandatory writes, and the route
+returned success only after the database function reported `validated` and the
+control plane reread the advanced onboarding state. This evidence authorizes
+the fixed R0 development profile only; it does not authorize provider
+execution or a broader policy.

@@ -52,10 +52,11 @@ resolution, and risk ceilings. Its dispatch integration, execution budgets,
 freshness/idempotency, audit, and approval gates remain; this does not skip the
 remaining work or assurance gates in steps 2–5.
 
-Step 5 also has a dormant fixed R0 policy ceremony: recent owner
+Step 5 also has a live development fixed R0 policy ceremony: recent owner
 authentication, content-free mandatory audit, exact function-owned policy and
-grant creation, and resumable step advancement are implemented. Live owner
-activation evidence and the channel/activation ceremonies remain.
+grant creation, and resumable step advancement are implemented. Owner
+activation was exercised on 2026-07-16. The channel and activation ceremonies
+remain.
 
 The first platform mapping is [`hosted-gcp.md`](hosted-gcp.md), and the initial
 declarative substrate is `deploy/gcp/foundation`. Applying that foundation does
