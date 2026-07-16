@@ -31,6 +31,10 @@ class Setups:
         self.calls.append((context, kwargs))
         return UUID("10000000-0000-4000-8000-000000000107")
 
+    def disconnect(self, context, **kwargs):
+        self.calls.append((context, kwargs))
+        return True
+
 
 class Audit:
     def __init__(self):
@@ -138,3 +142,43 @@ def test_delivery_test_is_canonical_fixed_profile_and_mandatory_audit():
         item[1]["metadata"]["content_profile"] == "fixed_connection_test_v1"
         for item in audit.calls
     )
+
+
+def test_disconnect_is_provider_fixed_recent_bound_and_mandatory_audit():
+    setups, audit = Setups(), Audit()
+    result = HostedChannelSetupService(setups, audit, Writer()).disconnect(
+        CONTEXT,
+        principal_id=PRINCIPAL,
+        session_id=SESSION,
+        provider="google_chat",
+    )
+    assert result[0] == CONTEXT
+    assert setups.calls == [(
+        CONTEXT,
+        {
+            "principal_id": PRINCIPAL,
+            "session_id": SESSION,
+            "provider": "google_chat",
+        },
+    )]
+    assert [item[1]["outcome"] for item in audit.calls] == ["allowed", "observed"]
+    assert all(
+        item[1]["action"] == "hosted.channels.destination.disconnect"
+        for item in audit.calls
+    )
+    assert all(
+        item[1]["metadata"] == {"schema_version": 1, "provider": "google_chat"}
+        for item in audit.calls
+    )
+
+
+def test_disconnect_refuses_unknown_provider_before_audit():
+    audit = Audit()
+    with pytest.raises(ValueError, match="provider"):
+        HostedChannelSetupService(Setups(), audit, Writer()).disconnect(
+            CONTEXT,
+            principal_id=PRINCIPAL,
+            session_id=SESSION,
+            provider="slack",
+        )
+    assert audit.calls == []

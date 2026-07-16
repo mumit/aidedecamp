@@ -39,6 +39,7 @@ FUNCTION_OWNER_ROLES = (
     "attune_channel_config_executor",
     "attune_channel_link_executor",
     "attune_channel_message_executor",
+    "attune_channel_lifecycle_executor",
 )
 
 FUNCTION_OWNER_TABLE_PRIVILEGES = frozenset(
@@ -160,11 +161,17 @@ FUNCTION_OWNER_TABLE_PRIVILEGES = frozenset(
         ),
         (
             "attune_channel_link_executor",
+            "attune.hosted_channel_routes",
+            "DELETE",
+        ),
+        (
+            "attune_channel_link_executor",
             "attune.hosted_onboarding_states",
             "UPDATE",
         ),
         ("attune_channel_link_executor", "attune.installations", "SELECT"),
         ("attune_channel_link_executor", "attune.installations", "INSERT"),
+        ("attune_channel_link_executor", "attune.installations", "UPDATE"),
         ("attune_channel_link_executor", "attune.audit_intents", "SELECT"),
         ("attune_channel_link_executor", "attune.audit_intents", "INSERT"),
         (
@@ -227,6 +234,19 @@ FUNCTION_OWNER_TABLE_PRIVILEGES = frozenset(
         ("attune_channel_message_executor", "attune.audit_intents", "SELECT"),
         ("attune_channel_message_executor", "attune.audit_intents", "INSERT"),
         ("attune_channel_message_executor", "attune.audit_intents", "UPDATE"),
+        ("attune_channel_lifecycle_executor", "attune.tenants", "SELECT"),
+        ("attune_channel_lifecycle_executor", "attune.principals", "SELECT"),
+        ("attune_channel_lifecycle_executor", "attune.identity_sessions", "SELECT"),
+        ("attune_channel_lifecycle_executor", "attune.hosted_channel_destinations", "SELECT"),
+        ("attune_channel_lifecycle_executor", "attune.hosted_channel_destinations", "UPDATE"),
+        ("attune_channel_lifecycle_executor", "attune.installations", "SELECT"),
+        ("attune_channel_lifecycle_executor", "attune.installations", "UPDATE"),
+        ("attune_channel_lifecycle_executor", "attune.hosted_channel_setup_transactions", "SELECT"),
+        ("attune_channel_lifecycle_executor", "attune.hosted_channel_setup_transactions", "UPDATE"),
+        ("attune_channel_lifecycle_executor", "attune.hosted_onboarding_states", "SELECT"),
+        ("attune_channel_lifecycle_executor", "attune.hosted_onboarding_states", "UPDATE"),
+        ("attune_channel_lifecycle_executor", "attune.hosted_channel_routes", "SELECT"),
+        ("attune_channel_lifecycle_executor", "attune.hosted_channel_routes", "DELETE"),
     }
 )
 
@@ -532,6 +552,7 @@ def verify_database_boundary(connection: Any, bindings: dict[str, str]) -> None:
             "attune_channel_config_executor": (True, False, False, False),
             "attune_channel_link_executor": (True, False, False, False),
             "attune_channel_message_executor": (True, False, True, False),
+            "attune_channel_lifecycle_executor": (True, False, False, False),
         }:
             raise RuntimeError("function owner schema privileges do not match policy")
 

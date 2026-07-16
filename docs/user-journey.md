@@ -117,6 +117,20 @@ content-free pre/post-effect audits. If the environment's independent
 conversation gate is disabled, ordinary messages receive an explicit
 unavailable response instead of misleading `/link` instructions.
 
+To change or stop the Google Chat destination, sign in recently and choose
+**Disconnect Google Chat**, then confirm the destructive action. Attune derives
+the owner, installation, and DM from the session and canonical database state;
+the browser sends none of those identifiers. Disconnection immediately stops
+new message acceptance and outbound replies, cancels pending link/delivery
+claims, removes the encrypted route, and returns the channel step to pending.
+It does not delete conversation history under the separate retention policy.
+
+Reconnection is intentionally a new proof, not an undo button. Generate a
+fresh one-time link code, send it from the intended owner DM, and run the fixed
+connection test again. Only then does the destination become active. This same
+ceremony supports an intentional move to a different DM while preventing a
+browser or model from silently retargeting Attune.
+
 Closing or denying the second screen leaves the Attune account signed in and
 unconnected. Retrying creates a fresh ten-minute transaction. A completed
 connector is verified instead of silently starting a replacement. A temporary

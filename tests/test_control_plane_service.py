@@ -241,6 +241,24 @@ class ChannelSetup:
         )()
         return tuple(states)
 
+    def disconnect(self, context, **kwargs):
+        self.calls.append(("disconnect", context, kwargs))
+        if self.failure:
+            raise self.failure
+        states = list(self.states)
+        states[0] = type(
+            "ProviderState",
+            (),
+            {
+                "provider": "google_chat",
+                "selected": True,
+                "setup_state": "consumed",
+                "destination_state": "revoked",
+            },
+        )()
+        self.states = tuple(states)
+        return self.states
+
 def verified(_token, project_id):
     assert project_id == PROJECT
     return VerifiedIdentity(
@@ -1000,3 +1018,71 @@ def test_hosted_google_chat_delivery_test_is_recent_bound_and_argument_free():
         "session_id": SESSION_ID,
         "provider": "google_chat",
     }
+
+
+def test_hosted_google_chat_disconnect_is_explicit_recent_and_principal_bound():
+    onboarding = Onboarding(OnboardingState())
+    setup = ChannelSetup()
+    client, _sessions = signed_in_client(
+        hosted_onboarding_enabled=True,
+        hosted_onboarding=onboarding,
+        hosted_channels_enabled=True,
+        hosted_channels=Channels(onboarding),
+        hosted_channel_setup_enabled=True,
+        hosted_channel_setup=setup,
+        hosted_channel_lifecycle_enabled=True,
+    )
+    csrf = client.get_cookie("__Host-attune_csrf", domain=HOST).value
+    path = "/v1/onboarding/channel-installations/google-chat"
+    invalid = client.delete(
+        path,
+        json={"confirmation": "disconnect", "destination_id": "caller"},
+        headers={**same_origin(), "X-Attune-CSRF": csrf},
+        base_url=f"https://{HOST}",
+    )
+    assert invalid.status_code == 400
+    response = client.delete(
+        path,
+        json={"confirmation": "disconnect"},
+        headers={**same_origin(), "X-Attune-CSRF": csrf},
+        base_url=f"https://{HOST}",
+    )
+    assert response.status_code == 200
+    assert response.get_json()["providers"][0]["destination_state"] == "revoked"
+    assert setup.calls[-1] == (
+        "disconnect",
+        TenantContext(TENANT_ID),
+        {
+            "principal_id": PRINCIPAL_ID,
+            "session_id": SESSION_ID,
+            "provider": "google_chat",
+        },
+    )
+
+
+def test_hosted_google_chat_disconnect_gate_and_recent_auth_fail_closed():
+    with pytest.raises(ValueError, match="lifecycle"):
+        identity_client(hosted_channel_lifecycle_enabled=True)
+
+    onboarding = Onboarding(OnboardingState())
+    setup = ChannelSetup()
+    client, _sessions = signed_in_client(
+        sessions=Sessions(recent=False),
+        hosted_onboarding_enabled=True,
+        hosted_onboarding=onboarding,
+        hosted_channels_enabled=True,
+        hosted_channels=Channels(onboarding),
+        hosted_channel_setup_enabled=True,
+        hosted_channel_setup=setup,
+        hosted_channel_lifecycle_enabled=True,
+    )
+    csrf = client.get_cookie("__Host-attune_csrf", domain=HOST).value
+    response = client.delete(
+        "/v1/onboarding/channel-installations/google-chat",
+        json={"confirmation": "disconnect"},
+        headers={**same_origin(), "X-Attune-CSRF": csrf},
+        base_url=f"https://{HOST}",
+    )
+    assert response.status_code == 409
+    assert response.get_json() == {"error": "recent_authentication_required"}
+    assert not any(call[0] == "disconnect" for call in setup.calls)

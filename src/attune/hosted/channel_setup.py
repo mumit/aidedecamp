@@ -167,3 +167,26 @@ class PostgresHostedChannelSetupRepository:
         if len(rows) != 1:
             raise RuntimeError("canonical pending destination is unavailable")
         return rows[0][0]
+
+    def disconnect(
+        self,
+        context: TenantContext,
+        *,
+        principal_id: UUID,
+        session_id: UUID,
+        provider: str,
+    ) -> bool:
+        if not isinstance(principal_id, UUID) or not isinstance(session_id, UUID):
+            raise TypeError("principal_id and session_id must be UUIDs")
+        if provider != "google_chat":
+            raise ValueError("unsupported channel disconnect provider")
+        with closing(self._connect()) as connection:
+            with tenant_transaction(connection, context) as cursor:
+                cursor.execute(
+                    "SELECT attune.disconnect_hosted_channel_destination(%s, %s, %s)",
+                    (principal_id, session_id, provider),
+                )
+                row = cursor.fetchone()
+        if row is None or type(row[0]) is not bool:
+            raise RuntimeError("channel disconnect returned no state")
+        return row[0]

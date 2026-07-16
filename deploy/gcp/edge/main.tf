@@ -122,6 +122,10 @@ resource "google_cloud_run_v2_service" "control_plane" {
         name  = "ATTUNE_HOSTED_CHANNEL_SETUP_ENABLED"
         value = tostring(var.enable_hosted_channel_setup)
       }
+      env {
+        name  = "ATTUNE_HOSTED_CHANNEL_LIFECYCLE_ENABLED"
+        value = tostring(var.enable_hosted_channel_lifecycle)
+      }
       dynamic "env" {
         for_each = var.enable_hosted_channel_setup ? [1] : []
         content {
@@ -288,6 +292,10 @@ resource "google_cloud_run_v2_service" "control_plane" {
         var.enable_hosted_channels && local.runtime.channel_broker != null
       )
       error_message = "Hosted channel setup requires active hosted channel preferences and the private channel broker."
+    }
+    precondition {
+      condition     = !var.enable_hosted_channel_lifecycle || var.enable_hosted_channel_setup
+      error_message = "Hosted channel lifecycle requires active hosted channel setup."
     }
   }
 }
@@ -722,6 +730,29 @@ resource "google_compute_security_policy" "edge" {
         enforce_on_key = "IP"
         rate_limit_threshold {
           count        = 10
+          interval_sec = 60
+        }
+      }
+    }
+  }
+
+  dynamic "rule" {
+    for_each = var.enable_hosted_channel_lifecycle ? [1] : []
+    content {
+      action      = "throttle"
+      priority    = 888
+      description = "Permit only recent-authenticated hosted Google Chat disconnection"
+      match {
+        expr {
+          expression = "request.headers['host'] == '${var.hostname}' && request.path == '/v1/onboarding/channel-installations/google-chat'"
+        }
+      }
+      rate_limit_options {
+        conform_action = "allow"
+        exceed_action  = "deny(429)"
+        enforce_on_key = "IP"
+        rate_limit_threshold {
+          count        = 5
           interval_sec = 60
         }
       }

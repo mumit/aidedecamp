@@ -159,6 +159,60 @@ class HostedChannelSetupService:
             raise RuntimeError("channel delivery test failed")
         return self._setups.read(context, principal_id=principal_id)
 
+    def disconnect(
+        self,
+        context: TenantContext,
+        *,
+        principal_id: UUID,
+        session_id: UUID,
+        provider: str,
+    ):
+        if provider != "google_chat":
+            raise ValueError("unsupported channel disconnect provider")
+        attempt_id = uuid4()
+        target = hashlib.sha256(
+            b"attune-channel-disconnect-v1:" + provider.encode("ascii")
+        ).digest()
+        if not self._record_disconnect(
+            context,
+            principal_id=principal_id,
+            session_id=session_id,
+            target=target,
+            attempt_id=attempt_id,
+            outcome="allowed",
+        ):
+            raise RuntimeError("channel disconnect pre-effect audit is unavailable")
+        try:
+            self._setups.disconnect(
+                context,
+                principal_id=principal_id,
+                session_id=session_id,
+                provider=provider,
+            )
+        except Exception:
+            try:
+                self._record_disconnect(
+                    context,
+                    principal_id=principal_id,
+                    session_id=session_id,
+                    target=target,
+                    attempt_id=attempt_id,
+                    outcome="failed",
+                )
+            except Exception:
+                pass
+            raise
+        if not self._record_disconnect(
+            context,
+            principal_id=principal_id,
+            session_id=session_id,
+            target=target,
+            attempt_id=attempt_id,
+            outcome="observed",
+        ):
+            raise RuntimeError("channel disconnect outcome audit is unavailable")
+        return self._setups.read(context, principal_id=principal_id)
+
     def _record(
         self,
         context: TenantContext,
@@ -216,5 +270,35 @@ class HostedChannelSetupService:
             target_type="channel_destination",
             target_ref_hash=target,
             metadata={"schema_version": 1, "content_profile": "fixed_connection_test_v1"},
+        )
+        return self._writer.write(intent.id)
+
+    def _record_disconnect(
+        self,
+        context: TenantContext,
+        *,
+        principal_id: UUID,
+        session_id: UUID,
+        target: bytes,
+        attempt_id: UUID,
+        outcome: str,
+    ) -> bool:
+        intent = self._audit.request(
+            context,
+            idempotency_key=hashlib.sha256(
+                b"attune-hosted-channel-disconnect-v1:"
+                + attempt_id.bytes
+                + b":"
+                + session_id.bytes
+                + b":"
+                + outcome.encode("ascii")
+            ).digest(),
+            actor_type="principal",
+            actor_ref_hash=hashlib.sha256(principal_id.bytes).digest(),
+            action="hosted.channels.destination.disconnect",
+            outcome=outcome,
+            target_type="channel_destination",
+            target_ref_hash=target,
+            metadata={"schema_version": 1, "provider": "google_chat"},
         )
         return self._writer.write(intent.id)

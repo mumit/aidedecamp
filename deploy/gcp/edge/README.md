@@ -145,6 +145,19 @@ setting; it added or destroyed no resources. Health returned 200, the exact
 installation-status path remained denied by Cloud Armor with 403, and the
 following edge plan was empty. Priority `887` was not activated.
 
+Hosted channel lifecycle is a separate default-off
+`enable_hosted_channel_lifecycle` gate. It requires channel setup and adds only
+`DELETE /v1/onboarding/channel-installations/google-chat` at Cloud Armor
+priority `888`, limited to five requests per minute per source IP. The
+application additionally requires a recent session, same-origin and CSRF
+proofs, JSON content type, and the exact body
+`{"confirmation":"disconnect"}`. No tenant, principal, destination,
+installation, actor, route, or provider resource is accepted from the browser.
+Apply and verify migration 0026 before enabling this gate. Deploy the updated
+control-plane image with the flag false first; activation and a live destructive
+disconnect/relink test require a separate reviewed plan and explicit owner
+action.
+
 Verified Google Chat events use a separate two-stage edge gate. With
 `deploy_google_chat_ingress=true` and `enable_google_chat_ingress=false`,
 Terraform may create the no-default-URI Cloud Run service, serverless NEG,

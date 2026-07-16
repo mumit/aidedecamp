@@ -121,6 +121,12 @@ variable "enable_hosted_channel_setup" {
   default     = false
 }
 
+variable "enable_hosted_channel_lifecycle" {
+  description = "Expose the recent-authenticated hosted channel disconnect and replacement ceremony."
+  type        = bool
+  default     = false
+}
+
 variable "deploy_google_chat_ingress" {
   description = "Deploy the verified Google Chat ingress behind an unrouted load-balancer backend."
   type        = bool

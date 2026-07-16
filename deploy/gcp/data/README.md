@@ -376,6 +376,25 @@ sign-in issues an opaque Attune session, and all three Terraform roots return a
 zero-change plan. Do not retain the Identity Platform API response or put it in
 a support bundle.
 
+## Google Chat destination lifecycle migration
+
+Migration `0026_google_chat_destination_lifecycle.sql` adds no user data and
+performs no disconnection during migration. It creates the memberless
+`attune_channel_lifecycle_executor`, exposes one fixed recent-session function
+to the control plane, and extends the existing broker-owned link function to
+reuse only a revoked canonical destination after a fresh one-time proof. The
+lifecycle function cancels outstanding setup claims, deletes the encrypted
+route, revokes the destination and installation, clears delivery authority,
+and returns onboarding to `authorized` in one transaction. Ordinary runtime
+roles retain no direct mutation privilege.
+
+Before applying, the saved data plan may update only the immutable migrator and
+identity-provision job images. Run the migration job, require the verifier to
+report all tenant tables forced through RLS and exact function-owner
+privileges, then require an empty data plan. Keep the independent edge
+`enable_hosted_channel_lifecycle` gate false until the new control-plane image
+is Ready and the destructive owner ceremony is approved.
+
 ## Production gates
 
 Before this job or schema is promoted beyond development:

@@ -117,25 +117,29 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
         migration.name for migration in migrations
     )
     assert migrations[0].name == "0001_tenant_boundary.sql"
-    assert migrations[-1].name == "0025_google_chat_conversation_delivery.sql"
+    assert migrations[-1].name == "0026_google_chat_destination_lifecycle.sql"
     assert all(
         migration.checksum == hashlib.sha256(migration.sql.encode()).hexdigest()
         for migration in migrations
     )
-    channel_broker = migrations[-3].sql
+    channel_broker = migrations[-4].sql
     assert "GRANT attune_channel_link_executor TO %I" in channel_broker
     assert "GRANT CREATE ON SCHEMA attune TO attune_channel_link_executor" in channel_broker
     assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_link_executor" in channel_broker
     assert "REVOKE attune_channel_link_executor FROM %I" in channel_broker
-    conversation = migrations[-2].sql
+    conversation = migrations[-3].sql
     assert "LIMIT 2" in conversation
     assert "GRANT attune_channel_message_executor TO %I" in conversation
     assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_message_executor" in conversation
     assert "TO attune_channel_broker" in conversation
-    delivery = migrations[-1].sql
+    delivery = migrations[-2].sql
     assert "hosted_channel_deliveries" in delivery
     assert "already_delivered boolean" in delivery
     assert "TO attune_channel_broker" in delivery
+    lifecycle = migrations[-1].sql
+    assert "attune_channel_lifecycle_executor" in lifecycle
+    assert "disconnect_hosted_channel_destination" in lifecycle
+    assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_lifecycle_executor" in lifecycle
 
 
 def test_tenant_context_rejects_non_uuid_values():
@@ -246,7 +250,7 @@ def initialized_database(database_url: str):
             cursor.execute(f'CREATE ROLE "{role}" NOLOGIN INHERIT')
     admin.autocommit = False
 
-    assert apply_migrations(admin) == 25
+    assert apply_migrations(admin) == 26
     with admin.cursor() as cursor:
         cursor.execute("GRANT attune_worker TO attune_test_stale_member")
     admin.commit()
@@ -1103,6 +1107,111 @@ def test_google_chat_conversation_delivery_is_canonical_replay_safe_and_broker_o
         direct.rollback()
     finally:
         direct.close()
+
+
+def test_google_chat_destination_disconnect_blocks_use_and_allows_explicit_relink(
+    initialized_database, database_url
+):
+    psycopg = pytest.importorskip("psycopg")
+    context = TenantContext(CHANNEL_TENANT)
+    setups = PostgresHostedChannelSetupRepository(
+        _role_connection_factory(database_url, ROLE_BINDINGS["attune_control_plane"])
+    )
+    broker = PostgresChannelBrokerRepository(
+        _role_connection_factory(database_url, ROLE_BINDINGS["attune_channel_broker"])
+    )
+    writer = PostgresAuditWriterRepository(
+        _role_connection_factory(database_url, ROLE_BINDINGS["attune_audit_writer"])
+    )
+    with tenant_transaction(initialized_database, context) as cursor:
+        cursor.execute(
+            "UPDATE attune.identity_sessions SET created_at = clock_timestamp() "
+            "WHERE tenant_id = %s AND id = %s",
+            (CHANNEL_TENANT, CHANNEL_SESSION),
+        )
+        cursor.execute(
+            "SELECT id, installation_ref_hash, actor_ref_hash, "
+            "destination_ref_hash FROM attune.hosted_channel_destinations "
+            "WHERE tenant_id = %s AND provider = 'google_chat'",
+            (CHANNEL_TENANT,),
+        )
+        destination_id, installation_hash, actor_hash, destination_hash = cursor.fetchone()
+
+    assert setups.disconnect(
+        context,
+        principal_id=CHANNEL_PRINCIPAL,
+        session_id=CHANNEL_SESSION,
+        provider="google_chat",
+    ) is True
+    assert setups.disconnect(
+        context,
+        principal_id=CHANNEL_PRINCIPAL,
+        session_id=CHANNEL_SESSION,
+        provider="google_chat",
+    ) is False
+    states = {
+        state.provider: state
+        for state in setups.read(context, principal_id=CHANNEL_PRINCIPAL)
+    }
+    assert states["google_chat"].destination_state == "revoked"
+    with pytest.raises(psycopg.errors.NoDataFound):
+        broker.accept_message(
+            installation_ref_hash=installation_hash,
+            actor_ref_hash=actor_hash,
+            destination_ref_hash=destination_hash,
+            message_ref_hash=hashlib.sha256(b"message-after-disconnect").digest(),
+            text="This must not be accepted",
+        )
+    with tenant_transaction(initialized_database, context) as cursor:
+        cursor.execute(
+            "SELECT count(*) FROM attune.hosted_channel_routes "
+            "WHERE tenant_id = %s AND destination_id = %s",
+            (CHANNEL_TENANT, destination_id),
+        )
+        assert cursor.fetchone() == (0,)
+
+    secret = b"explicit-replacement-link"
+    started = setups.begin(
+        context,
+        principal_id=CHANNEL_PRINCIPAL,
+        session_id=CHANNEL_SESSION,
+        provider="google_chat",
+        mechanism="link_code",
+        secret_hash=hashlib.sha256(secret).digest(),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=9),
+    )
+    claim_hash = hashlib.sha256(b"replacement-claim").digest()
+    claim = broker.claim(
+        secret_hash=hashlib.sha256(secret).digest(),
+        claim_hash=claim_hash,
+        expires_at=datetime.now(timezone.utc) + timedelta(seconds=30),
+    )
+    assert writer.write(claim.pre_audit_intent_id) is not None
+    candidate_id = UUID("30000000-0000-4000-8000-000000000109")
+    resolved_id = broker.resolve_destination_id(
+        secret_hash=hashlib.sha256(secret).digest(),
+        claim_hash=claim_hash,
+        candidate_id=candidate_id,
+    )
+    assert resolved_id == candidate_id
+    linked = broker.consume(
+        secret_hash=hashlib.sha256(secret).digest(),
+        claim_hash=claim_hash,
+        installation_ref_hash=installation_hash,
+        actor_ref_hash=actor_hash,
+        destination_ref_hash=destination_hash,
+        destination_id=resolved_id,
+        encrypted=EncryptedCredential(
+            ciphertext=b"r" * 32,
+            nonce=b"q" * 12,
+            wrapped_dek=b"k" * 32,
+            key_resource="projects/test/locations/test/keyRings/test/cryptoKeys/test",
+        ),
+    )
+    assert started.state == "pending"
+    assert linked.destination_id == destination_id
+    assert linked.destination_status == "pending_test"
+    assert writer.write(linked.outcome_audit_intent_id) is not None
 
 
 def test_rls_hides_other_tenant_rows_and_vectors(initialized_database):

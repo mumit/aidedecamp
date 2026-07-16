@@ -60,12 +60,20 @@ def create_production_app():
     if channel_setup_enabled_value not in {"true", "false"}:
         raise ValueError("ATTUNE_HOSTED_CHANNEL_SETUP_ENABLED must be true or false")
     channel_setup_enabled = channel_setup_enabled_value == "true"
+    channel_lifecycle_enabled_value = os.environ.get(
+        "ATTUNE_HOSTED_CHANNEL_LIFECYCLE_ENABLED", "false"
+    )
+    if channel_lifecycle_enabled_value not in {"true", "false"}:
+        raise ValueError("ATTUNE_HOSTED_CHANNEL_LIFECYCLE_ENABLED must be true or false")
+    channel_lifecycle_enabled = channel_lifecycle_enabled_value == "true"
     if policy_enabled and not onboarding_enabled:
         raise ValueError("hosted policy requires hosted onboarding")
     if channels_enabled and not onboarding_enabled:
         raise ValueError("hosted channels require hosted onboarding")
     if channel_setup_enabled and not channels_enabled:
         raise ValueError("hosted channel setup requires hosted channels")
+    if channel_lifecycle_enabled and not channel_setup_enabled:
+        raise ValueError("hosted channel lifecycle requires hosted channel setup")
     if onboarding_enabled and not identity_enabled:
         raise ValueError("hosted onboarding requires identity")
     if test_enabled and not oauth_enabled:
@@ -156,6 +164,7 @@ def create_production_app():
             else None
         ),
         hosted_channel_setup_enabled=channel_setup_enabled,
+        hosted_channel_lifecycle_enabled=channel_lifecycle_enabled,
         hosted_channel_setup=(
             HostedChannelSetupService(
                 PostgresHostedChannelSetupRepository(iam_connection),

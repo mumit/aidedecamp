@@ -22,6 +22,7 @@ const googleChatInstallation = document.querySelector("#google-chat-installation
 const googleChatInstallationState = document.querySelector("#google-chat-installation-state");
 const googleChatLinkStart = document.querySelector("#google-chat-link-start");
 const googleChatDeliveryTest = document.querySelector("#google-chat-delivery-test");
+const googleChatDisconnect = document.querySelector("#google-chat-disconnect");
 const googleChatLinkInstructions = document.querySelector("#google-chat-link-instructions");
 const googleChatLinkCommand = document.querySelector("#google-chat-link-command");
 const googleChatLinkExpiry = document.querySelector("#google-chat-link-expiry");
@@ -35,6 +36,7 @@ const status = document.querySelector("#status");
 let hostedPolicyAvailable = false;
 let hostedChannelsAvailable = false;
 let hostedChannelSetupAvailable = false;
+let hostedChannelLifecycleAvailable = false;
 
 function show(message, kind = "info") {
   status.textContent = message;
@@ -265,6 +267,7 @@ async function showOnboarding(session) {
   hostedPolicyAvailable = session.hosted_policy === "available";
   hostedChannelsAvailable = session.hosted_channels === "available";
   hostedChannelSetupAvailable = session.hosted_channel_setup === "available";
+  hostedChannelLifecycleAvailable = session.hosted_channel_lifecycle === "available";
   const state = await json(
     await fetch("/v1/onboarding", {
       credentials: "same-origin",
@@ -384,6 +387,10 @@ function renderChannelInstallations(payload) {
     }
     googleChatDeliveryTest.hidden = destination !== "pending_test";
     googleChatDeliveryTest.disabled = false;
+    googleChatDisconnect.hidden =
+      !hostedChannelLifecycleAvailable ||
+      !["active", "pending_test", "needs_relink"].includes(destination);
+    googleChatDisconnect.disabled = false;
   }
 }
 
@@ -457,6 +464,48 @@ googleChatDeliveryTest.addEventListener("click", async () => {
       show("Sign out and sign in again before testing Google Chat delivery.", "pending");
     } else {
       show("Google Chat delivery could not be verified. No workspace data was sent.", "error");
+    }
+  }
+});
+
+googleChatDisconnect.addEventListener("click", async () => {
+  if (
+    !window.confirm(
+      "Disconnect Google Chat? Attune will immediately stop accepting messages and sending replies to this destination. You can relink later.",
+    )
+  ) return;
+  googleChatDisconnect.disabled = true;
+  show("Disconnecting Google Chat…");
+  try {
+    const csrf = cookie("__Host-attune_csrf");
+    if (!csrf) throw new Error("missing session binding");
+    const result = await json(
+      await fetch("/v1/onboarding/channel-installations/google-chat", {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "X-Attune-CSRF": csrf,
+        },
+        body: JSON.stringify({ confirmation: "disconnect" }),
+      }),
+    );
+    googleChatLinkInstructions.hidden = true;
+    googleChatLinkCommand.textContent = "";
+    googleChatLinkStart.textContent = "Generate Google Chat link code";
+    renderChannelInstallations(result);
+    if (result.onboarding) renderOnboarding(result.onboarding);
+    show(
+      "Google Chat is disconnected. Attune no longer accepts messages or sends replies to that destination.",
+      "success",
+    );
+  } catch (error) {
+    googleChatDisconnect.disabled = false;
+    if (error.code === "recent_authentication_required") {
+      show("Sign out and sign in again before disconnecting Google Chat.", "pending");
+    } else {
+      show("Google Chat could not be disconnected. Please try again.", "error");
     }
   }
 });

@@ -97,6 +97,8 @@ class HostedChannelSetup(Protocol):
 
     def test_delivery(self, context, **kwargs): ...
 
+    def disconnect(self, context, **kwargs): ...
+
 
 def create_app(
     expected_host: str,
@@ -121,6 +123,7 @@ def create_app(
     hosted_channels: HostedChannels | None = None,
     hosted_channel_setup_enabled: bool = False,
     hosted_channel_setup: HostedChannelSetup | None = None,
+    hosted_channel_lifecycle_enabled: bool = False,
     token_verifier: Callable[[str, str], VerifiedIdentity] = (
         verify_identity_platform_token
     ),
@@ -185,6 +188,10 @@ def create_app(
         raise ValueError(
             "enabled hosted channel setup requires channel preferences and an "
             "audited setup service"
+        )
+    if hosted_channel_lifecycle_enabled and not hosted_channel_setup_enabled:
+        raise ValueError(
+            "enabled hosted channel lifecycle requires hosted channel setup"
         )
     app = Flask(__name__, static_url_path="/assets")
     app.config.update(
@@ -353,6 +360,11 @@ def create_app(
                     "hosted_channel_setup": (
                         "available"
                         if hosted_channel_setup_enabled
+                        else "not_configured"
+                    ),
+                    "hosted_channel_lifecycle": (
+                        "available"
+                        if hosted_channel_lifecycle_enabled
                         else "not_configured"
                     ),
                 }
@@ -776,6 +788,57 @@ def create_app(
                 except Exception:
                     return jsonify({"error": "channel_delivery_unavailable"}), 503
                 return jsonify(_public_channel_installations(states))
+
+            if hosted_channel_lifecycle_enabled:
+
+                @app.delete("/v1/onboarding/channel-installations/google-chat")
+                def disconnect_google_chat_destination():
+                    if not request.is_json:
+                        return jsonify({"error": "invalid_request"}), 400
+                    payload = request.get_json(silent=True)
+                    if not isinstance(payload, dict) or payload != {
+                        "confirmation": "disconnect"
+                    }:
+                        return jsonify({"error": "invalid_request"}), 400
+                    session = _authorize_mutation(
+                        request,
+                        expected_origin,
+                        sessions,  # type: ignore[arg-type]
+                        recent=True,
+                    )
+                    if session is None:
+                        current = _authorize_mutation(
+                            request,
+                            expected_origin,
+                            sessions,  # type: ignore[arg-type]
+                        )
+                        if current is not None:
+                            return jsonify(
+                                {"error": "recent_authentication_required"}
+                            ), 409
+                        return jsonify({"error": "invalid_session"}), 401
+                    try:
+                        states = hosted_channel_setup.disconnect(  # type: ignore[union-attr]
+                            session.context,
+                            principal_id=session.principal_id,
+                            session_id=session.id,
+                            provider="google_chat",
+                        )
+                        onboarding = hosted_onboarding.read(  # type: ignore[union-attr]
+                            session.context, principal_id=session.principal_id
+                        )
+                    except ValueError:
+                        return jsonify({"error": "invalid_channel_disconnect"}), 400
+                    except Exception:
+                        return jsonify({"error": "channel_disconnect_unavailable"}), 503
+                    return jsonify(
+                        {
+                            **_public_channel_installations(states),
+                            "onboarding": _public_onboarding(onboarding)
+                            if onboarding is not None
+                            else None,
+                        }
+                    )
 
     @app.errorhandler(400)
     def bad_request(_error):

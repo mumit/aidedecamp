@@ -138,6 +138,23 @@ replacement/disconnection ceremony. Provider removal, token revocation,
 signature/audience failure, owner mismatch, or destination visibility change
 fails closed and moves the affected route out of active service.
 
+Google Chat disconnection is a distinct browser ceremony. It requires recent
+authentication, same-origin and CSRF proofs, and the exact confirmation value;
+the request contains no tenant, principal, installation, destination, actor,
+route, or provider resource. Migration 0026 gives a dedicated memberless
+`attune_channel_lifecycle_executor` just enough authority to resolve the
+canonical owner destination, cancel outstanding setup claims, delete its
+encrypted route, revoke the destination and installation, clear delivery
+claims, and return onboarding to `authorized`. The ordinary control plane
+cannot update those tables directly.
+
+Relinking after revocation starts with a fresh one-use link transaction. The
+broker may reuse the durable destination row only after the signed Google app,
+human actor, and DM facts pass the new proof. It replaces the encrypted route,
+sets the destination to `pending_test`, and requires the fixed delivery test
+before either ingress or outbound delivery becomes active. Existing active or
+pending destinations remain non-retargetable.
+
 ## Activation gates
 
 1. Apply and verify the storage migration with no runtime consume grant.

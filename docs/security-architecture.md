@@ -583,6 +583,16 @@ minimal event, and returns promptly.
   provider idempotency authority. Claim and completion state MUST be durable,
   forced through RLS for ordinary workloads, and exposed cross-tenant only by
   a memberless reviewed function owner.
+- **SEC-701G.** Hosted channel disconnection and replacement MUST require a
+  same-origin, CSRF-authorized application session authenticated within the
+  previous ten minutes plus an exact destructive confirmation. The browser
+  MUST NOT submit tenant, principal, installation, destination, route, actor,
+  or provider references. A memberless lifecycle function owner MUST
+  atomically revoke the canonical destination and installation, cancel live
+  setup claims, remove the encrypted route, clear delivery authority, and move
+  onboarding out of validated state. Relinking MUST use a new one-use provider
+  proof and fixed delivery test; it MUST NOT revive or retarget a revoked route
+  from browser input. Pre-effect and outcome audit are mandatory.
 - **SEC-702.** Ingress MUST apply TLS, body/header limits, content-type checks,
   strict schemas, event-type allowlists, rate limits, deduplication, and safe
   parser configuration before queueing.

@@ -85,9 +85,14 @@ uses fixed model tasks and brokered bounded Gmail/Calendar reads, refuses
 free-form writes, and delivers the stored response through the private channel
 broker. General, Gmail, Calendar, and mutation-refusal journeys have live
 end-to-end evidence with content-free audits and empty Terraform plans. This is
-a development activation, not an operated-production launch gate. Slack
-installation, customer-visible lifecycle controls, adversarial assurance, and
-external security review remain later independent slices.
+a development activation, not an operated-production launch gate. Google Chat
+destination disconnect and deliberate replacement are implemented behind an
+independent default-off gate: canonical ingress/delivery authority and the
+encrypted route are revoked immediately, and reconnection requires a fresh
+owner-DM link plus fixed delivery test. Workspace disconnect/reconnect was
+already live. Slack installation/lifecycle, retention controls,
+export/deletion, support repair, customer-visible audit, adversarial assurance,
+and external security review remain later independent slices.
 
 The first platform mapping is [`hosted-gcp.md`](hosted-gcp.md), and the initial
 declarative substrate is `deploy/gcp/foundation`. Applying that foundation does
