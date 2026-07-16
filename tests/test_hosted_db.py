@@ -114,16 +114,21 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
         migration.name for migration in migrations
     )
     assert migrations[0].name == "0001_tenant_boundary.sql"
-    assert migrations[-1].name == "0023_google_chat_delivery_test.sql"
+    assert migrations[-1].name == "0024_google_chat_conversation_acceptance.sql"
     assert all(
         migration.checksum == hashlib.sha256(migration.sql.encode()).hexdigest()
         for migration in migrations
     )
-    channel_broker = migrations[-1].sql
+    channel_broker = migrations[-2].sql
     assert "GRANT attune_channel_link_executor TO %I" in channel_broker
     assert "GRANT CREATE ON SCHEMA attune TO attune_channel_link_executor" in channel_broker
     assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_link_executor" in channel_broker
     assert "REVOKE attune_channel_link_executor FROM %I" in channel_broker
+    conversation = migrations[-1].sql
+    assert "LIMIT 2" in conversation
+    assert "GRANT attune_channel_message_executor TO %I" in conversation
+    assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_message_executor" in conversation
+    assert "TO attune_channel_broker" in conversation
 
 
 def test_tenant_context_rejects_non_uuid_values():
@@ -234,7 +239,7 @@ def initialized_database(database_url: str):
             cursor.execute(f'CREATE ROLE "{role}" NOLOGIN INHERIT')
     admin.autocommit = False
 
-    assert apply_migrations(admin) == 23
+    assert apply_migrations(admin) == 24
     with admin.cursor() as cursor:
         cursor.execute("GRANT attune_worker TO attune_test_stale_member")
     admin.commit()

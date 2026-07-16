@@ -38,6 +38,7 @@ FUNCTION_OWNER_ROLES = (
     "attune_policy_executor",
     "attune_channel_config_executor",
     "attune_channel_link_executor",
+    "attune_channel_message_executor",
 )
 
 FUNCTION_OWNER_TABLE_PRIVILEGES = frozenset(
@@ -181,6 +182,32 @@ FUNCTION_OWNER_TABLE_PRIVILEGES = frozenset(
             "attune.hosted_channel_setup_transactions",
             "UPDATE",
         ),
+        ("attune_channel_message_executor", "attune.tenants", "SELECT"),
+        ("attune_channel_message_executor", "attune.principals", "SELECT"),
+        ("attune_channel_message_executor", "attune.installations", "SELECT"),
+        ("attune_channel_message_executor", "attune.connectors", "SELECT"),
+        ("attune_channel_message_executor", "attune.policies", "SELECT"),
+        ("attune_channel_message_executor", "attune.hosted_channel_preferences", "SELECT"),
+        ("attune_channel_message_executor", "attune.hosted_channel_destinations", "SELECT"),
+        ("attune_channel_message_executor", "attune.hosted_channel_routes", "SELECT"),
+        ("attune_channel_message_executor", "attune.provider_events", "SELECT"),
+        ("attune_channel_message_executor", "attune.provider_events", "INSERT"),
+        ("attune_channel_message_executor", "attune.provider_events", "UPDATE"),
+        ("attune_channel_message_executor", "attune.conversations", "SELECT"),
+        ("attune_channel_message_executor", "attune.conversations", "INSERT"),
+        ("attune_channel_message_executor", "attune.conversations", "UPDATE"),
+        ("attune_channel_message_executor", "attune.conversation_turns", "SELECT"),
+        ("attune_channel_message_executor", "attune.conversation_turns", "INSERT"),
+        ("attune_channel_message_executor", "attune.conversation_turns", "UPDATE"),
+        ("attune_channel_message_executor", "attune.jobs", "SELECT"),
+        ("attune_channel_message_executor", "attune.jobs", "INSERT"),
+        ("attune_channel_message_executor", "attune.jobs", "UPDATE"),
+        ("attune_channel_message_executor", "attune.dispatch_intents", "SELECT"),
+        ("attune_channel_message_executor", "attune.dispatch_intents", "INSERT"),
+        ("attune_channel_message_executor", "attune.dispatch_intents", "UPDATE"),
+        ("attune_channel_message_executor", "attune.audit_intents", "SELECT"),
+        ("attune_channel_message_executor", "attune.audit_intents", "INSERT"),
+        ("attune_channel_message_executor", "attune.audit_intents", "UPDATE"),
     }
 )
 
@@ -484,6 +511,7 @@ def verify_database_boundary(connection: Any, bindings: dict[str, str]) -> None:
             "attune_policy_executor": (True, False, True, False),
             "attune_channel_config_executor": (True, False, False, False),
             "attune_channel_link_executor": (True, False, False, False),
+            "attune_channel_message_executor": (True, False, True, False),
         }:
             raise RuntimeError("function owner schema privileges do not match policy")
 
@@ -711,6 +739,11 @@ def verify_database_boundary(connection: Any, bindings: dict[str, str]) -> None:
                 "attune.complete_google_chat_delivery_test(uuid,bytea,boolean)",
                 "attune_channel_broker",
                 "attune_channel_link_executor",
+            ),
+            (
+                "attune.accept_google_chat_owner_message(bytea,bytea,bytea,bytea,text)",
+                "attune_channel_broker",
+                "attune_channel_message_executor",
             ),
         )
         for signature, role, expected_owner in privileged_functions:
