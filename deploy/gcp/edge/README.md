@@ -162,6 +162,15 @@ explicit `google_chat_provider_ready=true` attestation. The saved activation
 plan must add only the exact URL-map path and Cloud Armor allow rule. Never
 route the provider path to the ordinary control-plane backend.
 
+Ordinary owner-DM conversation has its own edge gate,
+`enable_google_chat_conversation`, which defaults to `false` and requires the
+provider ingress itself to be active. Leave it false through the dormant
+runtime rollout. After the runtime conversation route, worker-to-broker grant,
+model gateway, paging, and live private-boundary checks pass, set it to `true`
+in a separate saved plan. That plan may add only the dispatch-broker URL and
+audience to the dedicated ingress service; it must not grant the public ingress
+Workspace, model, database, or outbound-provider authority.
+
 These controls establish URL non-retention; they do not by themselves activate
 OAuth. The server-side transaction, PKCE exchange, callback-to-exchange
 workload identity, and private broker handoff are implemented. A separate

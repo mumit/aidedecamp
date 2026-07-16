@@ -324,15 +324,16 @@ class GoogleChatConversationExecutor:
         capability: str, now: datetime,
     ) -> UUID:
         key = hashlib.sha256(
-            f"attune-google-chat-converse-v1:{capability}:{context.tenant_id}:{job.id}:{connector_id}".encode()
+            (
+                "attune-google-chat-converse-v1:"
+                f"{capability}:{context.tenant_id}:{job.id}:{job.attempts}:{connector_id}"
+            ).encode()
         ).digest()
         intent = self._intents.request(
             context, connector_id=connector_id, operation="use",
             capability=capability, idempotency_key=key,
             expires_at=now + timedelta(minutes=2),
         )
-        if intent.state == "consumed":
-            return intent.id
         if intent.state != "requested":
             raise RuntimeError("credential intent is unavailable")
         return intent.id

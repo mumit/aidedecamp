@@ -273,6 +273,17 @@ revisions failed closed during startup—first for a missing web runtime and the
 for overly strict base64 padding handling—and never served traffic. The fixes
 are covered by image-runtime and canonical-key regression tests.
 
+Hosted Google Chat conversation is a second, independent default-off gate.
+Keep `enable_google_chat_conversation=false` while deploying and validating the
+worker, secret-broker, and channel-broker images. Setting it to `true` registers
+only the fixed `channel.google_chat.converse` / `assistant.conversation.read`
+route, supplies the worker with the private broker and model-gateway audiences,
+and grants the worker invoker access to the channel broker. It requires the
+dispatch broker, channel broker, model gateway, paging, and their immutable
+images. It does not make the public Chat endpoint enqueue ordinary messages;
+that requires the separate edge gate after runtime validation. Review a saved
+plan and confirm it contains no other authority or service changes.
+
 Worker deployment does not enable delivery. Copy the worker output's URI
 hostname and custom audience into the two nullable jobs-worker variables in the
 foundation root, review the queue-only in-place plan, and apply it. Confirm the

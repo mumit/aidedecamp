@@ -132,6 +132,20 @@ Chat API origin and `chat.bot` scope, derives a deterministic request ID, and
 validates the returned message resource. A retry therefore cannot intentionally
 fan out to another destination and Google can deduplicate the provider create.
 
+The worker cannot supply reply text, tenant identity, a provider route, or a
+provider request ID to this boundary. A broker-owned, forced-RLS
+`hosted_channel_deliveries` record binds the canonical job, assistant turn,
+destination, and delivery state. A memberless `NOLOGIN BYPASSRLS` function
+owner resolves that record for the broker; only the broker's login role may
+claim or complete it. The broker reads the stored assistant turn itself and
+uses the job UUID as Google's deterministic request ID. This keeps model output
+out of the cross-tenant API and prevents destination or body substitution by a
+compromised worker.
+
+Credential-use idempotency keys include the durable job attempt. An actual
+re-lease can therefore request a fresh two-minute intent, while a consumed
+intent in the same attempt fails closed instead of replaying a provider call.
+
 The job is successful only after provider acknowledgement and content-free
 post-effect audit. Ambiguous model, Workspace, database, audit, or provider
 outcomes enter reconciliation instead of being treated as safe retries.
@@ -167,3 +181,10 @@ The feature defaults off. Development activation requires, in order:
 10. content-free audit verification and empty post-apply Terraform plans.
 
 Passing link or fixed-content delivery tests does not satisfy these gates.
+
+Development completed steps 1 through 4 on 2026-07-16 UTC. Migration 0025
+applied under the dedicated migrator and reported 33 forced-RLS tenant tables.
+The worker, secret-broker, and channel-broker conversation images then deployed
+as Ready revisions while `enable_google_chat_conversation=false`; the saved
+plan changed only those three services, its post-apply plan was empty, and no
+worker-to-channel-broker invoker grant or dispatch route was activated.

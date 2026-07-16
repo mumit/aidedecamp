@@ -52,12 +52,13 @@ class Work:
 
 
 class Intents:
-    def __init__(self):
+    def __init__(self, state="requested"):
         self.calls = []
+        self.state = state
 
     def request(self, context, **kwargs):
         self.calls.append(kwargs)
-        return SimpleNamespace(id=INTENT, state="requested")
+        return SimpleNamespace(id=INTENT, state=self.state)
 
 
 class Workspace:
@@ -129,3 +130,32 @@ def test_mutation_request_is_refused_without_workspace_or_answer_model():
     assert [call["task"] for call in models.calls] == ["classify"]
     assert "does not perform" in work.appended[0]["content"]
     assert replies.calls
+
+
+def test_workspace_intent_is_attempt_bound_and_consumed_intent_fails_closed():
+    executor = GoogleChatConversationExecutor(
+        Work("Check Gmail"), Intents("consumed"), Workspace(), Models(), Replies(),
+        now=lambda: NOW,
+    )
+    try:
+        executor(TenantContext(TENANT), job())
+    except RuntimeError as error:
+        assert str(error) == "credential intent is unavailable"
+    else:
+        raise AssertionError("consumed credential intent was reused")
+
+    first, second = Intents(), Intents()
+    executor = GoogleChatConversationExecutor(
+        Work("Check Gmail"), first, Workspace(), Models(), Replies(), now=lambda: NOW,
+    )
+    executor(TenantContext(TENANT), job())
+    retry = job()
+    retry = HostedJob(
+        retry.id, retry.kind, retry.state, retry.capability, retry.payload,
+        retry.attempts + 1, retry.available_at, retry.lease_expires_at,
+    )
+    executor = GoogleChatConversationExecutor(
+        Work("Check Gmail"), second, Workspace(), Models(), Replies(), now=lambda: NOW,
+    )
+    executor(TenantContext(TENANT), retry)
+    assert first.calls[0]["idempotency_key"] != second.calls[0]["idempotency_key"]

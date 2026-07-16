@@ -575,6 +575,14 @@ minimal event, and returns promptly.
   and models; callers MUST NOT supply URLs, credentials, headers, tools, or
   callbacks. The gateway MUST have no tenant database or Workspace authority,
   and workers MUST NOT receive the model credential.
+- **SEC-701F.** A hosted conversation worker MUST request reply delivery using
+  only a canonical destination reference and durable job reference. A private
+  broker MUST resolve the tenant, active encrypted route, stored assistant
+  turn, provider text, and deterministic provider request ID from database
+  state. The worker MUST NOT supply provider route, message body, tenant, or
+  provider idempotency authority. Claim and completion state MUST be durable,
+  forced through RLS for ordinary workloads, and exposed cross-tenant only by
+  a memberless reviewed function owner.
 - **SEC-702.** Ingress MUST apply TLS, body/header limits, content-type checks,
   strict schemas, event-type allowlists, rate limits, deduplication, and safe
   parser configuration before queueing.
