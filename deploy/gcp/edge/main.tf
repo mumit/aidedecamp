@@ -108,6 +108,20 @@ resource "google_cloud_run_v2_service" "control_plane" {
         }
       }
       dynamic "env" {
+        for_each = var.enable_google_workspace_oauth ? [1] : []
+        content {
+          name  = "ATTUNE_SECRET_BROKER_URL"
+          value = local.runtime.secret_broker.uri
+        }
+      }
+      dynamic "env" {
+        for_each = var.enable_google_workspace_oauth ? [1] : []
+        content {
+          name  = "ATTUNE_SECRET_BROKER_AUDIENCE"
+          value = local.runtime.secret_broker.audience
+        }
+      }
+      dynamic "env" {
         for_each = var.enable_identity_sign_in ? [1] : []
         content {
           name  = "ATTUNE_IDENTITY_API_KEY"
@@ -402,6 +416,29 @@ resource "google_compute_security_policy" "edge" {
       match {
         expr {
           expression = "request.headers['host'] == '${var.hostname}' && request.path == '/v1/connectors/google/test'"
+        }
+      }
+      rate_limit_options {
+        conform_action = "allow"
+        exceed_action  = "deny(429)"
+        enforce_on_key = "IP"
+        rate_limit_threshold {
+          count        = 10
+          interval_sec = 60
+        }
+      }
+    }
+  }
+
+  dynamic "rule" {
+    for_each = var.enable_google_workspace_oauth ? [1] : []
+    content {
+      action      = "throttle"
+      priority    = 883
+      description = "Permit only authenticated Google connector disconnection"
+      match {
+        expr {
+          expression = "request.headers['host'] == '${var.hostname}' && request.path == '/v1/connectors/google'"
         }
       }
       rate_limit_options {

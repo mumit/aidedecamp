@@ -44,6 +44,7 @@ from attune.hosted.repositories import (
 )
 from attune.hosted.reconciliation import PostgresJobReconciliationRepository
 from attune.hosted.oauth import (
+    PostgresGoogleConnectorRevocationRepository,
     PostgresGoogleOAuthStartRepository,
     PostgresOAuthExchangeRepository,
     PostgresOAuthTransactionRepository,
@@ -1545,6 +1546,37 @@ def test_google_oauth_start_is_atomic_principal_bound_and_refuses_replacement(
             scopes=scopes,
             expires_at=expires_at,
         )
+
+    revocations = PostgresGoogleConnectorRevocationRepository(
+        _role_connection_factory(database_url, ROLE_BINDINGS["attune_control_plane"])
+    )
+    requested = revocations.request(
+        context,
+        principal_id=PRINCIPAL_B,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+    )
+    assert requested is not None
+    replay = revocations.request(
+        context,
+        principal_id=PRINCIPAL_B,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+    )
+    assert replay == requested
+    revoke_lease = broker.lease(
+        requested.credential_intent_id, producer_kind="control_plane"
+    )
+    assert revoke_lease is not None
+    assert revoke_lease.capability == "google.oauth.disconnect"
+    assert broker.revoke(requested.credential_intent_id)
+    assert not repository.is_connected(context, principal_id=PRINCIPAL_B)
+    assert (
+        revocations.request(
+            context,
+            principal_id=PRINCIPAL_B,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+        is None
+    )
 
 
 def test_identity_session_is_unambiguous_csrf_bound_and_function_only(

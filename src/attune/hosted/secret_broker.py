@@ -14,6 +14,7 @@ from .vault_crypto import EnvelopeCipher
 GOOGLE_GMAIL_PROFILE_ACTION = "credential.use.google.gmail.profile.read"
 GOOGLE_CALENDAR_PRIMARY_ACTION = "credential.use.google.calendar.primary.read"
 GOOGLE_OAUTH_INSTALL_ACTION = "credential.install.google.oauth"
+GOOGLE_OAUTH_DISCONNECT_ACTION = "credential.revoke.google.oauth"
 
 
 class SecretAudit(Protocol):
@@ -141,7 +142,11 @@ class SecretBroker:
         intent = self._lease(intent_id, "control_plane", "revoke")
         if intent is None:
             return SecretBrokerResult(404)
-        if not self._record(intent, action="credential.revoke", outcome="allowed"):
+        if intent.provider != "google" or intent.capability != "google.oauth.disconnect":
+            return SecretBrokerResult(404)
+        if not self._record(
+            intent, action=GOOGLE_OAUTH_DISCONNECT_ACTION, outcome="allowed"
+        ):
             return SecretBrokerResult(503)
         try:
             revoked = self._vault.revoke(intent.id)
@@ -151,7 +156,9 @@ class SecretBroker:
             return SecretBrokerResult(503)
         return SecretBrokerResult(
             204
-            if self._record(intent, action="credential.revoke", outcome="observed")
+            if self._record(
+                intent, action=GOOGLE_OAUTH_DISCONNECT_ACTION, outcome="observed"
+            )
             else 503
         )
 

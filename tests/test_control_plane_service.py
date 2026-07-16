@@ -87,6 +87,17 @@ class ConnectionTests:
         return self.state
 
 
+class Revocations:
+    def __init__(self, failure=None):
+        self.failure = failure
+        self.calls = []
+
+    def disconnect(self, context, *, principal_id):
+        self.calls.append((context, principal_id))
+        if self.failure:
+            raise self.failure
+
+
 def verified(_token, project_id):
     assert project_id == PROJECT
     return VerifiedIdentity(
@@ -430,6 +441,73 @@ def test_google_connection_test_fails_closed_and_returns_only_opaque_state():
 def test_google_connection_test_configuration_fails_closed():
     with pytest.raises(ValueError, match="connection test"):
         identity_client(google_connection_test_enabled=True)
+
+
+def test_google_disconnect_is_explicit_session_csrf_and_principal_bound():
+    revocations = Revocations()
+    client, _sessions = signed_in_client(
+        google_oauth_enabled=True,
+        google_oauth_client_id=WORKSPACE_CLIENT_ID,
+        google_oauth_starts=OAuthStarts(connected=True),
+        google_connector_revocation_enabled=True,
+        google_connector_revocations=revocations,
+    )
+    url = "/v1/connectors/google"
+    assert (
+        client.delete(
+            url,
+            json={"confirmation": "disconnect"},
+            base_url=f"https://{HOST}",
+        ).status_code
+        == 401
+    )
+    csrf = client.get_cookie("__Host-attune_csrf", domain=HOST).value
+    headers = {**same_origin(), "X-Attune-CSRF": csrf}
+    assert (
+        client.delete(url, json={}, headers=headers, base_url=f"https://{HOST}")
+        .status_code
+        == 400
+    )
+    assert (
+        client.delete(
+            url,
+            json={"confirmation": "disconnect", "connector_id": "caller"},
+            headers=headers,
+            base_url=f"https://{HOST}",
+        ).status_code
+        == 400
+    )
+    response = client.delete(
+        url,
+        json={"confirmation": "disconnect"},
+        headers=headers,
+        base_url=f"https://{HOST}",
+    )
+    assert response.status_code == 200
+    assert response.get_json() == {"status": "disconnected"}
+    assert revocations.calls == [(TenantContext(TENANT_ID), PRINCIPAL_ID)]
+
+
+def test_google_disconnect_configuration_and_failures_are_minimized():
+    with pytest.raises(ValueError, match="revocation"):
+        identity_client(google_connector_revocation_enabled=True)
+    client, _sessions = signed_in_client(
+        google_oauth_enabled=True,
+        google_oauth_client_id=WORKSPACE_CLIENT_ID,
+        google_oauth_starts=OAuthStarts(connected=True),
+        google_connector_revocation_enabled=True,
+        google_connector_revocations=Revocations(RuntimeError("provider secret")),
+    )
+    csrf = client.get_cookie("__Host-attune_csrf", domain=HOST).value
+    response = client.delete(
+        "/v1/connectors/google",
+        json={"confirmation": "disconnect"},
+        headers={**same_origin(), "X-Attune-CSRF": csrf},
+        base_url=f"https://{HOST}",
+    )
+    assert response.status_code == 503
+    assert response.get_json() == {"error": "disconnect_unavailable"}
+    assert b"provider secret" not in response.data
 
 
 def test_google_connection_test_status_maps_invalid_session_before_availability():

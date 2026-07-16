@@ -32,6 +32,12 @@ revoke, only the worker can invoke fixed provider-use routes, and only the
 exchange can invoke the fixed Google authorization-code operation. A stable
 custom audience is checked again inside the application, and caller-supplied
 tenant or connector authority is rejected.
+The control plane's revoke route additionally requires the canonical
+`google.oauth.disconnect` capability. The browser never calls this service and
+never chooses an intent or connector ID; the edge control plane creates the
+principal-bound one-use intent and sends only its UUID. Successful revocation
+atomically marks the active local credential and connector revoked. It does not
+currently revoke the upstream Google Account grant.
 The broker alone can use the connector credential KMS key and its narrow
 database functions. It requires the private audit writer before and after a
 mutation and fails closed on ambiguous results.

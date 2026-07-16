@@ -68,6 +68,10 @@ class GoogleConnectionTester(Protocol):
     def status(self, context, *, principal_id, job_id): ...
 
 
+class GoogleConnectorRevoker(Protocol):
+    def disconnect(self, context, *, principal_id) -> None: ...
+
+
 def create_app(
     expected_host: str,
     *,
@@ -81,6 +85,8 @@ def create_app(
     google_oauth_starts: GoogleOAuthStartRepository | None = None,
     google_connection_test_enabled: bool = False,
     google_connection_tests: GoogleConnectionTester | None = None,
+    google_connector_revocation_enabled: bool = False,
+    google_connector_revocations: GoogleConnectorRevoker | None = None,
     token_verifier: Callable[[str, str], VerifiedIdentity] = (
         verify_identity_platform_token
     ),
@@ -117,6 +123,13 @@ def create_app(
         raise ValueError(
             "enabled Google connection test requires Google Workspace OAuth "
             "and a fixed test service"
+        )
+    if google_connector_revocation_enabled and (
+        not google_oauth_enabled or google_connector_revocations is None
+    ):
+        raise ValueError(
+            "enabled Google connector revocation requires Google Workspace OAuth "
+            "and a fixed revocation service"
         )
     app = Flask(__name__, static_url_path="/assets")
     app.config.update(
@@ -362,6 +375,31 @@ def create_app(
             if started is None:
                 return jsonify({"error": "connector_not_connected"}), 409
             return jsonify({"job_id": str(started.job_id), "state": started.state}), 202
+
+        @app.delete("/v1/connectors/google")
+        def disconnect_google_connector():
+            if not google_connector_revocation_enabled:
+                return jsonify({"error": "disconnect_not_configured"}), 503
+            if not request.is_json:
+                return jsonify({"error": "invalid_request"}), 400
+            payload = request.get_json(silent=True)
+            if not isinstance(payload, dict) or payload != {
+                "confirmation": "disconnect"
+            }:
+                return jsonify({"error": "invalid_request"}), 400
+            authorized = _authorize_mutation(
+                request, expected_origin, sessions  # type: ignore[arg-type]
+            )
+            if authorized is None:
+                return jsonify({"error": "invalid_session"}), 401
+            try:
+                google_connector_revocations.disconnect(  # type: ignore[union-attr]
+                    authorized.context,
+                    principal_id=authorized.principal_id,
+                )
+            except Exception:
+                return jsonify({"error": "disconnect_unavailable"}), 503
+            return jsonify({"status": "disconnected"})
 
         @app.get("/v1/connectors/google/tests/<uuid:job_id>")
         def google_connector_test_status(job_id):

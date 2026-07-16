@@ -12,6 +12,7 @@ import {
 const button = document.querySelector("#google-sign-in");
 const workspace = document.querySelector("#workspace-connection");
 const workspaceButton = document.querySelector("#google-workspace-connect");
+const disconnectButton = document.querySelector("#google-workspace-disconnect");
 const status = document.querySelector("#status");
 
 function show(message, kind = "info") {
@@ -154,6 +155,8 @@ async function verifyWorkspaceConnection() {
     );
     if (result.state === "succeeded") {
       workspaceButton.textContent = "Gmail and Calendar connected";
+      disconnectButton.hidden = false;
+      disconnectButton.disabled = false;
       show("Google Workspace is connected and verified.", "success");
       return;
     }
@@ -161,6 +164,70 @@ async function verifyWorkspaceConnection() {
   }
   throw new Error("connection test timed out");
 }
+
+async function startWorkspaceConnection() {
+  workspaceButton.disabled = true;
+  show("Preparing Google Workspace consent…");
+  try {
+    const csrf = cookie("__Host-attune_csrf");
+    if (!csrf) throw new Error("missing session binding");
+    const result = await json(
+      await fetch("/v1/connectors/google/start", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json",
+          "X-Attune-CSRF": csrf,
+        },
+      }),
+    );
+    window.location.assign(result.authorization_url);
+  } catch (error) {
+    show(
+      error.status === 409
+        ? "Google Workspace is already connected."
+        : "Workspace connection could not be started. Please try again.",
+      error.status === 409 ? "success" : "error",
+    );
+    workspaceButton.disabled = false;
+  }
+}
+
+async function disconnectWorkspace() {
+  if (
+    !window.confirm(
+      "Disconnect Gmail and Calendar? Attune will immediately revoke its stored credential. You can reconnect later.",
+    )
+  ) return;
+  disconnectButton.disabled = true;
+  show("Disconnecting Google Workspace…");
+  try {
+    const csrf = cookie("__Host-attune_csrf");
+    if (!csrf) throw new Error("missing session binding");
+    await json(
+      await fetch("/v1/connectors/google", {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "X-Attune-CSRF": csrf,
+        },
+        body: JSON.stringify({ confirmation: "disconnect" }),
+      }),
+    );
+    disconnectButton.hidden = true;
+    workspaceButton.textContent = "Connect Gmail and Calendar";
+    workspaceButton.disabled = false;
+    show("Google Workspace is disconnected. Attune can no longer use the stored credential.", "success");
+  } catch {
+    disconnectButton.disabled = false;
+    show("Google Workspace could not be disconnected. Please try again.", "error");
+  }
+}
+
+workspaceButton.addEventListener("click", startWorkspaceConnection);
+disconnectButton.addEventListener("click", disconnectWorkspace);
 
 async function showWorkspace(session) {
   workspace.hidden = false;
@@ -170,6 +237,8 @@ async function showWorkspace(session) {
     } catch {
       workspaceButton.disabled = true;
       workspaceButton.textContent = "Workspace connected; verification unavailable";
+      disconnectButton.hidden = false;
+      disconnectButton.disabled = false;
       show(
         "Google Workspace is connected, but Attune could not verify Gmail access. Try again later.",
         "error",
@@ -183,33 +252,6 @@ async function showWorkspace(session) {
     return;
   }
   workspaceButton.disabled = false;
-  workspaceButton.addEventListener("click", async () => {
-    workspaceButton.disabled = true;
-    show("Preparing Google Workspace consent…");
-    try {
-      const csrf = cookie("__Host-attune_csrf");
-      if (!csrf) throw new Error("missing session binding");
-      const result = await json(
-        await fetch("/v1/connectors/google/start", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: {
-            Accept: "application/json",
-            "X-Attune-CSRF": csrf,
-          },
-        }),
-      );
-      window.location.assign(result.authorization_url);
-    } catch (error) {
-      show(
-        error.status === 409
-          ? "Google Workspace is already connected."
-          : "Workspace connection could not be started. Please try again.",
-        error.status === 409 ? "success" : "error",
-      );
-      workspaceButton.disabled = false;
-    }
-  });
 }
 
 async function main() {

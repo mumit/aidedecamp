@@ -256,6 +256,17 @@ authenticated, and audited.
   connector. Test failure MUST NOT expand authority or silently replace a
   connector, and repeated provider failures MUST page through content-free
   telemetry.
+- **SEC-117.** Browser-initiated connector disconnection MUST require a valid
+  application session, same-origin request, CSRF proof, and an explicit
+  destructive confirmation value. Tenant, principal, provider, connector,
+  credential, capability, and intent authority MUST be resolved server-side.
+  The control plane MAY send only a one-use opaque revoke intent to the private
+  secret broker. Revocation MUST atomically disable the active local credential
+  and connector, be safe to retry after an ambiguous response, preserve the
+  independent account membership, and emit content-free allowed/observed audit
+  events. The product MUST distinguish local Attune disconnection from upstream
+  provider-grant revocation and MUST NOT let provider unavailability delay
+  immediate local withdrawal.
 
 ### 5.2 Authorization model
 

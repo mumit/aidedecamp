@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
@@ -31,6 +32,13 @@ class StartedGoogleOAuth:
     connector_id: UUID
     credential_intent_id: UUID
     transaction_id: UUID
+
+
+@dataclass(frozen=True)
+class RequestedGoogleRevocation:
+    """One server-resolved authorization to revoke a Google connector."""
+
+    credential_intent_id: UUID
 
 
 @dataclass(frozen=True, repr=False)
@@ -313,6 +321,88 @@ class PostgresGoogleOAuthStartRepository:
                     credential_intent_id=intent_id,
                     transaction_id=transaction_id,
                 )
+
+
+class PostgresGoogleConnectorRevocationRepository:
+    """Resolve and authorize revocation without accepting browser authority."""
+
+    def __init__(self, connection_factory: ConnectionFactory):
+        self._connect = connection_factory
+
+    def request(
+        self,
+        context: TenantContext,
+        *,
+        principal_id: UUID,
+        expires_at: datetime,
+    ) -> RequestedGoogleRevocation | None:
+        if not isinstance(principal_id, UUID):
+            raise TypeError("principal_id must be a UUID")
+        if (
+            not isinstance(expires_at, datetime)
+            or expires_at.tzinfo is None
+            or expires_at <= datetime.now(expires_at.tzinfo)
+        ):
+            raise ValueError("expires_at must be a future timezone-aware value")
+
+        with closing(self._connect()) as connection:
+            with tenant_transaction(connection, context) as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                    (f"{context.tenant_id}:{principal_id}:google",),
+                )
+                cursor.execute(
+                    """
+                    SELECT id
+                      FROM attune.connectors
+                     WHERE tenant_id = %s AND principal_id = %s
+                       AND provider = 'google' AND status = 'active'
+                     ORDER BY created_at DESC
+                     LIMIT 2
+                    """,
+                    (context.tenant_id, principal_id),
+                )
+                connectors = cursor.fetchall()
+                if not connectors:
+                    return None
+                if len(connectors) != 1:
+                    raise RuntimeError("ambiguous active Google connector authority")
+                connector_id = connectors[0][0]
+                cursor.execute(
+                    """
+                    SELECT id
+                      FROM attune.credential_intents
+                     WHERE tenant_id = %s AND connector_id = %s
+                       AND producer_kind = 'control_plane'
+                       AND operation = 'revoke'
+                       AND capability = 'google.oauth.disconnect'
+                       AND state IN ('requested', 'leased')
+                       AND expires_at > clock_timestamp()
+                     ORDER BY created_at DESC
+                     LIMIT 1
+                    """,
+                    (context.tenant_id, connector_id),
+                )
+                existing = cursor.fetchone()
+                if existing is not None:
+                    return RequestedGoogleRevocation(existing[0])
+                cursor.execute(
+                    """
+                    INSERT INTO attune.credential_intents
+                        (tenant_id, connector_id, producer_kind, operation,
+                         capability, idempotency_key, expires_at)
+                    VALUES (%s, %s, 'control_plane', 'revoke',
+                            'google.oauth.disconnect', %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        context.tenant_id,
+                        connector_id,
+                        secrets.token_bytes(32),
+                        expires_at,
+                    ),
+                )
+                return RequestedGoogleRevocation(cursor.fetchone()[0])
 
 
 class PostgresOAuthExchangeRepository:

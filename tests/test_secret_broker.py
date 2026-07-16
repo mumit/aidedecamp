@@ -108,11 +108,21 @@ def test_install_fails_closed_when_audit_raises():
 
 
 def test_revoke_requires_matching_intent_and_two_phase_audit():
-    vault, audit = Vault(intent("revoke", 1)), Audit()
+    vault, audit = Vault(intent("revoke", 1, "google.oauth.disconnect")), Audit()
     result = SecretBroker(vault=vault, cipher=Cipher(), audit=audit).revoke(INTENT)
     assert result.status_code == 204
     assert vault.revoked == [INTENT]
     assert [event["outcome"] for event in audit.events] == ["allowed", "observed"]
+    assert {event["action"] for event in audit.events} == {
+        "credential.revoke.google.oauth"
+    }
+
+
+def test_revoke_rejects_non_google_disconnect_authority():
+    vault = Vault(intent("revoke", 1, "connector.manage"))
+    result = SecretBroker(vault=vault, cipher=Cipher(), audit=Audit()).revoke(INTENT)
+    assert result.status_code == 404
+    assert vault.revoked == []
 
 
 def test_wrong_operation_is_not_accepted_by_endpoint():

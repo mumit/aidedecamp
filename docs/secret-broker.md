@@ -42,7 +42,7 @@ tenant field.
 | Route | Exact caller | Canonical intent | Effect |
 |---|---|---|---|
 | `/v1/credentials/install` | control plane | `control_plane/install` | encrypt and version a credential |
-| `/v1/credentials/revoke` | control plane | `control_plane/revoke` | revoke the active credential |
+| `/v1/credentials/revoke` | control plane | `control_plane/revoke/google.oauth.disconnect` | revoke the active Google credential and connector |
 | `/v1/providers/google/gmail/profile` | worker | `worker/use/google.gmail.profile.read` | return bounded mailbox counters and history ID |
 | `/v1/providers/google/calendar/primary` | worker | `worker/use/google.calendar.primary.read` | prove primary-calendar readability; return no content |
 
@@ -57,6 +57,22 @@ profile's email address and the OAuth access token never leave the broker.
 The Calendar ID and timezone are validated but never leave the broker.
 Credentials with a caller-controlled token endpoint are rejected, and each
 operation requires its own exact granted scope and one-use capability intent.
+
+Google disconnection is principal-bound before the broker call. The control
+plane resolves the one active Google connector under a tenant transaction and
+creates or reuses an unexpired `google.oauth.disconnect` intent. It sends only
+that intent UUID over authenticated service-to-service transport. The broker
+accepts the exact control-plane identity and capability, writes the mandatory
+allowed/observed audit pair, and invokes the database's serialized revocation
+function. The function marks both the active credential and connector revoked
+and consumes the intent atomically. A retry after that commit observes no active
+connector and succeeds without issuing a second mutation.
+
+This boundary revokes Attune's locally stored authority. It does not currently
+call Google's token-revocation endpoint. That residual is explicit: upstream
+provider failure must not block immediate local disconnection, and a reliable
+provider-side ceremony needs independent retry and evidence semantics before it
+can be claimed.
 
 In GCP, the application subnet has Private Google Access but no Cloud NAT.
 Exact private DNS zones resolve the reviewed Google hosts, including

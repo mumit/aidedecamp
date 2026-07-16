@@ -9,9 +9,14 @@ from .control_plane_service import create_app
 from .dispatch import PostgresDispatchProducerRepository
 from .dispatch_broker_client import DispatchBrokerClient
 from .google_connection_test import GoogleWorkspaceConnectionTest
+from .google_connector_revocation import GoogleConnectorRevocation
 from .identity_session import PostgresIdentitySessionRepository
-from .oauth import PostgresGoogleOAuthStartRepository
+from .oauth import (
+    PostgresGoogleConnectorRevocationRepository,
+    PostgresGoogleOAuthStartRepository,
+)
 from .repositories import PostgresJobRepository
+from .secret_broker_mutation_client import SecretBrokerMutationClient
 
 
 def create_production_app():
@@ -47,6 +52,15 @@ def create_production_app():
                 os.environ["ATTUNE_DISPATCH_BROKER_AUDIENCE"],
             ),
         )
+    google_revocations = None
+    if oauth_enabled:
+        google_revocations = GoogleConnectorRevocation(
+            PostgresGoogleConnectorRevocationRepository(iam_connection),
+            SecretBrokerMutationClient(
+                os.environ["ATTUNE_SECRET_BROKER_URL"],
+                os.environ["ATTUNE_SECRET_BROKER_AUDIENCE"],
+            ),
+        )
     return create_app(
         os.environ["ATTUNE_PUBLIC_HOST"],
         identity_enabled=identity_enabled,
@@ -71,6 +85,8 @@ def create_production_app():
         google_oauth_starts=google_oauth,
         google_connection_test_enabled=test_enabled,
         google_connection_tests=google_tests,
+        google_connector_revocation_enabled=oauth_enabled,
+        google_connector_revocations=google_revocations,
     )
 
 

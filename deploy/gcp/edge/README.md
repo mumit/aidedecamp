@@ -54,6 +54,16 @@ only an opaque intent to the private dispatch broker, and returns no mailbox,
 Calendar, or provider data. The runtime root must be applied first so the edge
 consumes its authoritative gate and broker output.
 
+While Workspace OAuth is active, the edge also permits only the exact
+`DELETE /v1/connectors/google` path at a bounded rate. The application requires
+same-origin and CSRF-bound session authorization plus the exact JSON
+confirmation `{"confirmation":"disconnect"}`. It derives all connector
+authority server-side and sends only a one-use revoke intent to the runtime's
+private secret broker. The control-plane service receives the broker's private
+URI and audience from runtime remote state; neither value grants access without
+its exact workload identity. Applying the runtime root before the edge is
+therefore also required for disconnection.
+
 These controls establish URL non-retention; they do not by themselves activate
 OAuth. The server-side transaction, PKCE exchange, callback-to-exchange
 workload identity, and private broker handoff are implemented. A separate
@@ -127,8 +137,8 @@ google_oauth_client_id         = "PUBLIC_WORKSPACE_CLIENT_ID.apps.googleusercont
 ```
 
 Terraform never receives the client secret. Preconditions require identity
-sign-in to be enabled, and Cloud Armor exposes the connector-start route only
-while this separate gate is true. Enabling the gate also keeps one control-plane
+sign-in to be enabled, and Cloud Armor exposes the connector-start and
+connector-disconnect routes only while this separate gate is true. Enabling the gate also keeps one control-plane
 and one callback instance warm. Set `oauth_min_instance_count = 1` in the
 runtime root before this apply so the complete synchronous consent chain does
 not cold-start serially.

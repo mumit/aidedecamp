@@ -87,6 +87,21 @@ button:disabled {
   opacity: 0.65;
 }
 
+button.secondary {
+  margin-top: 0.75rem;
+  border: 1px solid rgb(23 33 28 / 22%);
+  color: #244c35;
+  background: transparent;
+}
+
+button.secondary:hover:not(:disabled) {
+  background: rgb(36 76 53 / 8%);
+}
+
+button.danger {
+  color: #8a2529;
+}
+
 #status {
   min-height: 1.5rem;
   margin: 1rem 0 0;

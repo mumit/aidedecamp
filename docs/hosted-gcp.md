@@ -194,8 +194,12 @@ acceptable substitutes.
    on 2026-07-15. Email/domain membership inference remains forbidden. The
    signed-in page now exposes a separately gated Google Workspace connection
    journey; while its gate is false, it creates no connector authority.
-   Production signup, invitation/tenant-selection, connector revocation, and
-   account-management ceremonies remain. Follow the separate [hosted sign-in
+   The principal-bound, CSRF-protected Google Workspace disconnect ceremony is
+   implemented: it revokes the local credential and connector through a
+   one-use private-broker intent while preserving Attune membership. It does
+   not yet claim upstream Google grant revocation. Production signup,
+   invitation/tenant-selection, and broader account-management ceremonies
+   remain. Follow the separate [hosted sign-in
    operator ceremony](identity-platform.md); it deliberately uses a different
    OAuth client from Workspace connector consent.
 5. **Ingress and workers:** provider verification, replay resistance,

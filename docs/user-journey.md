@@ -47,6 +47,20 @@ The first hosted connection journey is:
    Capability upgrades such as Gmail draft
    creation are separate, explicit consent and policy changes.
 
+At any later signed-in visit, choose **Disconnect Google Workspace** and confirm
+the destructive action. Attune derives the connector from the current session;
+the browser never sends a tenant, principal, connector, provider, or credential
+identifier. A one-use private-broker authorization immediately marks Attune's
+stored credential and connector revoked. The Attune account and membership stay
+active, and **Connect Gmail and Calendar** becomes available again.
+
+This action withdraws Attune's local ability to use the credential. It does not
+claim to remove the upstream OAuth grant from the Google Account. A user who
+also wants that provider-side grant removed should remove Attune in Google
+Account's third-party connections. Provider-side revocation from Attune is a
+separate future ceremony because a provider outage must never prevent immediate
+local disconnection.
+
 Closing or denying the second screen leaves the Attune account signed in and
 unconnected. Retrying creates a fresh ten-minute transaction. A completed
 connector is verified instead of silently starting a replacement. A temporary
