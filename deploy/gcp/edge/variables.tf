@@ -133,6 +133,12 @@ variable "enable_google_chat_ingress" {
   default     = false
 }
 
+variable "enable_google_chat_conversation" {
+  description = "Route ordinary verified owner-DM messages into the bounded hosted conversation pipeline."
+  type        = bool
+  default     = false
+}
+
 variable "google_chat_provider_ready" {
   description = "Operator attestation that the platform Chat app uses the exact endpoint audience and passed negative tests."
   type        = bool

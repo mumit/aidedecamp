@@ -108,6 +108,12 @@ variable "enable_model_gateway" {
   default     = false
 }
 
+variable "enable_google_chat_conversation" {
+  description = "Register the bounded Google Chat conversation route and grant its worker/broker edges after all executors pass security review."
+  type        = bool
+  default     = false
+}
+
 variable "llm_base_url" {
   description = "Operator-fixed OpenAI-compatible HTTPS origin or base path used only by the model gateway."
   type        = string

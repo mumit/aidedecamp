@@ -208,12 +208,44 @@ resource "google_cloud_run_v2_service" "worker" {
         value = tostring(var.enable_google_workspace_verification)
       }
       env {
+        name  = "ATTUNE_ENABLE_GOOGLE_CHAT_CONVERSATION"
+        value = tostring(var.enable_google_chat_conversation)
+      }
+      env {
         name  = "ATTUNE_SECRET_BROKER_URL"
         value = google_cloud_run_v2_service.secret_broker.uri
       }
       env {
         name  = "ATTUNE_SECRET_BROKER_AUDIENCE"
         value = local.secret_broker_audience
+      }
+      dynamic "env" {
+        for_each = var.enable_google_chat_conversation ? [1] : []
+        content {
+          name  = "ATTUNE_MODEL_GATEWAY_URL"
+          value = google_cloud_run_v2_service.model_gateway[0].uri
+        }
+      }
+      dynamic "env" {
+        for_each = var.enable_google_chat_conversation ? [1] : []
+        content {
+          name  = "ATTUNE_MODEL_GATEWAY_AUDIENCE"
+          value = local.model_gateway_audience
+        }
+      }
+      dynamic "env" {
+        for_each = var.enable_google_chat_conversation ? [1] : []
+        content {
+          name  = "ATTUNE_CHANNEL_BROKER_URL"
+          value = google_cloud_run_v2_service.channel_broker[0].uri
+        }
+      }
+      dynamic "env" {
+        for_each = var.enable_google_chat_conversation ? [1] : []
+        content {
+          name  = "ATTUNE_CHANNEL_BROKER_AUDIENCE"
+          value = local.channel_broker_audience
+        }
       }
 
       startup_probe {
@@ -268,6 +300,16 @@ resource "google_cloud_run_v2_service" "worker" {
         var.enable_dispatch_broker
       )
       error_message = "Google provider-read activation requires the fixed dispatch broker."
+    }
+
+    precondition {
+      condition = !var.enable_google_chat_conversation || (
+        var.enable_dispatch_broker &&
+        var.enable_channel_broker &&
+        var.enable_model_gateway &&
+        length(var.alert_notification_channels) > 0
+      )
+      error_message = "Google Chat conversation activation requires dispatch, channel, model, and paging boundaries."
     }
   }
 }
@@ -487,6 +529,14 @@ resource "google_cloud_run_v2_service" "dispatch_broker" {
               audience   = local.worker_audience
             }
           ] : [],
+          var.enable_google_chat_conversation ? [
+            {
+              purpose    = "channel.google_chat.converse"
+              queue      = local.foundation.jobs_queue
+              target_url = "${google_cloud_run_v2_service.worker.uri}/v1/tasks/dispatch"
+              audience   = local.worker_audience
+            }
+          ] : [],
         ))
       }
 
@@ -671,6 +721,15 @@ resource "google_cloud_run_v2_service_iam_member" "channel_broker_control_plane_
   name     = google_cloud_run_v2_service.channel_broker[0].name
   role     = "roles/run.invoker"
   member   = "serviceAccount:${local.foundation.workload_identities.control_plane}"
+}
+
+resource "google_cloud_run_v2_service_iam_member" "channel_broker_worker_invoker" {
+  count    = var.enable_channel_broker && var.enable_google_chat_conversation ? 1 : 0
+  project  = local.foundation.project_id
+  location = local.foundation.region
+  name     = google_cloud_run_v2_service.channel_broker[0].name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${local.foundation.workload_identities.worker}"
 }
 
 resource "google_cloud_run_v2_service" "secret_broker" {

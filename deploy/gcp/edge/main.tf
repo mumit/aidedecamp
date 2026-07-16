@@ -38,6 +38,17 @@ check "google_chat_ingress_activation" {
   }
 }
 
+check "google_chat_conversation_activation" {
+  assert {
+    condition = !var.enable_google_chat_conversation || (
+      var.enable_google_chat_ingress &&
+      try(local.runtime.google_chat_conversation_enabled, false) &&
+      local.runtime.dispatch_broker != null
+    )
+    error_message = "Google Chat conversation ingress requires the routed provider endpoint and the activated runtime conversation route."
+  }
+}
+
 resource "google_cloud_run_v2_service" "control_plane" {
   project              = local.foundation.project_id
   name                 = "${local.prefix}-control-plane"
@@ -482,6 +493,24 @@ resource "google_cloud_run_v2_service" "google_chat_ingress" {
           : local.runtime.channel_broker.audience
         )
       }
+      env {
+        name  = "ATTUNE_ENABLE_GOOGLE_CHAT_CONVERSATION"
+        value = tostring(var.enable_google_chat_conversation)
+      }
+      dynamic "env" {
+        for_each = var.enable_google_chat_conversation ? [1] : []
+        content {
+          name  = "ATTUNE_DISPATCH_BROKER_URL"
+          value = local.runtime.dispatch_broker.uri
+        }
+      }
+      dynamic "env" {
+        for_each = var.enable_google_chat_conversation ? [1] : []
+        content {
+          name  = "ATTUNE_DISPATCH_BROKER_AUDIENCE"
+          value = local.runtime.dispatch_broker.audience
+        }
+      }
 
       startup_probe {
         initial_delay_seconds = 1
@@ -531,6 +560,15 @@ resource "google_cloud_run_v2_service" "google_chat_ingress" {
         var.deploy_google_chat_ingress && var.google_chat_provider_ready
       )
       error_message = "Google Chat route activation requires deployed ingress and provider-readiness attestation."
+    }
+
+    precondition {
+      condition = !var.enable_google_chat_conversation || (
+        var.enable_google_chat_ingress &&
+        try(local.runtime.google_chat_conversation_enabled, false) &&
+        local.runtime.dispatch_broker != null
+      )
+      error_message = "Google Chat conversation activation requires the routed ingress and activated runtime conversation route."
     }
   }
 }
