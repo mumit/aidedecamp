@@ -128,30 +128,31 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
     assert [migration.name for migration in migrations] == sorted(
         migration.name for migration in migrations
     )
+    sql_by_name = {migration.name: migration.sql for migration in migrations}
     assert migrations[0].name == "0001_tenant_boundary.sql"
-    assert migrations[-1].name == "0037_customer_export_download.sql"
-    download = migrations[-1].sql
+    assert migrations[-1].name == "0038_slack_channel_installation.sql"
+    download = sql_by_name["0037_customer_export_download.sql"]
     assert "GRANT attune_export_cleanup_coordinator TO %I" in download
     assert "REVOKE attune_export_cleanup_coordinator FROM %I" in download
     assert all(
         migration.checksum == hashlib.sha256(migration.sql.encode()).hexdigest()
         for migration in migrations
     )
-    channel_broker = migrations[-15].sql
+    channel_broker = sql_by_name["0023_google_chat_delivery_test.sql"]
     assert "GRANT attune_channel_link_executor TO %I" in channel_broker
     assert "GRANT CREATE ON SCHEMA attune TO attune_channel_link_executor" in channel_broker
     assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_link_executor" in channel_broker
     assert "REVOKE attune_channel_link_executor FROM %I" in channel_broker
-    conversation = migrations[-14].sql
+    conversation = sql_by_name["0024_google_chat_conversation_acceptance.sql"]
     assert "LIMIT 2" in conversation
     assert "GRANT attune_channel_message_executor TO %I" in conversation
     assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_message_executor" in conversation
     assert "TO attune_channel_broker" in conversation
-    delivery = migrations[-13].sql
+    delivery = sql_by_name["0025_google_chat_conversation_delivery.sql"]
     assert "hosted_channel_deliveries" in delivery
     assert "already_delivered boolean" in delivery
     assert "TO attune_channel_broker" in delivery
-    lifecycle = migrations[-12].sql
+    lifecycle = sql_by_name["0026_google_chat_destination_lifecycle.sql"]
     assert "attune_channel_lifecycle_executor" in lifecycle
     assert "disconnect_hosted_channel_destination" in lifecycle
     assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_lifecycle_executor" in lifecycle
@@ -160,23 +161,23 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
     )
     assert lifecycle.index("SET LOCAL ROLE attune_channel_link_executor") < replace_link
     assert lifecycle.index("RESET ROLE", replace_link) > replace_link
-    relink_context = migrations[-11].sql
+    relink_context = sql_by_name["0027_google_chat_relink_route_context.sql"]
     assert "destination.status = 'revoked'" in relink_context
     assert "SET LOCAL ROLE attune_channel_link_executor" in relink_context
-    retention = migrations[-10].sql
+    retention = sql_by_name["0028_protocol_retention.sql"]
     assert "CREATE ROLE attune_retention_executor" in retention
     assert "prune_expired_protocol_records" in retention
     assert "pg_try_advisory_xact_lock" in retention
     assert "FOR UPDATE" not in retention
     assert "interval '24 hours'" in retention
     assert "interval '7 days'" in retention
-    export = migrations[-9].sql
+    export = sql_by_name["0029_customer_export_authority.sql"]
     assert "legacy export jobs require explicit reviewed adoption" in export
     assert "request_customer_export" in export
     assert "claim_customer_export" in export
     assert "recent owner session is required" in export
     assert "REVOKE INSERT, UPDATE ON attune.export_jobs" in export
-    projection = migrations[-8].sql
+    projection = sql_by_name["0030_customer_export_projections.sql"]
     assert "read_customer_export_records" in projection
     assert "credential_ref" not in projection
     assert "external_ref_hash" not in projection
@@ -187,41 +188,54 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
     assert "u.attributes" not in projection
     assert "lease_run_id = p_run_id" in projection
     assert "owner_state.owner_principal_id = job.requested_by" in projection
-    completion = migrations[-7].sql
+    completion = sql_by_name["0031_customer_export_completion.sql"]
     assert "complete_customer_export" in completion
     assert "ciphertext_bytes = archive_bytes + 16" in completion
     assert "interval '24 hours'" in completion
     assert "job.lease_run_id = p_run_id" in completion
-    recovery = migrations[-6].sql
+    recovery = sql_by_name["0032_customer_export_recovery.sql"]
     assert "reserve_customer_export_object" in recovery
     assert "export_object_attempts" in recovery
     assert "list_customer_export_cleanup_objects" in recovery
     assert "fail_customer_export" in recovery
     assert "job.lease_expires_at <= clock_timestamp()" in recovery
     assert "failure_code" in recovery
-    cleanup = migrations[-5].sql
+    cleanup = sql_by_name["0033_customer_export_cleanup_authority.sql"]
     assert "attune_export_cleanup" in cleanup
     assert "15 minutes" in cleanup
     assert "SKIP LOCKED" in cleanup
     assert "job.state = 'ready'" in cleanup
-    expiry = migrations[-4].sql
+    expiry = sql_by_name["0034_customer_export_expiry_cleanup.sql"]
     assert "claim_customer_export_expirations" in expiry
     assert "object_generation = p_object_generation" in expiry
     assert "state = 'expired'" in expiry
     assert "wrapped_dek = NULL" in expiry
-    task = migrations[-3].sql
+    task = sql_by_name["0035_customer_export_task_authority.sql"]
     assert "claim_customer_export_for_tenant" in task
     assert "claim_customer_export_task" in task
     assert "finish_customer_export_task" in task
     assert "interval '6 minutes'" in task
-    control_plane = migrations[-2].sql
+    control_plane = sql_by_name["0036_customer_export_control_plane.sql"]
     assert "request_or_read_customer_export" in control_plane
     assert "list_customer_exports" in control_plane
-    download = migrations[-1].sql
+    download = sql_by_name["0037_customer_export_download.sql"]
     assert "issue_customer_export_download" in download
     assert "claim_customer_export_download" in download
     assert "finish_customer_export_download" in download
     assert "state = 'consumed'" in download
+    slack = sql_by_name["0038_slack_channel_installation.sql"]
+    assert "hosted_channel_credentials" in slack
+    assert "purpose = 'slack_bot_token'" in slack
+    assert "claim_slack_install" in slack
+    assert "consume_slack_install" in slack
+    assert "accept_slack_owner_message" in slack
+    assert "claim_slack_conversation_delivery" in slack
+    assert "disconnect_hosted_channel_destination_v2" in slack
+    assert "LIMIT 2" in slack
+    assert "TO attune_channel_broker" in slack
+    assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_link_executor" in slack
+    assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_message_executor" in slack
+    assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_lifecycle_executor" in slack
 
 
 def test_lifecycle_enums_preserve_string_behavior_on_python_310():
@@ -358,7 +372,7 @@ def initialized_database(database_url: str):
             cursor.execute(f'CREATE ROLE "{role}" NOLOGIN INHERIT')
     admin.autocommit = False
 
-    assert apply_migrations(admin) == 37
+    assert apply_migrations(admin) == 38
     with admin.cursor() as cursor:
         cursor.execute("GRANT attune_worker TO attune_test_stale_member")
     admin.commit()
@@ -3598,3 +3612,294 @@ def test_protocol_retention_prunes_only_expired_records_and_audits_per_tenant(
         )
         assert audit[2]["records"] >= 1
     initialized_database.commit()
+
+
+def test_slack_install_delivery_conversation_and_lifecycle_are_function_only(
+    initialized_database, database_url
+):
+    psycopg = pytest.importorskip("psycopg")
+    from attune.hosted.slack_channel_broker import (
+        PostgresSlackChannelBrokerRepository,
+    )
+    from attune.hosted.slack_conversation_executor import (
+        PostgresSlackConversationWorkRepository,
+    )
+
+    context = TenantContext(CHANNEL_TENANT)
+    setups = PostgresHostedChannelSetupRepository(
+        _role_connection_factory(database_url, ROLE_BINDINGS["attune_control_plane"])
+    )
+    broker = PostgresSlackChannelBrokerRepository(
+        _role_connection_factory(database_url, ROLE_BINDINGS["attune_channel_broker"])
+    )
+    writer = PostgresAuditWriterRepository(
+        _role_connection_factory(database_url, ROLE_BINDINGS["attune_audit_writer"])
+    )
+    key_resource = "projects/test/locations/test/keyRings/test/cryptoKeys/test"
+
+    def envelope(seed: bytes) -> EncryptedCredential:
+        return EncryptedCredential(
+            ciphertext=seed * 32,
+            nonce=b"n" * 12,
+            wrapped_dek=b"w" * 32,
+            key_resource=key_resource,
+        )
+
+    with tenant_transaction(initialized_database, context) as cursor:
+        cursor.execute(
+            "UPDATE attune.identity_sessions SET created_at = clock_timestamp() "
+            "WHERE tenant_id = %s AND id = %s",
+            (CHANNEL_TENANT, CHANNEL_SESSION),
+        )
+    state_secret = b"slack-install-state"
+    started = setups.begin(
+        context,
+        principal_id=CHANNEL_PRINCIPAL,
+        session_id=CHANNEL_SESSION,
+        provider="slack",
+        mechanism="oauth",
+        secret_hash=hashlib.sha256(state_secret).digest(),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=9),
+    )
+    assert started.state == "pending" and started.mechanism == "oauth"
+
+    claim_hash = hashlib.sha256(b"slack-install-claim").digest()
+    claim = broker.claim(
+        state_hash=hashlib.sha256(state_secret).digest(),
+        claim_hash=claim_hash,
+        expires_at=datetime.now(timezone.utc) + timedelta(seconds=30),
+    )
+    assert claim.tenant_id == CHANNEL_TENANT
+    assert claim.owner_principal_id == CHANNEL_PRINCIPAL
+    assert writer.write(claim.pre_audit_intent_id) is not None
+    destination_id = broker.resolve_destination_id(
+        state_hash=hashlib.sha256(state_secret).digest(),
+        claim_hash=claim_hash,
+        candidate_id=UUID("30000000-0000-4000-8000-000000000201"),
+    )
+    installation_hash = hashlib.sha256(b"slack-team").digest()
+    actor_hash = hashlib.sha256(b"slack-owner").digest()
+    destination_hash = hashlib.sha256(b"slack-owner-dm").digest()
+    with pytest.raises(psycopg.errors.NoDataFound):
+        broker.consume(
+            state_hash=hashlib.sha256(state_secret).digest(),
+            claim_hash=claim_hash,
+            owner_tenant_id=CHANNEL_TENANT,
+            owner_principal_id=UUID("30000000-0000-4000-8000-000000000299"),
+            installation_ref_hash=installation_hash,
+            actor_ref_hash=actor_hash,
+            destination_ref_hash=destination_hash,
+            destination_id=destination_id,
+            encrypted_route=envelope(b"r"),
+            encrypted_token=envelope(b"t"),
+        )
+    installed = broker.consume(
+        state_hash=hashlib.sha256(state_secret).digest(),
+        claim_hash=claim_hash,
+        owner_tenant_id=CHANNEL_TENANT,
+        owner_principal_id=CHANNEL_PRINCIPAL,
+        installation_ref_hash=installation_hash,
+        actor_ref_hash=actor_hash,
+        destination_ref_hash=destination_hash,
+        destination_id=destination_id,
+        encrypted_route=envelope(b"r"),
+        encrypted_token=envelope(b"t"),
+    )
+    assert installed.destination_status == "pending_test"
+    assert writer.write(installed.outcome_audit_intent_id) is not None
+    with pytest.raises(psycopg.errors.NoDataFound):
+        broker.claim(
+            state_hash=hashlib.sha256(state_secret).digest(),
+            claim_hash=hashlib.sha256(b"slack-replay").digest(),
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=30),
+        )
+
+    delivery_claim = hashlib.sha256(b"slack-delivery-claim").digest()
+    delivery = broker.claim_delivery(
+        destination_id=installed.destination_id,
+        claim_hash=delivery_claim,
+        expires_at=datetime.now(timezone.utc) + timedelta(seconds=30),
+    )
+    assert delivery.encrypted_route.ciphertext == b"r" * 32
+    assert delivery.encrypted_token.ciphertext == b"t" * 32
+    assert writer.write(delivery.pre_audit_intent_id) is not None
+    completed = broker.complete_delivery(
+        destination_id=installed.destination_id,
+        claim_hash=delivery_claim,
+        succeeded=True,
+    )
+    assert completed.destination_status == "active"
+    assert writer.write(completed.outcome_audit_intent_id) is not None
+
+    message_hash = hashlib.sha256(b"slack-owner-message").digest()
+    accepted = broker.accept_message(
+        installation_ref_hash=installation_hash,
+        actor_ref_hash=actor_hash,
+        destination_ref_hash=destination_hash,
+        message_ref_hash=message_hash,
+        text="What is on my calendar tomorrow?",
+    )
+    assert accepted.accepted_new is True
+    assert writer.write(accepted.pre_audit_intent_id) is not None
+    replayed = broker.accept_message(
+        installation_ref_hash=installation_hash,
+        actor_ref_hash=actor_hash,
+        destination_ref_hash=destination_hash,
+        message_ref_hash=message_hash,
+        text="What is on my calendar tomorrow?",
+    )
+    assert replayed.accepted_new is False
+    assert replayed.dispatch_intent_id == accepted.dispatch_intent_id
+
+    with tenant_transaction(initialized_database, context) as cursor:
+        cursor.execute(
+            "SELECT id, (payload->>'conversation_id')::uuid FROM attune.jobs "
+            "WHERE tenant_id = %s AND kind = 'channel.slack.converse'",
+            (CHANNEL_TENANT,),
+        )
+        rows = cursor.fetchall()
+        assert len(rows) == 1
+        job_id, conversation_id = rows[0]
+        cursor.execute(
+            "UPDATE attune.jobs SET state = 'leased', attempts = 1, "
+            "lease_expires_at = clock_timestamp() + interval '5 minutes' "
+            "WHERE tenant_id = %s AND id = %s",
+            (CHANNEL_TENANT, job_id),
+        )
+        cursor.execute(
+            """
+            INSERT INTO attune.conversation_turns
+                (tenant_id, conversation_id, sequence, actor_type, content,
+                 provenance)
+            VALUES (%s, %s, 2, 'assistant', 'Canonical Slack answer',
+                    jsonb_build_object('schema_version', 1, 'job_id', %s::text))
+            """,
+            (CHANNEL_TENANT, conversation_id, job_id),
+        )
+    initialized_database.commit()
+
+    worker_factory = _role_connection_factory(
+        database_url, ROLE_BINDINGS["attune_worker"]
+    )
+    canonical_job = PostgresJobRepository(worker_factory).get(context, job_id)
+    work = PostgresSlackConversationWorkRepository(worker_factory).resolve(
+        context, canonical_job
+    )
+    assert work.destination_id == installed.destination_id
+
+    reply_claim = hashlib.sha256(b"slack-reply-claim").digest()
+    reply = broker.claim_conversation_delivery(
+        destination_id=installed.destination_id,
+        job_id=job_id,
+        claim_hash=reply_claim,
+        expires_at=datetime.now(timezone.utc) + timedelta(seconds=30),
+    )
+    assert reply.reply_text == "Canonical Slack answer"
+    assert reply.encrypted_token.ciphertext == b"t" * 32
+    assert writer.write(reply.pre_audit_intent_id) is not None
+    delivered = broker.complete_conversation_delivery(
+        job_id=job_id,
+        claim_hash=reply_claim,
+        succeeded=True,
+        provider_message_ref_hash=hashlib.sha256(b"slack-provider-ts").digest(),
+    )
+    assert delivered.delivery_state == "delivered"
+    assert writer.write(delivered.outcome_audit_intent_id) is not None
+    replay_reply = broker.claim_conversation_delivery(
+        destination_id=installed.destination_id,
+        job_id=job_id,
+        claim_hash=hashlib.sha256(b"slack-reply-replay").digest(),
+        expires_at=datetime.now(timezone.utc) + timedelta(seconds=30),
+    )
+    assert replay_reply.already_delivered and replay_reply.reply_text is None
+
+    direct = _role_connection_factory(
+        database_url, ROLE_BINDINGS["attune_channel_broker"]
+    )()
+    try:
+        with direct.cursor() as cursor, pytest.raises(
+            psycopg.errors.InsufficientPrivilege
+        ):
+            cursor.execute("SELECT * FROM attune.hosted_channel_credentials")
+        direct.rollback()
+    finally:
+        direct.close()
+
+    with tenant_transaction(initialized_database, context) as cursor:
+        cursor.execute(
+            "UPDATE attune.identity_sessions SET created_at = clock_timestamp() "
+            "WHERE tenant_id = %s AND id = %s",
+            (CHANNEL_TENANT, CHANNEL_SESSION),
+        )
+    assert setups.disconnect(
+        context,
+        principal_id=CHANNEL_PRINCIPAL,
+        session_id=CHANNEL_SESSION,
+        provider="slack",
+    ) is True
+    assert setups.disconnect(
+        context,
+        principal_id=CHANNEL_PRINCIPAL,
+        session_id=CHANNEL_SESSION,
+        provider="slack",
+    ) is False
+    with pytest.raises(psycopg.errors.NoDataFound):
+        broker.accept_message(
+            installation_ref_hash=installation_hash,
+            actor_ref_hash=actor_hash,
+            destination_ref_hash=destination_hash,
+            message_ref_hash=hashlib.sha256(b"slack-after-disconnect").digest(),
+            text="This must not be accepted",
+        )
+    with tenant_transaction(initialized_database, context) as cursor:
+        cursor.execute(
+            "SELECT count(*) FROM attune.hosted_channel_credentials "
+            "WHERE tenant_id = %s AND destination_id = %s",
+            (CHANNEL_TENANT, installed.destination_id),
+        )
+        assert cursor.fetchone() == (0,)
+        cursor.execute(
+            "SELECT count(*) FROM attune.hosted_channel_routes "
+            "WHERE tenant_id = %s AND destination_id = %s",
+            (CHANNEL_TENANT, installed.destination_id),
+        )
+        assert cursor.fetchone() == (0,)
+
+    reinstall_secret = b"slack-reinstall-state"
+    setups.begin(
+        context,
+        principal_id=CHANNEL_PRINCIPAL,
+        session_id=CHANNEL_SESSION,
+        provider="slack",
+        mechanism="oauth",
+        secret_hash=hashlib.sha256(reinstall_secret).digest(),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=9),
+    )
+    reinstall_claim = hashlib.sha256(b"slack-reinstall-claim").digest()
+    claim = broker.claim(
+        state_hash=hashlib.sha256(reinstall_secret).digest(),
+        claim_hash=reinstall_claim,
+        expires_at=datetime.now(timezone.utc) + timedelta(seconds=30),
+    )
+    assert writer.write(claim.pre_audit_intent_id) is not None
+    resolved = broker.resolve_destination_id(
+        state_hash=hashlib.sha256(reinstall_secret).digest(),
+        claim_hash=reinstall_claim,
+        candidate_id=UUID("30000000-0000-4000-8000-000000000202"),
+    )
+    assert resolved == installed.destination_id
+    reinstalled = broker.consume(
+        state_hash=hashlib.sha256(reinstall_secret).digest(),
+        claim_hash=reinstall_claim,
+        owner_tenant_id=CHANNEL_TENANT,
+        owner_principal_id=CHANNEL_PRINCIPAL,
+        installation_ref_hash=hashlib.sha256(b"slack-team-two").digest(),
+        actor_ref_hash=actor_hash,
+        destination_ref_hash=hashlib.sha256(b"slack-owner-dm-two").digest(),
+        destination_id=resolved,
+        encrypted_route=envelope(b"R"),
+        encrypted_token=envelope(b"T"),
+    )
+    assert reinstalled.destination_id == installed.destination_id
+    assert reinstalled.destination_status == "pending_test"
+    assert writer.write(reinstalled.outcome_audit_intent_id) is not None

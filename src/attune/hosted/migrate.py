@@ -218,6 +218,21 @@ FUNCTION_OWNER_TABLE_PRIVILEGES = frozenset(
             "attune.hosted_channel_deliveries",
             "UPDATE",
         ),
+        (
+            "attune_channel_link_executor",
+            "attune.hosted_channel_credentials",
+            "SELECT",
+        ),
+        (
+            "attune_channel_link_executor",
+            "attune.hosted_channel_credentials",
+            "INSERT",
+        ),
+        (
+            "attune_channel_link_executor",
+            "attune.hosted_channel_credentials",
+            "DELETE",
+        ),
         ("attune_channel_message_executor", "attune.tenants", "SELECT"),
         ("attune_channel_message_executor", "attune.principals", "SELECT"),
         ("attune_channel_message_executor", "attune.installations", "SELECT"),
@@ -226,6 +241,7 @@ FUNCTION_OWNER_TABLE_PRIVILEGES = frozenset(
         ("attune_channel_message_executor", "attune.hosted_channel_preferences", "SELECT"),
         ("attune_channel_message_executor", "attune.hosted_channel_destinations", "SELECT"),
         ("attune_channel_message_executor", "attune.hosted_channel_routes", "SELECT"),
+        ("attune_channel_message_executor", "attune.hosted_channel_credentials", "SELECT"),
         ("attune_channel_message_executor", "attune.provider_events", "SELECT"),
         ("attune_channel_message_executor", "attune.provider_events", "INSERT"),
         ("attune_channel_message_executor", "attune.provider_events", "UPDATE"),
@@ -257,6 +273,8 @@ FUNCTION_OWNER_TABLE_PRIVILEGES = frozenset(
         ("attune_channel_lifecycle_executor", "attune.hosted_onboarding_states", "UPDATE"),
         ("attune_channel_lifecycle_executor", "attune.hosted_channel_routes", "SELECT"),
         ("attune_channel_lifecycle_executor", "attune.hosted_channel_routes", "DELETE"),
+        ("attune_channel_lifecycle_executor", "attune.hosted_channel_credentials", "SELECT"),
+        ("attune_channel_lifecycle_executor", "attune.hosted_channel_credentials", "DELETE"),
         ("attune_retention_executor", "attune.oauth_transactions", "SELECT"),
         ("attune_retention_executor", "attune.oauth_transactions", "DELETE"),
         ("attune_retention_executor", "attune.hosted_channel_setup_transactions", "SELECT"),
@@ -353,6 +371,7 @@ TENANT_TABLES = (
     "hosted_channel_destinations",
     "hosted_channel_routes",
     "hosted_channel_deliveries",
+    "hosted_channel_credentials",
 )
 
 validate_relational_lifecycle_inventory(TENANT_TABLES)

@@ -72,7 +72,7 @@ RELATIONAL_ASSETS = (
         customer_export=True,
     ),
     *_assets(
-        "connector_credentials",
+        "connector_credentials hosted_channel_credentials",
         DataClass.CREDENTIAL,
         DeletionRule.CRYPTO_ERASE,
         customer_export=False,
