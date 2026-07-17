@@ -140,6 +140,15 @@ backstop, and provider-enforced protection against accidental Terraform
 destruction. No writer job or completion path is deployed, so the bucket must
 remain empty.
 
+The archive encryption format authenticates tenant ID, export job ID, fixed
+scope, opaque object ID, plaintext digest and size, and format version with
+AES-256-GCM. It uses a fresh random data key and nonce for every encryption,
+wraps the data key with the separate export KMS key, verifies ciphertext and
+plaintext digests, and refuses key/context/metadata substitution. Adversarial
+tests cover each authenticated field. The development key, bucket, exact IAM,
+emptiness, and empty Terraform plan are live verified; this still provides no
+path that can generate or download an export.
+
 ## Required evidence before activation
 
 - real-PostgreSQL cross-tenant, role, claim/replay, transition, and concurrency

@@ -120,11 +120,12 @@ and archive digests, and record/byte/depth ceilings. A claim-bound positive
 database projection is deployed in development with a current-owner check,
 fixed fields, unreviewed nested-JSON exclusions, and a 100,000-record ceiling.
 Its real-PostgreSQL owner/lease/secret-negative/archive tests, exact migration
-verifier, and empty infrastructure plans are recorded. The next local slice
-adds authenticated archive encryption plus a separate dormant export key and
-temporary bucket: the reserved writer has encrypt/create/delete but no
-decrypt/read/list authority. Development infrastructure deployment evidence is
-pending. Completion state, cleanup, download, and UI remain.
+verifier, and empty infrastructure plans are recorded. Authenticated archive
+encryption plus a separate dormant export key and temporary bucket are also
+implemented and deployed: the reserved writer has encrypt/create/delete but no
+decrypt/read/list authority, inherited bucket readers are removed, the bucket
+is empty, and an object-free policy-administrator path keeps Terraform
+manageable. Completion state, cleanup, download, and UI remain.
 
 The first platform mapping is [`hosted-gcp.md`](hosted-gcp.md), and the initial
 declarative substrate is `deploy/gcp/foundation`. Applying that foundation does

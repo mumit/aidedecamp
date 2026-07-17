@@ -64,6 +64,22 @@ variable "lock_audit_retention" {
   default     = false
 }
 
+variable "export_bucket_policy_admin_members" {
+  description = "Reviewed deployment principals that may manage the export bucket IAM policy but not objects."
+  type        = set(string)
+
+  validation {
+    condition = (
+      length(var.export_bucket_policy_admin_members) >= 1 &&
+      alltrue([
+        for member in var.export_bucket_policy_admin_members :
+        can(regex("^(user|serviceAccount):[^[:space:]]+@[^[:space:]]+$", member))
+      ])
+    )
+    error_message = "export_bucket_policy_admin_members requires at least one user: or serviceAccount: principal."
+  }
+}
+
 variable "jobs_worker_target_host" {
   description = "Cloud Run worker hostname for the jobs queue override; null keeps dispatch disabled."
   type        = string

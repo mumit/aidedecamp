@@ -200,6 +200,26 @@ resource "google_project_iam_custom_role" "export_object_writer" {
   stage = "GA"
 }
 
+resource "google_project_iam_custom_role" "export_bucket_policy_admin" {
+  project     = var.project_id
+  role_id     = "attune_${var.environment}_export_policy_admin"
+  title       = "Attune ${var.environment} export bucket policy administrator"
+  description = "Manage temporary export bucket policy without access to export objects."
+  permissions = [
+    "storage.buckets.get",
+    "storage.buckets.getIamPolicy",
+    "storage.buckets.setIamPolicy",
+  ]
+  stage = "GA"
+}
+
+resource "google_project_iam_member" "export_bucket_policy_admin" {
+  for_each = var.export_bucket_policy_admin_members
+  project  = var.project_id
+  role     = google_project_iam_custom_role.export_bucket_policy_admin.name
+  member   = each.value
+}
+
 data "google_iam_policy" "customer_export" {
   binding {
     role = google_project_iam_custom_role.export_object_writer.name
@@ -212,6 +232,8 @@ data "google_iam_policy" "customer_export" {
 resource "google_storage_bucket_iam_policy" "customer_export" {
   bucket      = google_storage_bucket.customer_export.name
   policy_data = data.google_iam_policy.customer_export.policy_data
+
+  depends_on = [google_project_iam_member.export_bucket_policy_admin]
 }
 
 resource "google_storage_bucket_iam_member" "audit_create" {

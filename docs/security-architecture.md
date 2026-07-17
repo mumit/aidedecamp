@@ -545,6 +545,11 @@ arguments.
   and resist accidental infrastructure destruction. A separately authenticated
   download gateway and cleanup executor receive disjoint authority in later
   reviewed slices.
+- **SEC-613.** An authoritative export-bucket policy MUST have an explicit
+  management path. A reviewed deployment identity may get bucket metadata and
+  get/set only that policy through a custom role with no object permissions;
+  inherited project-basic storage bindings MUST NOT be restored for operator
+  convenience.
 
 The lifecycle policy, complete storage inventory, customer ceremonies, and
 restore procedure are defined in [Hosted data lifecycle](data-lifecycle.md).

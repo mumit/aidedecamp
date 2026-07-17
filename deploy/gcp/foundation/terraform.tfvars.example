@@ -4,6 +4,7 @@ environment = "staging"
 
 # Production must set this to true. Bucket Lock is irreversible.
 lock_audit_retention = false
+export_bucket_policy_admin_members = ["user:operator@example.com"]
 
 # Keep both null until the private worker is deployed and its exact output is
 # reviewed. Configure both together before enabling jobs-queue dispatch.

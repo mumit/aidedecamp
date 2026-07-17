@@ -34,6 +34,14 @@ temporary object does not remain recoverable through that feature. The
 one-day bucket lifecycle is a backstop to the future immediate-consumption and
 bounded cleanup paths, not their replacement.
 
+Set `export_bucket_policy_admin_members` to at least one reviewed deployment
+principal. Its custom project role can read bucket metadata and get/set bucket
+IAM only; it has no object permission. This explicit management path is
+required because removing GCS legacy basic-role bindings also removes the
+implicit policy-administration path, even for a project Owner. Prefer a
+federated release identity outside development and review membership changes
+separately from runtime IAM.
+
 Only the dispatch-broker identity can enqueue either Cloud Tasks queue or use
 the distinct task-delivery identity. Control-plane, ingress, and worker
 identities must persist canonical dispatch state and invoke the broker; they
@@ -290,6 +298,28 @@ Google documents both the required principal in the
 [Gmail push guide](https://developers.google.com/workspace/gmail/api/guides/push)
 and the legacy constraint's
 [force-account-access sequence](https://cloud.google.com/resource-manager/docs/organization-policy/restricting-domains#forcing_account_access).
+
+## Development export-substrate evidence
+
+On 2026-07-16, the reviewed foundation plan created exactly the export KMS
+key, storage-service and encrypt-only writer key bindings, two-permission
+object-writer role, private temporary bucket, and writer binding (`6 added, 0
+changed, 0 destroyed`). Live inspection confirmed the bucket was empty,
+non-versioned, region-local, public-blocked, uniformly controlled, soft-delete
+disabled, protected from Terraform destruction, and configured with the
+one-day deletion backstop and the separate export key. The writer role contains
+only object create/delete; its KMS role contains only encrypt use.
+
+Initial inspection also found GCS legacy project-basic-role bindings that
+uniform bucket access does not remove. The authoritative-policy correction
+removed them. Because doing so also removed the project Owner's implicit
+bucket-policy access, the correction required an explicit, object-free policy
+administrator role. The existing live policy was adopted into Terraform state
+without recreating or widening it. Final live IAM contains only the export
+writer on the bucket, the development operator's project role contains only
+bucket metadata and get/set-IAM permissions, the bucket remains empty, and the
+foundation plan is empty. The full suite passed 999 tests with 35 optional
+tests skipped.
 
 ## Not created yet
 
