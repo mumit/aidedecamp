@@ -875,10 +875,15 @@ resource "google_cloud_run_v2_service" "channel_broker" {
     }
 
     vpc_access {
+      # The broker needs VPC provenance for the internal audit writer AND
+      # NAT'd internet egress for the Slack provider API (ordinary internet,
+      # unlike Google Chat's Private-Google-Access path). It sits on a
+      # dedicated broker-egress subnetwork whose Cloud NAT covers only this
+      # subnet, so every other workload keeps the no-NAT fail-closed posture.
       egress = "ALL_TRAFFIC"
       network_interfaces {
         network    = local.foundation.network_id
-        subnetwork = local.foundation.subnetwork_id
+        subnetwork = local.foundation.broker_egress_subnetwork_id
         tags       = ["attune-channel-broker"]
       }
     }

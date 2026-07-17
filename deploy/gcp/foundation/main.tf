@@ -86,6 +86,48 @@ resource "google_compute_subnetwork" "application" {
   }
 }
 
+# Dedicated subnet for the channel broker only. The broker's Slack OAuth
+# exchange calls ordinary internet (slack.com), unlike Google Chat's
+# Private-Google-Access path, so it needs NAT'd egress. Scoping that NAT to
+# this subnet keeps every other workload on the no-NAT fail-closed posture.
+resource "google_compute_subnetwork" "broker_egress" {
+  name                     = "${local.prefix}-broker-egress"
+  region                   = var.region
+  network                  = google_compute_network.private.id
+  ip_cidr_range            = "10.42.16.0/28"
+  private_ip_google_access = true
+
+  log_config {
+    aggregation_interval = "INTERVAL_5_SEC"
+    flow_sampling        = 0.5
+    metadata             = "INCLUDE_ALL_METADATA"
+  }
+}
+
+resource "google_compute_router" "broker_egress" {
+  name    = "${local.prefix}-broker-egress"
+  region  = var.region
+  network = google_compute_network.private.id
+}
+
+resource "google_compute_router_nat" "broker_egress" {
+  name                               = "${local.prefix}-broker-egress"
+  router                             = google_compute_router.broker_egress.name
+  region                             = var.region
+  nat_ip_allocate_option             = "AUTO_ONLY"
+  source_subnetwork_ip_ranges_to_nat = "LIST_OF_SUBNETWORKS"
+
+  subnetwork {
+    name                    = google_compute_subnetwork.broker_egress.id
+    source_ip_ranges_to_nat = ["ALL_IP_RANGES"]
+  }
+
+  log_config {
+    enable = true
+    filter = "ERRORS_ONLY"
+  }
+}
+
 # Resolve only reviewed provider and platform hosts through Google's private API
 # VIP. Other arbitrary internet destinations remain unreachable without NAT,
 # and other googleapis.com names retain their existing resolution behavior.

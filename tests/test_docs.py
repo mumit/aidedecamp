@@ -162,7 +162,16 @@ def test_gcp_foundation_preserves_hosted_security_boundaries():
     assert '"gmail.googleapis.com"' in required_services
     assert '"secretmanager.googleapis.com"' in terraform
     assert '"199.36.153.8"' in terraform
-    assert "google_compute_router_nat" not in terraform
+    # Cloud NAT exists only for the channel broker's dedicated egress subnet
+    # (its Slack OAuth exchange is ordinary internet); every other workload
+    # remains on the no-NAT fail-closed posture.
+    assert "google_compute_router_nat" in terraform
+    assert 'source_subnetwork_ip_ranges_to_nat = "LIST_OF_SUBNETWORKS"' in terraform
+    nat_block = terraform.split(
+        'resource "google_compute_router_nat" "broker_egress"', 1
+    )[1].split("\n}\n", 1)[0]
+    assert "google_compute_subnetwork.broker_egress.id" in nat_block
+    assert "google_compute_subnetwork.application.id" not in nat_block
     assert 'dns_name    = "googleapis.com."' not in terraform
     assert 'log_id(\\"cloudaudit.googleapis.com/activity\\")' in terraform
     assert 'log_id(\\"cloudaudit.googleapis.com/data_access\\")' in terraform
