@@ -5,7 +5,11 @@ from uuid import UUID
 import pytest
 
 from attune.hosted.customer_export_writer import ObjectNotFound
-from attune.hosted.export_cleanup import ExportCleanupCandidate, run_export_cleanup
+from attune.hosted.export_cleanup import (
+    ExportCleanupCandidate,
+    PostgresExportCleanupRepository,
+    run_export_cleanup,
+)
 
 
 def _candidate(index):
@@ -69,3 +73,33 @@ def test_cleanup_is_bounded_and_reports_possible_backlog():
 def test_cleanup_rejects_unbounded_configuration(batch, max_batches):
     with pytest.raises(ValueError):
         run_export_cleanup(Repository([]), Objects(), batch_size=batch, max_batches=max_batches)
+
+
+def test_repository_supports_pg8000_cursors_without_context_manager():
+    class Cursor:
+        def execute(self, query, parameters):
+            self.query = query
+
+        def fetchall(self):
+            return []
+
+        def close(self):
+            self.closed = True
+
+    class Connection:
+        def __init__(self):
+            self.value = Cursor()
+
+        def cursor(self):
+            return self.value
+
+        def commit(self):
+            self.committed = True
+
+        def close(self):
+            self.closed = True
+
+    connection = Connection()
+    repository = PostgresExportCleanupRepository(lambda: connection)
+    assert repository.claim(cleanup_run_id=UUID(int=9), batch_size=10) == ()
+    assert connection.value.closed and connection.committed and connection.closed

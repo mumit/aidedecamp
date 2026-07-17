@@ -33,7 +33,7 @@ class PostgresExportCleanupRepository:
 
     def claim(self, *, cleanup_run_id: UUID, batch_size: int) -> tuple[ExportCleanupCandidate, ...]:
         with closing(self._connect()) as connection:
-            with connection.cursor() as cursor:
+            with closing(connection.cursor()) as cursor:
                 cursor.execute(
                     "SELECT * FROM attune.claim_customer_export_attempt_cleanups(%s,%s)",
                     (cleanup_run_id, batch_size),
@@ -44,7 +44,7 @@ class PostgresExportCleanupRepository:
 
     def complete(self, candidate: ExportCleanupCandidate, *, cleanup_run_id: UUID) -> bool:
         with closing(self._connect()) as connection:
-            with connection.cursor() as cursor:
+            with closing(connection.cursor()) as cursor:
                 cursor.execute(
                     "SELECT attune.complete_customer_export_attempt_cleanup(%s,%s,%s)",
                     (candidate.export_id, candidate.attempt_run_id, cleanup_run_id),
