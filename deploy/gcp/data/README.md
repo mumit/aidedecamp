@@ -749,6 +749,15 @@ Development expiry-cleanup evidence on 2026-07-16:
 - Both foundation and data plans were empty afterward. No scheduler, writer
   job, object, queue route, download path, endpoint, or UI exists.
 
+Migration `0035_customer_export_task_authority.sql` is the function-only bridge
+between canonical dispatch and the distinct export writer. It validates the
+OIDC-authenticated tenant, generic job, delivery, and export relationship,
+leases recoverable work for six minutes, makes a tenant-bound export claim, and
+allows generic task finalization only after the export state is independently
+terminal. The memberless function owner gains only `SELECT`/`UPDATE` on jobs
+and `SELECT` on dispatch intents; the runtime export identity retains no direct
+table privilege. Deploy and verify it before enabling the private writer route.
+
 ## Production gates
 
 Before this job or schema is promoted beyond development:

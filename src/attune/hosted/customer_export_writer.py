@@ -74,11 +74,26 @@ class CustomerExportWriter:
         self._new_object_id = new_object_id
 
     def execute(
-        self, export_id: UUID, *, run_id: UUID
+        self,
+        export_id: UUID,
+        *,
+        run_id: UUID,
+        expected_tenant_id: UUID | None = None,
     ) -> CompletedCustomerExport | None:
-        if not isinstance(export_id, UUID) or not isinstance(run_id, UUID):
-            raise TypeError("export_id and run_id must be UUIDs")
-        claimed = self._claims.claim(export_id, run_id=run_id)
+        if (
+            not isinstance(export_id, UUID)
+            or not isinstance(run_id, UUID)
+            or (
+                expected_tenant_id is not None
+                and not isinstance(expected_tenant_id, UUID)
+            )
+        ):
+            raise TypeError("export and tenant identifiers must be UUIDs")
+        claimed = self._claims.claim(
+            export_id,
+            run_id=run_id,
+            expected_tenant_id=expected_tenant_id,
+        )
         if claimed is None:
             return None
         reservation = self._execution.reserve_object(

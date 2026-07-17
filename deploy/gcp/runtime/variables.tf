@@ -92,6 +92,22 @@ variable "worker_image" {
   }
 }
 
+variable "export_writer_image" {
+  description = "Artifact Registry customer-export writer image pinned by sha256 digest."
+  type        = string
+
+  validation {
+    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.export_writer_image))
+    error_message = "export_writer_image must be an immutable @sha256 Artifact Registry reference."
+  }
+}
+
+variable "enable_export_writer" {
+  description = "Deploy and register the private customer-export writer after cleanup and database gates pass."
+  type        = bool
+  default     = false
+}
+
 variable "model_gateway_image" {
   description = "Artifact Registry model-gateway image pinned by sha256 digest."
   type        = string

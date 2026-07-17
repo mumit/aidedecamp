@@ -71,15 +71,35 @@ class PostgresCustomerExportClaims:
     def __init__(self, connection_factory: ConnectionFactory):
         self._connect = connection_factory
 
-    def claim(self, export_id: UUID, *, run_id: UUID) -> ClaimedCustomerExport | None:
-        if not isinstance(export_id, UUID) or not isinstance(run_id, UUID):
-            raise TypeError("export_id and run_id must be UUIDs")
+    def claim(
+        self,
+        export_id: UUID,
+        *,
+        run_id: UUID,
+        expected_tenant_id: UUID | None = None,
+    ) -> ClaimedCustomerExport | None:
+        if (
+            not isinstance(export_id, UUID)
+            or not isinstance(run_id, UUID)
+            or (
+                expected_tenant_id is not None
+                and not isinstance(expected_tenant_id, UUID)
+            )
+        ):
+            raise TypeError("export and tenant identifiers must be UUIDs")
         with closing(self._connect()) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT * FROM attune.claim_customer_export(%s,%s)",
-                    (export_id, run_id),
-                )
+            with closing(connection.cursor()) as cursor:
+                if expected_tenant_id is None:
+                    cursor.execute(
+                        "SELECT * FROM attune.claim_customer_export(%s,%s)",
+                        (export_id, run_id),
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT * FROM "
+                        "attune.claim_customer_export_for_tenant(%s,%s,%s)",
+                        (expected_tenant_id, export_id, run_id),
+                    )
                 row = cursor.fetchone()
             connection.commit()
         return ClaimedCustomerExport(*row) if row is not None else None
@@ -131,7 +151,7 @@ class PostgresCustomerExportExecution:
         }:
             raise ValueError("invalid export member")
         with closing(self._connect()) as connection:
-            with connection.cursor() as cursor:
+            with closing(connection.cursor()) as cursor:
                 cursor.execute(
                     "SELECT member_name, record "
                     "FROM attune.read_customer_export_records(%s,%s) "
@@ -149,7 +169,7 @@ class PostgresCustomerExportExecution:
     ) -> tuple[UUID, ...]:
         _uuids(export_id, run_id)
         with closing(self._connect()) as connection:
-            with connection.cursor() as cursor:
+            with closing(connection.cursor()) as cursor:
                 cursor.execute(
                     "SELECT object_id "
                     "FROM attune.list_customer_export_cleanup_objects(%s,%s)",
@@ -199,7 +219,7 @@ class PostgresCustomerExportExecution:
 
     def _one(self, query: str, parameters: tuple[Any, ...]) -> tuple[Any, ...]:
         with closing(self._connect()) as connection:
-            with connection.cursor() as cursor:
+            with closing(connection.cursor()) as cursor:
                 cursor.execute(query, parameters)
                 row = cursor.fetchone()
             connection.commit()

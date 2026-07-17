@@ -44,7 +44,7 @@ class Claims:
     def __init__(self, claimed=True):
         self.claimed = claimed
 
-    def claim(self, export_id, *, run_id):
+    def claim(self, export_id, *, run_id, expected_tenant_id=None):
         if not self.claimed:
             return None
         return ClaimedCustomerExport(

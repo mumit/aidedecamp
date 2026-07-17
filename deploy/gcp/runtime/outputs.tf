@@ -76,6 +76,20 @@ output "worker" {
   }
 }
 
+output "export_writer" {
+  description = "Private exact-authority customer-export writer; null while dormant."
+  value = var.enable_export_writer ? {
+    project         = local.foundation.project_id
+    region          = local.foundation.region
+    name            = google_cloud_run_v2_service.export_writer[0].name
+    uri             = google_cloud_run_v2_service.export_writer[0].uri
+    target_path     = "/v1/tasks/customer-export"
+    audience        = local.export_writer_audience
+    service_account = local.foundation.workload_identities.export
+    image           = var.export_writer_image
+  } : null
+}
+
 output "model_gateway" {
   description = "Private fixed-task model-gateway identifiers; null while dormant."
   value = var.enable_model_gateway ? {

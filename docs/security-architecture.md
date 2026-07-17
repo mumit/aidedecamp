@@ -571,6 +571,16 @@ arguments.
   winning attempt, and content-free audit evidence. A storage failure or stale
   lease MUST leave the export nonterminal and retryable; lifecycle deletion
   alone is not sufficient evidence.
+- **SEC-617.** Export generation MUST be delivered through the canonical task
+  broker to a private, single-concurrency service using the dedicated export
+  identity. The service MUST authenticate the task-dispatch OIDC identity and
+  exact audience, bind tenant, generic job, delivery, and export identifiers
+  through function-only database authority, and derive every scope, object
+  name, key, and retention value server-side. Busy or cleanup-uncertain work
+  remains retryable; terminal task acknowledgement is allowed only when the
+  export database state is independently terminal. The service MUST NOT receive
+  connector credentials, object read/list, KMS decrypt, or arbitrary runtime
+  arguments.
 
 The lifecycle policy, complete storage inventory, customer ceremonies, and
 restore procedure are defined in [Hosted data lifecycle](data-lifecycle.md).

@@ -7,6 +7,18 @@ content-free `platform.smoke` route. It also deploys the dispatch broker after
 the jobs queue has its reviewed fixed routing override, plus a dormant private
 OAuth exchange service used only by the credential-free callback scrubber.
 
+## Customer-export writer boundary
+
+`enable_export_writer` adds a private, single-concurrency Cloud Run service and
+one fixed dispatch-broker route for `customer.export.generate`. Only the Cloud
+Tasks delivery identity may invoke it. The service account is the distinct
+export writer: function-only database authority, KMS encrypt, and canonical
+object create/delete, with no object read/list, KMS decrypt, secret, connector,
+or queue administration. The task envelope is OIDC-verified and its tenant,
+job, delivery, and export relationship is reauthorized in PostgreSQL. Keep the
+flag false until migrations 0033-0035, manual cleanup, paging, and the synthetic
+development export ceremony have passed.
+
 ## Model-gateway boundary
 
 The optional private model gateway owns the platform model credential and no

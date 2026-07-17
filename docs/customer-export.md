@@ -226,6 +226,20 @@ verified all 34 forced-RLS tenant tables and exact privileges. Manual execution
 reported zero abandoned attempts, zero expired exports, and no possible
 backlog. Both infrastructure plans are empty; the job remains unscheduled.
 
+Migration `0035_customer_export_task_authority.sql` and the private writer
+service define the generation delivery boundary. The canonical dispatch job
+contains only an export UUID; the authenticated Cloud Tasks envelope supplies
+the tenant, generic job, and delivery UUIDs. Function-only authority validates
+that exact relationship, leases it for bounded retry, and then makes a
+tenant-bound export claim. The service derives a fresh run/object ID, projection
+scope, archive format, KMS key, bucket, and expiry entirely server-side. It has
+KMS encrypt and opaque object create/delete but no decrypt, read, list,
+connector, or general job-table authority. Task completion succeeds only after
+the export itself is ready or otherwise terminal. Process-death and uncertain
+cleanup return retryable failure. This slice is dormant until migration 0035,
+the private service, fixed broker route, paging, and a synthetic export ceremony
+are deployed and reviewed.
+
 ## Required evidence before activation
 
 - real-PostgreSQL cross-tenant, role, claim/replay, transition, and concurrency
