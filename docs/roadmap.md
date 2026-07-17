@@ -117,9 +117,10 @@ contains no ready/publish transition and grants no storage or KMS authority.
 The deterministic archive builder is also implemented and adversarially tested
 with fixed paths/schema/kinds, structural secret-negative validation, member
 and archive digests, and record/byte/depth ceilings. A claim-bound positive
-database projection is implemented locally with a current-owner check, fixed
-fields, unreviewed nested-JSON exclusions, and a 100,000-record ceiling;
-development deployment evidence is still pending. Envelope encryption,
+database projection is deployed in development with a current-owner check,
+fixed fields, unreviewed nested-JSON exclusions, and a 100,000-record ceiling.
+Its real-PostgreSQL owner/lease/secret-negative/archive tests, exact migration
+verifier, and empty infrastructure plans are recorded. Envelope encryption,
 storage, cleanup, download, and UI remain.
 
 The first platform mapping is [`hosted-gcp.md`](hosted-gcp.md), and the initial

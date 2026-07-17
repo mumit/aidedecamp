@@ -608,6 +608,24 @@ routes, internal identity hashes, embeddings, and audit-chain values are not
 projected. Applying it still creates no export job, object, KMS key, storage
 permission, completion transition, queue route, endpoint, or UI.
 
+Development projection evidence on 2026-07-16:
+
+- The real-PostgreSQL suite passed all 42 database tests. It proves current
+  owner status, exact lease binding, wrong-run refusal, executor direct-table
+  denial, omission of an adversarial policy secret, and compatibility between
+  projected records and the bounded archive builder. The full suite passed 985
+  tests with 35 optional tests skipped.
+- Migrator manifest digest
+  `sha256:b090ff320960e19eca6d8033b8cfe550bc742103c030399d0a392dd7864f384f`
+  updated only the three existing operator jobs in place (`0 added, 3 changed,
+  0 destroyed`).
+- Execution `attune-development-database-migrate-mqbbj` applied exactly
+  migration 0030, exited successfully, and verified all 33 tenant tables plus
+  the exact runtime/function-owner privilege boundary.
+- Both foundation and data plans were empty afterward. No export execution
+  job, object, key, storage permission, completion transition, queue route,
+  endpoint, or UI was created.
+
 ## Production gates
 
 Before this job or schema is promoted beyond development:

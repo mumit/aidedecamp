@@ -49,6 +49,10 @@ before any row is returned. The function owner has `SELECT` only on the tables
 named by these four projections; the runtime export identity has no direct
 table access.
 
+The migration is deployed in the development database. Its exact runtime and
+function-owner privilege inventory passed the live verifier, and no export
+execution job, object storage, key authority, endpoint, or UI was introduced.
+
 Arbitrary JSON policy documents, conversation/memory provenance, audit
 metadata, and usage attributes are intentionally omitted. Their byte bounds
 do not make their internal fields customer-safe. Adding any such field
