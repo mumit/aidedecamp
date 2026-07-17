@@ -97,6 +97,7 @@ resource "google_sql_user" "workload" {
     "dispatch_broker",
     "export",
     "export_cleanup",
+    "export_download",
     "oauth_exchange",
     "identity_provisioner",
     "retention",
