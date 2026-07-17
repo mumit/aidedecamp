@@ -71,11 +71,14 @@ second fail-closed check, not a substitute for that review.
   fixed database function. Its database owner can read only the reviewed
   export projection and update only that job's state. It has no connector,
   secret-broker, queue-administration, or general storage-list authority.
-- **Export crypto/storage writer:** creates a random per-export data-encryption
+- **Export crypto/storage writer:** creates a random per-attempt data-encryption
   key, encrypts the archive with authenticated context binding tenant, job,
-  scope, and schema version, wraps the key with the export KMS key, and creates
-  only the canonical opaque object name. Partial objects are deleted on every
-  failure path.
+  scope, object, and schema version, wraps the key with the export KMS key, and
+  creates only a canonical opaque object name. Each retry has a distinct,
+  durable object reservation so a late stale worker cannot overwrite or delete
+  the winning attempt. A terminal failure is forbidden unless the writer has
+  proved its current object absent; bucket lifecycle remains the backstop for
+  a process that dies between a storage write and cleanup.
 - **Download gateway:** after a second recent-auth ceremony, atomically consumes
   the download authorization, reads exactly the referenced object generation,
   unwraps and streams it, and schedules immediate erasure. It never redirects
@@ -105,6 +108,13 @@ storage generation, wrapped-key ciphertext, archive digest, byte size, and an
 expiry no later than 24 hours after readiness. Download consumption is atomic;
 parallel or replayed requests cannot both obtain plaintext. A failed,
 cancelled, consumed, or expired job cannot return to ready.
+
+An expired `running` claim may be reassigned, but its attempt record and opaque
+object UUID remain durable. The replacement receives a new object UUID and
+deletes known prior candidates without storage listing. Create-if-absent keeps
+each attempt immutable. Completion and cleanup use the exact returned storage
+generation. Reusing one object name is prohibited because a late expired
+worker could otherwise race with and delete its replacement.
 
 ## Content and format safety
 
@@ -166,6 +176,20 @@ idempotency, altered-metadata refusal, expiry, audit, role, and schema tests
 pass against real PostgreSQL, the live migrator verifier passes, and both
 infrastructure plans are empty. No export object was generated.
 
+Migration `0032_customer_export_recovery.sql` and the dormant writer library
+close the interrupted-execution boundary. The migration permits only expired
+leases to be reclaimed, records one opaque object attempt per run, returns
+known cleanup candidates through an exact-claim function, and exposes a fixed
+failure transition with five content-free codes. The writer deletes prior
+candidates, builds the positive projection, encrypts with a fresh DEK, uploads
+with create-if-absent plus CRC32C, binds the returned generation at completion,
+and deletes that exact generation if completion fails. An ambiguous upload is
+deleted before failure is recorded. If deletion cannot be verified, the job
+remains nonterminal and raises a cleanup incident. The storage adapter exposes
+no read or list operation. This code and migration do not deploy an export
+executor, queue route, download gateway, cleanup service, endpoint, or UI, so
+customer export remains unavailable.
+
 ## Required evidence before activation
 
 - real-PostgreSQL cross-tenant, role, claim/replay, transition, and concurrency
@@ -174,7 +198,8 @@ infrastructure plans are empty. No export object was generated.
   proving no forbidden field or path escapes;
 - envelope-encryption substitution tests for tenant, job, scope, generation,
   and object context;
-- partial-write, KMS failure, retry, double-download, expiry, and cleanup tests;
+- partial-write, KMS failure, expired-worker retry, double-download, expiry,
+  process-death orphan reconciliation, and cleanup tests;
 - a synthetic development export whose decrypted manifest and payload are
   reviewed, followed by object/key cleanup and an empty infrastructure plan;
 - paging for generation failure, cleanup failure, and expired-object backlog;

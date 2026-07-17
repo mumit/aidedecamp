@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from .repositories import ConnectionFactory, _fixed_hash
@@ -82,3 +83,131 @@ class PostgresCustomerExportClaims:
                 row = cursor.fetchone()
             connection.commit()
         return ClaimedCustomerExport(*row) if row is not None else None
+
+
+@dataclass(frozen=True)
+class ReservedCustomerExportObject:
+    object_id: UUID
+    requested_at: datetime
+
+
+@dataclass(frozen=True)
+class CompletedCustomerExport:
+    id: UUID
+    state: str
+    expires_at: datetime
+
+
+@dataclass(frozen=True)
+class FailedCustomerExport:
+    id: UUID
+    state: str
+    failure_code: str
+
+
+class PostgresCustomerExportExecution:
+    """Use only claim-bound projection and state-transition functions."""
+
+    def __init__(self, connection_factory: ConnectionFactory):
+        self._connect = connection_factory
+
+    def reserve_object(
+        self, export_id: UUID, *, run_id: UUID, proposed_object_id: UUID
+    ) -> ReservedCustomerExportObject:
+        _uuids(export_id, run_id, proposed_object_id)
+        row = self._one(
+            "SELECT * FROM attune.reserve_customer_export_object(%s,%s,%s)",
+            (export_id, run_id, proposed_object_id),
+        )
+        return ReservedCustomerExportObject(*row)
+
+    def records(
+        self, export_id: UUID, *, run_id: UUID, expected_member: str
+    ) -> tuple[Mapping[str, Any], ...]:
+        _uuids(export_id, run_id)
+        if expected_member not in {
+            "account.jsonl", "conversations.jsonl", "memories.jsonl",
+            "activity.jsonl",
+        }:
+            raise ValueError("invalid export member")
+        with closing(self._connect()) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT member_name, record "
+                    "FROM attune.read_customer_export_records(%s,%s) "
+                    "ORDER BY sort_key",
+                    (export_id, run_id),
+                )
+                rows = cursor.fetchall()
+            connection.commit()
+        if any(row[0] != expected_member for row in rows):
+            raise RuntimeError("customer export projection returned the wrong member")
+        return tuple(row[1] for row in rows)
+
+    def cleanup_objects(
+        self, export_id: UUID, *, run_id: UUID
+    ) -> tuple[UUID, ...]:
+        _uuids(export_id, run_id)
+        with closing(self._connect()) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT object_id "
+                    "FROM attune.list_customer_export_cleanup_objects(%s,%s)",
+                    (export_id, run_id),
+                )
+                rows = cursor.fetchall()
+            connection.commit()
+        return tuple(row[0] for row in rows)
+
+    def complete(
+        self,
+        export_id: UUID,
+        *,
+        run_id: UUID,
+        object_id: UUID,
+        object_generation: int,
+        wrapped_dek: bytes,
+        nonce: bytes,
+        key_resource: str,
+        archive_sha256: bytes,
+        ciphertext_sha256: bytes,
+        archive_bytes: int,
+        ciphertext_bytes: int,
+        encryption_format: int,
+    ) -> CompletedCustomerExport:
+        _uuids(export_id, run_id, object_id)
+        row = self._one(
+            "SELECT * FROM attune.complete_customer_export("
+            "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (
+                export_id, run_id, object_id, object_generation, wrapped_dek,
+                nonce, key_resource, archive_sha256, ciphertext_sha256,
+                archive_bytes, ciphertext_bytes, encryption_format,
+            ),
+        )
+        return CompletedCustomerExport(*row)
+
+    def fail(
+        self, export_id: UUID, *, run_id: UUID, failure_code: str
+    ) -> FailedCustomerExport:
+        _uuids(export_id, run_id)
+        row = self._one(
+            "SELECT * FROM attune.fail_customer_export(%s,%s,%s)",
+            (export_id, run_id, failure_code),
+        )
+        return FailedCustomerExport(*row)
+
+    def _one(self, query: str, parameters: tuple[Any, ...]) -> tuple[Any, ...]:
+        with closing(self._connect()) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query, parameters)
+                row = cursor.fetchone()
+            connection.commit()
+        if row is None:
+            raise RuntimeError("customer export transition returned no result")
+        return row
+
+
+def _uuids(*values: UUID) -> None:
+    if not all(isinstance(value, UUID) for value in values):
+        raise TypeError("export identifiers must be UUIDs")

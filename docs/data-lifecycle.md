@@ -81,16 +81,21 @@ review these non-relational locations:
    The browser never chooses a tenant or object-store path.
 3. A dedicated export identity reads only the allowed tenant scope, constructs
    a versioned manifest, scans it for forbidden secret fields, encrypts it with
-   a fresh data key, and publishes it to the temporary export store.
+   a fresh data key, and publishes it to a distinct opaque object reserved for
+   that execution attempt. Expired retries retain prior candidates for cleanup
+   and never reuse their object identity.
 4. The owner reauthenticates to stream the object through Attune. Download
    authorization is not a long-lived public signed URL.
 5. The object and wrapped key expire within 24 hours. Repeated requests and
    expiry are auditable without retaining the exported content.
 
-Exports are asynchronous and size-limited. Partial generation fails closed and
-removes the partial object. Customer exports include provenance and timestamps
-needed to understand the data, but not credentials, internal authorization
-material, unrelated principals, raw embeddings, or security secrets.
+Exports are asynchronous and size-limited. Partial generation fails closed; a
+terminal failure is recorded only after the current attempt's object is proven
+absent. Known abandoned attempts remain cleanup work and the one-day bucket
+lifecycle bounds an object left by abrupt process death. Customer exports
+include provenance and timestamps needed to understand the data, but not
+credentials, internal authorization material, unrelated principals, raw
+embeddings, or security secrets.
 
 ## Account deletion and restore suppression
 

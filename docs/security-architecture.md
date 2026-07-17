@@ -550,6 +550,14 @@ arguments.
   get/set only that policy through a custom role with no object permissions;
   inherited project-basic storage bindings MUST NOT be restored for operator
   convenience.
+- **SEC-614.** Every export execution attempt MUST reserve a distinct opaque
+  object identity before storage access. Expired claims may be reclaimed, but
+  stale attempts MUST NOT share an object name with a replacement. Uploads
+  MUST use create-if-absent and integrity checking; completion and cleanup MUST
+  bind the exact immutable generation. A job MUST NOT become terminal after an
+  ambiguous write until its current object is proven absent. Known abandoned
+  attempts remain durable cleanup inputs, and provider lifecycle deletion is a
+  backstop rather than application cleanup evidence.
 
 The lifecycle policy, complete storage inventory, customer ceremonies, and
 restore procedure are defined in [Hosted data lifecycle](data-lifecycle.md).
