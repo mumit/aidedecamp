@@ -124,6 +124,22 @@ and the platform Slack app, Terraform substrate, edge activation, and live
 owner ceremony remain future operator work recorded in
 [`hosted-channel-installation.md`](hosted-channel-installation.md).
 
+Slack installation, verified ingress, the fixed delivery test, and the
+replay-safe durable conversation route are now live in development behind
+their independent gates, exercised on 2026-07-17: migration 0038's dormant-first
+deploy, staged activation through `enable_slack_ingress`,
+`slack_channel_enabled`, and `enable_hosted_slack_install`, a live owner
+install, a delivered fixed-content test, and a first bounded Calendar
+conversation dispatched and answered through the private broker. Two
+decisions from this rollout are recorded in
+[`decisions.md`](decisions.md): each provider ingress runs its own workload
+identity, with dispatch attribution now accepting multiple authorized emails
+per producer kind; and internet egress exists only on a dedicated,
+subnet-scoped Cloud NAT for Slack's ordinary internet API, while every other
+workload keeps the no-NAT fail-closed posture. The live disconnect /
+fail-closed refusal / reinstall / delivery-test / conversation-recovery
+regression, exercised for Google Chat, remains outstanding for Slack.
+
 The first customer-export authority slice is implemented and deployed:
 four server-defined scopes, recent-session binding, idempotent request,
 one-use executor claim, atomic audit evidence, and function-only mutation. It

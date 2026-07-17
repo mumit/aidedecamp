@@ -574,3 +574,30 @@ Newest first. This log records decisions that constrain current implementation.
   parallel Slack functions plus `disconnect_hosted_channel_destination_v2`,
   which delegates Google Chat to the original audited function and extends
   the ceremony to delete Slack credentials.
+
+## 2026-07-17 — Per-provider ingress identities
+
+- Each provider ingress runs its own workload identity; Google Chat ingress
+  and Slack ingress are never the same service account.
+- The channel broker enforces distinct caller identities per route and
+  refuses to start if any two of its caller identities coincide, so a
+  compromised provider ingress can exercise only its own provider's broker
+  routes.
+- Dispatch attribution is a separate mechanism from the channel broker's
+  distinct-identity check: the dispatch broker's caller map now accepts
+  multiple authorized emails per producer kind (needed once the Slack
+  ingress identity required its own `run.invoker` grant), while unknown
+  callers are still refused and duplicate entries are still rejected at
+  startup.
+
+## 2026-07-17 — Subnet-scoped NAT exception
+
+- Internet egress exists only on the dedicated broker-egress subnetwork,
+  reached through a subnet-scoped Cloud NAT, because Slack's API is ordinary
+  internet rather than a Google API reachable over Private Google Access.
+- Every other workload keeps the no-NAT fail-closed posture established for
+  the GCP provider boundary; the NAT exception is scoped to that one subnet
+  and does not extend arbitrary egress to any other service.
+- The broker-egress subnet was widened from `/28` to `/24` after Cloud Run
+  direct-VPC health checks refused the `/28` for insufficient free
+  addresses; the NAT scope itself (that one subnet) is unchanged.

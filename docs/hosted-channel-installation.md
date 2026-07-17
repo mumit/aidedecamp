@@ -485,3 +485,76 @@ channel-broker identity — and both are excluded from the secret-broker
 accessor grant. Channel-broker Slack configuration stays behind
 `slack_channel_enabled`, which remains false. Provider app creation, secret
 version population, and staged gate activation remain operator ceremonies.
+
+Slack was activated in development on 2026-07-17 UTC. Migration 0038 first
+failed closed in execution `attune-development-database-migrate-5wcv5` on a
+pre-existing defect: the export-download Cloud SQL IAM user was missing
+because the `instanceUser` role existed but the `google_sql_user` set omitted
+`export_download`. Commit `53c31d3` corrected the omission. Execution
+`attune-development-database-migrate-z8fw8` then applied migration 0038 once
+from immutable migrator digest
+`sha256:5bb669763fdf74cbd125a3a9500ff1233db05c29372871a1c93b141cdbf8e472`; the
+live verifier reported 36 tenant tables forced through RLS. Migrator success
+is enforced by exit code and the full boundary verifier rather than the
+migrator's stdout summary, which did not surface in Cloud Logging
+`textPayload`.
+
+Five images were built and pinned by digest for the rollout: channel-broker
+`sha256:8978f4fe08eac5aacc181bca62dba10cbd42a06f015b161243d205c0e85b6089`,
+control-plane
+`sha256:9cbf265d589531ba6111bfc1b4ff7c705d3e065b3167ceac2152a412fd4f789d`,
+worker
+`sha256:f5276911867674f53735868a8a7c10ce2015e0730433718ca5e58012077f9fb0`,
+slack-ingress
+`sha256:9f9f6a49670a36726b9a95a6eb82bf7e40b380bb739a04ed46cdafc884d4fc67`, and
+dispatch-broker
+`sha256:63af87280494a2c852759260cb4fceec417d1659f976c14caf22bdcd26211d0e`.
+At completion, Ready revisions were slack-ingress `00002-8rt`, channel-broker
+`00011-26t`, control-plane `00028-f5l`, worker `00014-2vw`, and
+dispatch-broker `00011-hb7`. All four Terraform modules (foundation, data,
+runtime, edge) converged to empty plans.
+
+The rollout followed the documented dormant-first gates. Foundation identity
+and secret access were provisioned first. A dormant deploy followed with all
+gates false, and the public event-path probe returned 403. `enable_slack_ingress`
+was then activated with a `slack_provider_ready` attestation: after Cloud
+Armor propagation, an unsigned POST on the exact `/v1/provider/slack/events`
+path reached the application and received its content-free JSON 403
+signature refusal, while GET and near-miss-path probes remained edge-denied.
+`slack_channel_enabled` came next; the broker revision reaching Ready proved
+the client-secret fetch, HMAC key, and the four-distinct-identities startup
+check. `enable_hosted_slack_install` was activated last, together with Cloud
+Armor rules 891 and 892; all four onboarding paths (install, callback, test,
+disconnect) reached application authorization and failed closed with 401
+`invalid_session` while unauthenticated.
+
+The live owner ceremony followed. The setup page's new Slack section (commit
+`cc8f1f1`) started a one-use OAuth state, and the first consent attempt failed
+closed with a content-free `SlackProviderFailure` because the deliberately
+NAT-less VPC blocked `slack.com` egress — Google Chat had ridden Private
+Google Access, which Slack's ordinary internet API cannot use. The dedicated
+broker-egress subnetwork with subnet-scoped Cloud NAT (commit `9eadd66`,
+subnet later widened to `/24`) restored egress while every other workload
+kept the no-NAT posture. A fresh ceremony then installed, resolved the
+installer's DM, stored the encrypted route and bot token, and the explicit
+fixed delivery test delivered `Attune connection test succeeded. No workspace
+data was accessed.` and activated the destination.
+
+The first live conversation attempt was accepted durably but not dispatched:
+the Slack ingress's distinct identity had no `run.invoker` on the dispatch
+broker and was then refused by the dispatch broker's one-email-per-kind
+caller map. Two fixes resolved this: the gated `dispatch_broker_invoker`
+grant for the slack-ingress identity, and commit `577d803`, which allows
+multiple authorized emails per producer kind while still refusing unknown
+callers and rejecting duplicates at startup. A fresh owner DM then completed
+the full path — verified ingress, durable acceptance, dispatch, a bounded
+read-only Calendar answer, and reply delivery through the private broker.
+
+Slack Event Subscriptions verified the Request URL
+`https://dev.attune.mumit.org/v1/provider/slack/events` through the signed
+`url_verification` handshake and subscribes to `message.im` only.
+
+Remaining before this channel's gate is called complete: the live disconnect
+/ fail-closed refusal / reinstall / delivery-test / conversation-recovery
+regression (implemented and exercised for Google Chat, not yet exercised live
+for Slack), and the mutation-refusal probe.

@@ -60,9 +60,20 @@ Key properties a reviewer should verify against
 - No credential-bearing runtime exposes a public port except through the
   exact-path, default-deny edge policy.
 - The channel broker refuses to start if any two of its four caller
-  identities coincide (`channel_broker_service.create_app`).
+  identities coincide (`channel_broker_service.create_app`); each provider
+  ingress (Google Chat, Slack) runs its own workload identity, so a
+  compromised ingress can exercise only its own provider's broker routes.
+  The dispatch broker's caller-attribution map is a separate mechanism and
+  now accepts multiple authorized emails per producer kind, while unknown
+  callers are still refused and duplicate entries are rejected at startup.
 - Workers receive job references, never tenant-chosen URLs, routes, tokens,
   or message bodies.
+- The VPC is no-NAT by default: application workloads have Private Google
+  Access but no route to the open internet. The one scoped exception is the
+  dedicated broker-egress subnetwork, reached through a subnet-scoped Cloud
+  NAT, because Slack's OAuth exchange and API calls are ordinary internet
+  rather than a Google API. Every other workload keeps the no-NAT
+  fail-closed posture.
 
 ## 3. Data core and database authority
 
