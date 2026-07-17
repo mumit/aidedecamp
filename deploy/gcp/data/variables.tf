@@ -98,3 +98,23 @@ variable "alert_notification_channels" {
     error_message = "alert_notification_channels entries must be full Monitoring notification-channel resource names."
   }
 }
+
+variable "export_cleanup_batch_size" {
+  description = "Maximum abandoned export-attempt objects leased per cleanup batch."
+  type        = number
+  default     = 50
+  validation {
+    condition     = floor(var.export_cleanup_batch_size) == var.export_cleanup_batch_size && var.export_cleanup_batch_size >= 1 && var.export_cleanup_batch_size <= 100
+    error_message = "export_cleanup_batch_size must be an integer between 1 and 100."
+  }
+}
+
+variable "export_cleanup_max_batches" {
+  description = "Maximum cleanup claim batches per manually invoked execution."
+  type        = number
+  default     = 4
+  validation {
+    condition     = floor(var.export_cleanup_max_batches) == var.export_cleanup_max_batches && var.export_cleanup_max_batches >= 1 && var.export_cleanup_max_batches <= 10
+    error_message = "export_cleanup_max_batches must be an integer between 1 and 10."
+  }
+}

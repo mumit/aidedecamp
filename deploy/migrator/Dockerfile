@@ -5,7 +5,7 @@ WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
 COPY src src
 
-RUN pip install --no-cache-dir --no-compile ".[hosted]" \
+RUN pip install --no-cache-dir --no-compile ".[hosted,hosted-service]" \
     && groupadd --system --gid 65532 attune \
     && useradd --system --uid 65532 --gid attune --home-dir /nonexistent attune
 

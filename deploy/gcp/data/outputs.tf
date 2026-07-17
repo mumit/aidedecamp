@@ -34,3 +34,14 @@ output "protocol_retention_job" {
     scheduler_paused          = google_cloud_scheduler_job.protocol_retention.paused
   }
 }
+
+output "export_cleanup_job" {
+  description = "Manually invoked bounded abandoned-export cleanup job."
+  value = {
+    project         = local.foundation.project_id
+    region          = local.foundation.region
+    name            = google_cloud_run_v2_job.export_cleanup.name
+    service_account = local.foundation.workload_identities.export_cleanup
+    image           = var.migrator_image
+  }
+}

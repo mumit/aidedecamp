@@ -322,6 +322,65 @@ resource "google_cloud_run_v2_job" "protocol_retention" {
   }
 }
 
+resource "google_cloud_run_v2_job" "export_cleanup" {
+  project             = local.foundation.project_id
+  name                = "${local.prefix}-export-cleanup"
+  location            = local.foundation.region
+  deletion_protection = true
+  labels              = merge(local.labels, { component = "export-cleanup" })
+
+  template {
+    task_count  = 1
+    parallelism = 1
+    template {
+      service_account = local.foundation.workload_identities.export_cleanup
+      max_retries     = 0
+      timeout         = "300s"
+      containers {
+        name    = "export-cleanup"
+        image   = var.migrator_image
+        command = ["python", "-m", "attune.hosted.export_cleanup"]
+        resources { limits = { cpu = "1", memory = "512Mi" } }
+        env {
+          name  = "ATTUNE_CLOUD_SQL_INSTANCE"
+          value = local.foundation.database_instance
+        }
+        env {
+          name  = "ATTUNE_DB_NAME"
+          value = local.foundation.database_name
+        }
+        env {
+          name  = "ATTUNE_DB_USER"
+          value = trimsuffix(local.foundation.workload_identities.export_cleanup, ".gserviceaccount.com")
+        }
+        env {
+          name  = "ATTUNE_EXPORT_BUCKET"
+          value = local.foundation.customer_export_bucket
+        }
+        env {
+          name  = "ATTUNE_EXPORT_CLEANUP_BATCH_SIZE"
+          value = tostring(var.export_cleanup_batch_size)
+        }
+        env {
+          name  = "ATTUNE_EXPORT_CLEANUP_MAX_BATCHES"
+          value = tostring(var.export_cleanup_max_batches)
+        }
+      }
+      vpc_access {
+        egress = "PRIVATE_RANGES_ONLY"
+        network_interfaces {
+          network    = local.foundation.network_id
+          subnetwork = local.foundation.subnetwork_id
+          tags       = ["attune-export-cleanup"]
+        }
+      }
+    }
+  }
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
 # The scheduler can start only this job. It has no database, logging, metrics,
 # or service-level runtime role; the job itself assumes the separate retention
 # executor identity after Cloud Run accepts this authenticated control request.
@@ -464,6 +523,93 @@ resource "google_monitoring_alert_policy" "protocol_retention_backlog" {
     }
   }
 
+  notification_channels = var.alert_notification_channels
+  user_labels           = local.labels
+}
+
+resource "google_logging_metric" "export_cleanup_failure" {
+  project = local.foundation.project_id
+  name    = "${local.prefix}-export-cleanup-failure"
+  filter = join(" AND ", [
+    "resource.type=\"cloud_run_job\"",
+    "resource.labels.job_name=\"${google_cloud_run_v2_job.export_cleanup.name}\"",
+    "severity>=ERROR",
+  ])
+  metric_descriptor {
+    metric_kind  = "DELTA"
+    value_type   = "INT64"
+    unit         = "1"
+    display_name = "Attune export-cleanup failures"
+  }
+}
+
+resource "google_logging_metric" "export_cleanup_backlog" {
+  project = local.foundation.project_id
+  name    = "${local.prefix}-export-cleanup-backlog"
+  filter = join(" AND ", [
+    "resource.type=\"cloud_run_job\"",
+    "resource.labels.job_name=\"${google_cloud_run_v2_job.export_cleanup.name}\"",
+    "jsonPayload.event=\"attune_export_cleanup\"",
+    "jsonPayload.backlog_possible=true",
+  ])
+  metric_descriptor {
+    metric_kind  = "DELTA"
+    value_type   = "INT64"
+    unit         = "1"
+    display_name = "Attune export-cleanup possible backlog"
+  }
+}
+
+resource "google_monitoring_alert_policy" "export_cleanup_failure" {
+  project      = local.foundation.project_id
+  display_name = "${local.prefix} export-cleanup failure"
+  combiner     = "OR"
+  enabled      = true
+  documentation {
+    content   = "Abandoned export-object cleanup failed. Inspect the exact execution; do not broaden storage authority or mark the attempt cleaned manually."
+    mime_type = "text/markdown"
+  }
+  conditions {
+    display_name = "At least one export cleanup error"
+    condition_threshold {
+      filter          = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.export_cleanup_failure.name}\" AND resource.type=\"cloud_run_job\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "0s"
+      aggregations {
+        alignment_period     = "60s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+    }
+  }
+  notification_channels = var.alert_notification_channels
+  user_labels           = local.labels
+}
+
+resource "google_monitoring_alert_policy" "export_cleanup_backlog" {
+  project      = local.foundation.project_id
+  display_name = "${local.prefix} export-cleanup possible backlog"
+  combiner     = "OR"
+  enabled      = true
+  documentation {
+    content   = "Export cleanup saturated every bounded batch. Re-run after investigation; do not raise limits without storage and database review."
+    mime_type = "text/markdown"
+  }
+  conditions {
+    display_name = "Export cleanup batch ceiling reached"
+    condition_threshold {
+      filter          = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.export_cleanup_backlog.name}\" AND resource.type=\"cloud_run_job\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "0s"
+      aggregations {
+        alignment_period     = "60s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+    }
+  }
   notification_channels = var.alert_notification_channels
   user_labels           = local.labels
 }
