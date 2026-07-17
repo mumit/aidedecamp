@@ -182,6 +182,30 @@ resource "google_kms_crypto_key_iam_member" "channel_broker_route_crypto" {
   member        = "serviceAccount:${google_service_account.workload["channel_broker"].email}"
 }
 
+resource "google_kms_crypto_key_iam_member" "export_wrap" {
+  crypto_key_id = google_kms_crypto_key.customer_export.id
+  role          = "roles/cloudkms.cryptoKeyEncrypter"
+  member        = "serviceAccount:${google_service_account.workload["export"].email}"
+}
+
+resource "google_project_iam_custom_role" "export_object_writer" {
+  project     = var.project_id
+  role_id     = "attune_${var.environment}_export_writer"
+  title       = "Attune ${var.environment} export object writer"
+  description = "Create and delete opaque temporary export objects without reading or listing them."
+  permissions = [
+    "storage.objects.create",
+    "storage.objects.delete",
+  ]
+  stage = "GA"
+}
+
+resource "google_storage_bucket_iam_member" "export_write" {
+  bucket = google_storage_bucket.customer_export.name
+  role   = google_project_iam_custom_role.export_object_writer.name
+  member = "serviceAccount:${google_service_account.workload["export"].email}"
+}
+
 resource "google_storage_bucket_iam_member" "audit_create" {
   bucket = google_storage_bucket.audit.name
   role   = "roles/storage.objectCreator"

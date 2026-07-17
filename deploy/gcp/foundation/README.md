@@ -20,7 +20,18 @@ The configuration creates:
   without secret versions, plus a separate connector-vault KMS key;
 - Artifact Registry; and
 - a versioned, CMEK-protected audit bucket with a retention policy, a
-  Cloud-Audit-only log sink, and Data Access audit logging.
+  Cloud-Audit-only log sink, and Data Access audit logging; plus a separate,
+  empty, non-versioned customer-export bucket and KMS key with public access
+  prevention and a one-day lifecycle backstop.
+
+The export substrate does not make export available. No export compute job,
+queue route, completion transition, download identity, endpoint, or UI exists.
+The dormant export identity can wrap a fresh data key with the export key and
+create or delete opaque objects only; it cannot decrypt a wrapped key, read an
+object, or list the bucket. Soft delete is disabled so an application-erased
+temporary object does not remain recoverable through that feature. The
+one-day bucket lifecycle is a backstop to the future immediate-consumption and
+bounded cleanup paths, not their replacement.
 
 Only the dispatch-broker identity can enqueue either Cloud Tasks queue or use
 the distinct task-delivery identity. Control-plane, ingress, and worker

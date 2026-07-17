@@ -537,6 +537,13 @@ arguments.
   JSON without a separately reviewed customer-facing schema is excluded even
   when size-bounded, and every scope MUST enforce a record ceiling before
   returning content.
+- **SEC-612.** The export writer MUST use a key and bucket distinct from audit
+  and connector storage. Its runtime identity may encrypt/wrap and create or
+  delete opaque temporary objects, but MUST NOT decrypt, read, or list. The
+  bucket MUST prevent public access, disable versioning and soft delete, apply
+  a one-day lifecycle backstop, and resist accidental infrastructure
+  destruction. A separately authenticated download gateway and cleanup
+  executor receive disjoint authority in later reviewed slices.
 
 The lifecycle policy, complete storage inventory, customer ceremonies, and
 restore procedure are defined in [Hosted data lifecycle](data-lifecycle.md).

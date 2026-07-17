@@ -187,6 +187,16 @@ resource "google_kms_crypto_key" "audit" {
   }
 }
 
+resource "google_kms_crypto_key" "customer_export" {
+  name            = "customer-export"
+  key_ring        = google_kms_key_ring.attune.id
+  rotation_period = "7776000s"
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
 resource "google_project_service_identity" "cloud_sql" {
   provider = google-beta
   project  = var.project_id
@@ -404,6 +414,12 @@ resource "google_kms_crypto_key_iam_member" "storage" {
   member        = "serviceAccount:service-${data.google_project.current.number}@gs-project-accounts.iam.gserviceaccount.com"
 }
 
+resource "google_kms_crypto_key_iam_member" "export_storage" {
+  crypto_key_id = google_kms_crypto_key.customer_export.id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  member        = "serviceAccount:service-${data.google_project.current.number}@gs-project-accounts.iam.gserviceaccount.com"
+}
+
 resource "google_storage_bucket" "audit" {
   name                        = "${var.project_id}-${local.prefix}-audit"
   location                    = var.region
@@ -435,6 +451,42 @@ resource "google_storage_bucket" "audit" {
   }
 
   depends_on = [google_kms_crypto_key_iam_member.storage]
+}
+
+resource "google_storage_bucket" "customer_export" {
+  name                        = "${var.project_id}-${local.prefix}-customer-exports"
+  location                    = var.region
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+  force_destroy               = false
+  labels                      = local.labels
+
+  encryption {
+    default_kms_key_name = google_kms_crypto_key.customer_export.id
+  }
+
+  versioning {
+    enabled = false
+  }
+
+  soft_delete_policy {
+    retention_duration_seconds = 0
+  }
+
+  lifecycle_rule {
+    condition {
+      age = 1
+    }
+    action {
+      type = "Delete"
+    }
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+
+  depends_on = [google_kms_crypto_key_iam_member.export_storage]
 }
 
 resource "google_logging_project_sink" "retained_audit" {

@@ -79,7 +79,7 @@ def test_protocol_retention_scheduler_is_paused_and_least_privileged():
     assert "deployed paused" in data_guide
 
 
-def test_customer_export_identity_is_database_only_and_dormant():
+def test_customer_export_identity_has_only_dormant_write_and_wrap_authority():
     foundation = (ROOT / "deploy" / "gcp" / "foundation" / "iam.tf").read_text()
     data_main = (ROOT / "deploy" / "gcp" / "data" / "main.tf").read_text()
 
@@ -89,7 +89,26 @@ def test_customer_export_identity_is_database_only_and_dormant():
     assert "attune_export = trimsuffix(" in data_main
     assert "workload_identities.export" in data_main
     assert "google_cloud_run_v2_job\" \"customer_export" not in data_main
-    assert 'workload["export"]' not in foundation
+    assert 'role          = "roles/cloudkms.cryptoKeyEncrypter"' in foundation
+    assert 'member        = "serviceAccount:${google_service_account.workload["export"].email}"' in foundation
+    assert '"storage.objects.create"' in foundation
+    assert '"storage.objects.delete"' in foundation
+    assert '"storage.objects.get"' not in foundation
+    assert '"storage.objects.list"' not in foundation
+
+
+def test_customer_export_bucket_is_private_ephemeral_and_separately_keyed():
+    main = (ROOT / "deploy" / "gcp" / "foundation" / "main.tf").read_text()
+
+    assert 'resource "google_kms_crypto_key" "customer_export"' in main
+    assert 'name            = "customer-export"' in main
+    assert 'resource "google_storage_bucket" "customer_export"' in main
+    assert 'public_access_prevention    = "enforced"' in main
+    assert "uniform_bucket_level_access = true" in main
+    assert "retention_duration_seconds = 0" in main
+    assert "enabled = false" in main
+    assert "age = 1" in main
+    assert "force_destroy               = false" in main
 
 
 def test_qdrant_compose_images_are_pinned_and_loopback_bound():

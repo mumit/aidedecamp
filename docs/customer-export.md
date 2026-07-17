@@ -128,9 +128,17 @@ record counts and SHA-256 digests, and a whole-archive digest. It caps each
 record at 2 MiB, the archive at 50 MiB, total records at 100,000, and nesting at
 20 levels. It recursively normalizes field spelling before rejecting reviewed
 credential, authorization, identity-hash, route, claim, and audit-chain keys.
-They have no envelope-encryption key, object store, completion transition,
-cleanup executor, or download path yet and therefore do not make customer
-export available.
+No compute path connects them to an envelope key or object store, and there is
+no completion transition, cleanup executor, or download path; customer export
+therefore remains unavailable.
+
+The next dormant substrate defines a separate export KMS key and temporary
+bucket. The writer can encrypt/wrap and create or delete opaque objects, but
+cannot decrypt, read, or list. The bucket is non-versioned, has uniform access,
+enforced public-access prevention, disabled soft delete, a one-day lifecycle
+backstop, and provider-enforced protection against accidental Terraform
+destruction. No writer job or completion path is deployed, so the bucket must
+remain empty.
 
 ## Required evidence before activation
 
