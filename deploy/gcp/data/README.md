@@ -653,6 +653,34 @@ Development completion evidence on 2026-07-16:
   object, completion invocation, cleanup, download path, endpoint, or UI was
   created.
 
+Migration `0032_customer_export_recovery.sql` adds expired-lease recovery,
+distinct per-run object reservations, durable cleanup candidates, and a fixed
+content-free failure transition. A dormant Python writer uses those functions
+to clean known candidates without listing, build and encrypt the reviewed
+projection, upload only to a canonical opaque name with create-if-absent and
+CRC32C, and bind the returned immutable generation. Upload or completion
+failure terminalizes only after exact cleanup succeeds; unverifiable cleanup
+leaves the job recoverable and raises an incident. The storage adapter has no
+read or list method. This slice intentionally deploys no writer job or route.
+
+Development recovery evidence on 2026-07-16:
+
+- The full suite passed 1,014 tests with 36 optional tests skipped, and all 43
+  real-PostgreSQL tests passed. Coverage includes expired-claim reassignment,
+  per-attempt object isolation, stale-run refusal, fixed failure codes,
+  idempotent failure, ambiguous-upload deletion, exact-generation cleanup,
+  KMS/archive failure, and refusal to terminalize when cleanup is uncertain.
+- Migrator manifest digest
+  `sha256:f3ff6d5526d3640a28c4afeb83d1ccceef0432cc1e94d0da411918f9a023ba94`
+  updated only the three existing operator jobs in place (`0 added, 3 changed,
+  0 destroyed`).
+- Execution `attune-development-database-migrate-bdnzv` applied exactly
+  migration 0032 and verified all 34 tenant tables plus the exact runtime and
+  function-owner privilege boundary.
+- Both foundation and data plans were empty afterward. No export writer,
+  queue route, object, completion invocation, download path, endpoint, or UI
+  was created.
+
 ## Production gates
 
 Before this job or schema is promoted beyond development:

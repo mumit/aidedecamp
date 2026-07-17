@@ -186,9 +186,12 @@ with create-if-absent plus CRC32C, binds the returned generation at completion,
 and deletes that exact generation if completion fails. An ambiguous upload is
 deleted before failure is recorded. If deletion cannot be verified, the job
 remains nonterminal and raises a cleanup incident. The storage adapter exposes
-no read or list operation. This code and migration do not deploy an export
-executor, queue route, download gateway, cleanup service, endpoint, or UI, so
-customer export remains unavailable.
+no read or list operation. Migration 0032 is deployed in development; the
+writer library is not deployed or invocable. There is still no export executor,
+queue route, download gateway, cleanup service, endpoint, or UI, so customer
+export remains unavailable. The rollout applied exactly one migration, verified
+all 34 forced-RLS tenant tables and exact privileges, and converged both
+Terraform states to empty plans without generating an export object.
 
 ## Required evidence before activation
 
