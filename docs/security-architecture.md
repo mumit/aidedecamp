@@ -558,6 +558,12 @@ arguments.
   ambiguous write until its current object is proven absent. Known abandoned
   attempts remain durable cleanup inputs, and provider lifecycle deletion is a
   backstop rather than application cleanup evidence.
+- **SEC-615.** Abandoned export-attempt cleanup MUST use an identity distinct
+  from the writer and general retention executor. It may lease only durable,
+  quarantined object references and delete those exact canonical names. It
+  MUST NOT create, read, list, decrypt, or choose customer objects. Ready
+  objects and the active writer attempt are ineligible. Cleanup acknowledgement
+  is claim-bound and occurs only after deletion or verified absence.
 
 The lifecycle policy, complete storage inventory, customer ceremonies, and
 restore procedure are defined in [Hosted data lifecycle](data-lifecycle.md).

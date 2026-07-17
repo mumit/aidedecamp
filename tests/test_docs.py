@@ -96,6 +96,9 @@ def test_customer_export_identity_has_only_dormant_write_and_wrap_authority():
     assert '"storage.objects.get"' not in foundation
     assert '"storage.objects.list"' not in foundation
     assert 'resource "google_storage_bucket_iam_policy" "customer_export"' in foundation
+    assert 'export_cleanup       = "exp-clean"' in foundation
+    assert 'resource "google_project_iam_custom_role" "export_object_cleanup"' in foundation
+    assert 'permissions = ["storage.objects.delete"]' in foundation
     assert '"storage.buckets.getIamPolicy"' in foundation
     assert '"storage.buckets.setIamPolicy"' in foundation
     assert "export_bucket_policy_admin_members" in foundation

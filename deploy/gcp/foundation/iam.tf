@@ -6,6 +6,7 @@ locals {
     oauth_exchange       = "oauth-xchg"
     dispatch_broker      = "task-broker"
     export               = "export"
+    export_cleanup       = "exp-clean"
     ingress              = "ingress"
     identity_provisioner = "id-prov"
     model_gateway        = "model"
@@ -52,6 +53,7 @@ resource "google_project_iam_member" "database_client" {
     "control_plane",
     "dispatch_broker",
     "export",
+    "export_cleanup",
     "oauth_exchange",
     "identity_provisioner",
     "retention",
@@ -70,6 +72,7 @@ resource "google_project_iam_member" "database_instance_user" {
     "control_plane",
     "dispatch_broker",
     "export",
+    "export_cleanup",
     "oauth_exchange",
     "identity_provisioner",
     "retention",
@@ -88,6 +91,7 @@ resource "google_sql_user" "workload" {
     "control_plane",
     "dispatch_broker",
     "export",
+    "export_cleanup",
     "oauth_exchange",
     "identity_provisioner",
     "retention",
@@ -213,6 +217,15 @@ resource "google_project_iam_custom_role" "export_bucket_policy_admin" {
   stage = "GA"
 }
 
+resource "google_project_iam_custom_role" "export_object_cleanup" {
+  project     = var.project_id
+  role_id     = "attune_${var.environment}_export_cleanup"
+  title       = "Attune ${var.environment} export object cleanup"
+  description = "Delete known opaque temporary export objects without creating, reading, or listing them."
+  permissions = ["storage.objects.delete"]
+  stage       = "GA"
+}
+
 resource "google_project_iam_member" "export_bucket_policy_admin" {
   for_each = var.export_bucket_policy_admin_members
   project  = var.project_id
@@ -225,6 +238,12 @@ data "google_iam_policy" "customer_export" {
     role = google_project_iam_custom_role.export_object_writer.name
     members = [
       "serviceAccount:${google_service_account.workload["export"].email}",
+    ]
+  }
+  binding {
+    role = google_project_iam_custom_role.export_object_cleanup.name
+    members = [
+      "serviceAccount:${google_service_account.workload["export_cleanup"].email}",
     ]
   }
 }

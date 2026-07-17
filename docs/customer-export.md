@@ -193,6 +193,15 @@ export remains unavailable. The rollout applied exactly one migration, verified
 all 34 forced-RLS tenant tables and exact privileges, and converged both
 Terraform states to empty plans without generating an export object.
 
+Migration `0033_customer_export_cleanup_authority.sql` defines the next dormant
+boundary for abandoned attempts. A distinct cleanup role can lease at most 100
+known object UUIDs after a 15-minute quarantine. The active writer attempt and
+the object referenced by a ready export are excluded. Its separate storage
+identity has delete only—no create, read, list, or KMS permission—and records
+claim-bound, content-free evidence only after deletion or verified absence.
+Failures leave the lease to expire for retry. The bounded cleanup entry point
+reports possible backlog but is not yet deployed or scheduled.
+
 ## Required evidence before activation
 
 - real-PostgreSQL cross-tenant, role, claim/replay, transition, and concurrency

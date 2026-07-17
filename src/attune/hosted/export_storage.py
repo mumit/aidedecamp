@@ -34,7 +34,7 @@ class GoogleExportObjectStore:
         self._not_found = _not_found
 
     def delete(self, object_name: str, *, generation: int | None = None) -> None:
-        _validate_object_name(object_name)
+        validate_export_object_name(object_name)
         if generation is not None and (
             not isinstance(generation, int) or generation <= 0
         ):
@@ -48,7 +48,7 @@ class GoogleExportObjectStore:
             raise ObjectNotFound() from error
 
     def create(self, object_name: str, content: bytes) -> int:
-        _validate_object_name(object_name)
+        validate_export_object_name(object_name)
         if not isinstance(content, bytes) or not (
             GCM_TAG_BYTES <= len(content) <= MAX_ARCHIVE_BYTES + GCM_TAG_BYTES
         ):
@@ -69,7 +69,7 @@ class GoogleExportObjectStore:
         return generation
 
 
-def _validate_object_name(object_name: str) -> None:
+def validate_export_object_name(object_name: str) -> None:
     if (
         not isinstance(object_name, str)
         or len(object_name) != 48

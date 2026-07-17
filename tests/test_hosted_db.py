@@ -118,6 +118,7 @@ ROLE_BINDINGS = {
     "attune_identity_provisioner": "attune_test_identity_provisioner",
     "attune_retention": "attune_test_retention",
     "attune_export": "attune_test_export",
+    "attune_export_cleanup": "attune_test_export_cleanup",
 }
 
 
@@ -127,26 +128,26 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
         migration.name for migration in migrations
     )
     assert migrations[0].name == "0001_tenant_boundary.sql"
-    assert migrations[-1].name == "0032_customer_export_recovery.sql"
+    assert migrations[-1].name == "0033_customer_export_cleanup_authority.sql"
     assert all(
         migration.checksum == hashlib.sha256(migration.sql.encode()).hexdigest()
         for migration in migrations
     )
-    channel_broker = migrations[-10].sql
+    channel_broker = migrations[-11].sql
     assert "GRANT attune_channel_link_executor TO %I" in channel_broker
     assert "GRANT CREATE ON SCHEMA attune TO attune_channel_link_executor" in channel_broker
     assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_link_executor" in channel_broker
     assert "REVOKE attune_channel_link_executor FROM %I" in channel_broker
-    conversation = migrations[-9].sql
+    conversation = migrations[-10].sql
     assert "LIMIT 2" in conversation
     assert "GRANT attune_channel_message_executor TO %I" in conversation
     assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_message_executor" in conversation
     assert "TO attune_channel_broker" in conversation
-    delivery = migrations[-8].sql
+    delivery = migrations[-9].sql
     assert "hosted_channel_deliveries" in delivery
     assert "already_delivered boolean" in delivery
     assert "TO attune_channel_broker" in delivery
-    lifecycle = migrations[-7].sql
+    lifecycle = migrations[-8].sql
     assert "attune_channel_lifecycle_executor" in lifecycle
     assert "disconnect_hosted_channel_destination" in lifecycle
     assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_lifecycle_executor" in lifecycle
@@ -155,23 +156,23 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
     )
     assert lifecycle.index("SET LOCAL ROLE attune_channel_link_executor") < replace_link
     assert lifecycle.index("RESET ROLE", replace_link) > replace_link
-    relink_context = migrations[-6].sql
+    relink_context = migrations[-7].sql
     assert "destination.status = 'revoked'" in relink_context
     assert "SET LOCAL ROLE attune_channel_link_executor" in relink_context
-    retention = migrations[-5].sql
+    retention = migrations[-6].sql
     assert "CREATE ROLE attune_retention_executor" in retention
     assert "prune_expired_protocol_records" in retention
     assert "pg_try_advisory_xact_lock" in retention
     assert "FOR UPDATE" not in retention
     assert "interval '24 hours'" in retention
     assert "interval '7 days'" in retention
-    export = migrations[-4].sql
+    export = migrations[-5].sql
     assert "legacy export jobs require explicit reviewed adoption" in export
     assert "request_customer_export" in export
     assert "claim_customer_export" in export
     assert "recent owner session is required" in export
     assert "REVOKE INSERT, UPDATE ON attune.export_jobs" in export
-    projection = migrations[-3].sql
+    projection = migrations[-4].sql
     assert "read_customer_export_records" in projection
     assert "credential_ref" not in projection
     assert "external_ref_hash" not in projection
@@ -182,18 +183,23 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
     assert "u.attributes" not in projection
     assert "lease_run_id = p_run_id" in projection
     assert "owner_state.owner_principal_id = job.requested_by" in projection
-    completion = migrations[-2].sql
+    completion = migrations[-3].sql
     assert "complete_customer_export" in completion
     assert "ciphertext_bytes = archive_bytes + 16" in completion
     assert "interval '24 hours'" in completion
     assert "job.lease_run_id = p_run_id" in completion
-    recovery = migrations[-1].sql
+    recovery = migrations[-2].sql
     assert "reserve_customer_export_object" in recovery
     assert "export_object_attempts" in recovery
     assert "list_customer_export_cleanup_objects" in recovery
     assert "fail_customer_export" in recovery
     assert "job.lease_expires_at <= clock_timestamp()" in recovery
     assert "failure_code" in recovery
+    cleanup = migrations[-1].sql
+    assert "attune_export_cleanup" in cleanup
+    assert "15 minutes" in cleanup
+    assert "SKIP LOCKED" in cleanup
+    assert "job.state = 'ready'" in cleanup
 
 
 def test_lifecycle_enums_preserve_string_behavior_on_python_310():
@@ -330,7 +336,7 @@ def initialized_database(database_url: str):
             cursor.execute(f'CREATE ROLE "{role}" NOLOGIN INHERIT')
     admin.autocommit = False
 
-    assert apply_migrations(admin) == 32
+    assert apply_migrations(admin) == 33
     with admin.cursor() as cursor:
         cursor.execute("GRANT attune_worker TO attune_test_stale_member")
     admin.commit()
@@ -3113,6 +3119,69 @@ def test_customer_export_expired_claim_is_recoverable_and_failure_is_exact(
     assert audit[-1][2] == {
         "scope": "activity", "failure_code": "upload_failed"
     }
+
+    cleanup_run = UUID("10000000-0000-4000-8000-0000000000a6")
+    with initialized_database.cursor() as cursor:
+        cursor.execute(
+            "UPDATE attune.export_object_attempts "
+            "SET created_at = clock_timestamp() - interval '16 minutes' "
+            "WHERE export_id = %s AND run_id = %s",
+            (export_id, first_run),
+        )
+    initialized_database.commit()
+    cleanup = _role_connection_factory(
+        database_url, ROLE_BINDINGS["attune_export_cleanup"]
+    )()
+    try:
+        with cleanup.cursor() as cursor:
+            with pytest.raises(psycopg.errors.InvalidParameterValue):
+                cursor.execute(
+                    "SELECT * FROM attune.claim_customer_export_attempt_cleanups(%s,%s)",
+                    (cleanup_run, 101),
+                )
+        cleanup.rollback()
+        with cleanup.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM attune.claim_customer_export_attempt_cleanups(%s,%s)",
+                (cleanup_run, 10),
+            )
+            assert cursor.fetchall() == [(TENANT_A, export_id, first_run, object_id)]
+        cleanup.commit()
+        with cleanup.cursor() as cursor:
+            cursor.execute(
+                "SELECT attune.complete_customer_export_attempt_cleanup(%s,%s,%s)",
+                (export_id, first_run, cleanup_run),
+            )
+            assert cursor.fetchone() == (True,)
+        cleanup.commit()
+        with cleanup.cursor() as cursor:
+            cursor.execute(
+                "SELECT attune.complete_customer_export_attempt_cleanup(%s,%s,%s)",
+                (export_id, first_run, cleanup_run),
+            )
+            assert cursor.fetchone() == (False,)
+        cleanup.commit()
+        with cleanup.cursor() as cursor:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                cursor.execute("SELECT * FROM attune.export_object_attempts")
+        cleanup.rollback()
+    finally:
+        cleanup.close()
+    with initialized_database.cursor() as cursor:
+        cursor.execute(
+            "SELECT cleanup_pending, cleaned_at IS NOT NULL "
+            "FROM attune.export_object_attempts "
+            "WHERE export_id = %s AND run_id = %s",
+            (export_id, first_run),
+        )
+        assert cursor.fetchone() == (False, True)
+        cursor.execute(
+            "SELECT action, metadata FROM attune.audit_intents "
+            "WHERE target_ref_hash = %s ORDER BY created_at DESC LIMIT 1",
+            (hashlib.sha256(str(export_id).encode()).digest(),),
+        )
+        assert cursor.fetchone() == ("export.attempt.cleaned", {"records": 1})
+    initialized_database.commit()
 
 
 def test_protocol_retention_prunes_only_expired_records_and_audits_per_tenant(
