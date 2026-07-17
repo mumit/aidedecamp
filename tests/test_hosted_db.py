@@ -130,6 +130,9 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
     )
     assert migrations[0].name == "0001_tenant_boundary.sql"
     assert migrations[-1].name == "0037_customer_export_download.sql"
+    download = migrations[-1].sql
+    assert "GRANT attune_export_cleanup_coordinator TO %I" in download
+    assert "REVOKE attune_export_cleanup_coordinator FROM %I" in download
     assert all(
         migration.checksum == hashlib.sha256(migration.sql.encode()).hexdigest()
         for migration in migrations

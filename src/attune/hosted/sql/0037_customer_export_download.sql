@@ -250,6 +250,18 @@ ALTER TABLE attune.export_jobs ADD CONSTRAINT export_jobs_expiry_cleanup_lease_c
         AND expiry_cleanup_expires_at IS NOT NULL)
 );
 
+-- Migration 0034 transferred these SECURITY DEFINER functions to the cleanup
+-- coordinator and then removed the migrator's membership. Reacquire that
+-- owner role only for the transactional replacement below; do not transfer
+-- the functions to the migrator or broaden their runtime grants.
+DO $grant_cleanup_owner$
+BEGIN
+    EXECUTE pg_catalog.format(
+        'GRANT attune_export_cleanup_coordinator TO %I', current_user
+    );
+END
+$grant_cleanup_owner$;
+
 CREATE OR REPLACE FUNCTION attune.claim_customer_export_expirations(
     p_run_id uuid, p_batch_size integer
 )
@@ -352,6 +364,14 @@ BEGIN
     RETURN true;
 END
 $function$;
+
+DO $revoke_cleanup_owner$
+BEGIN
+    EXECUTE pg_catalog.format(
+        'REVOKE attune_export_cleanup_coordinator FROM %I', current_user
+    );
+END
+$revoke_cleanup_owner$;
 
 DO $grant_owner$
 BEGIN
