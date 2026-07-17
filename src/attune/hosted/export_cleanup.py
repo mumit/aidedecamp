@@ -175,18 +175,27 @@ def run_export_cleanup(
 
 
 class GoogleDeleteOnlyExportObjects:
-    def __init__(self, bucket_name: str, *, client: Any | None = None):
+    def __init__(
+        self,
+        bucket_name: str,
+        *,
+        client: Any | None = None,
+        _not_found: type[Exception] | tuple[type[Exception], ...] | None = None,
+    ):
         if not isinstance(bucket_name, str) or not 3 <= len(bucket_name) <= 63:
             raise ValueError("invalid customer export bucket name")
         if client is None:
             from google.cloud import storage
 
             client = storage.Client()
+        if _not_found is None:
+            from google.api_core.exceptions import NotFound
+
+            _not_found = NotFound
         self._bucket = client.bucket(bucket_name)
+        self._not_found = _not_found
 
     def delete(self, object_name: str, *, generation: int | None = None) -> None:
-        from google.api_core.exceptions import NotFound
-
         validate_export_object_name(object_name)
         if generation is not None and (
             not isinstance(generation, int)
@@ -199,7 +208,7 @@ class GoogleDeleteOnlyExportObjects:
                 {"if_generation_match": generation} if generation is not None else {}
             )
             self._bucket.blob(object_name).delete(**keyword_arguments)
-        except NotFound as error:
+        except self._not_found as error:
             raise ObjectNotFound() from error
 
 

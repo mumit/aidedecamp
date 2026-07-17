@@ -133,7 +133,9 @@ def test_google_cleanup_binds_expiry_delete_to_exact_generation():
             return self.value
 
     client = Client()
-    objects = GoogleDeleteOnlyExportObjects("test-export-bucket", client=client)
+    objects = GoogleDeleteOnlyExportObjects(
+        "test-export-bucket", client=client, _not_found=FileNotFoundError
+    )
     expiration = _expiration(1)
     name = f"objects/{expiration.object_id}.bin"
     objects.delete(name, generation=expiration.object_generation)
