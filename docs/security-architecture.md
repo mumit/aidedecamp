@@ -531,6 +531,12 @@ arguments.
   its authenticated invocation path and paging controls are verified, and a
   separately reviewed state change is required to enable it. Infrastructure
   removal MUST fail closed rather than orphan an enabled unmanaged schedule.
+- **SEC-611.** Customer-export content MUST be read only through a positive,
+  fixed-scope database projection bound to the exact active claim and current
+  canonical owner. The executor MUST NOT receive direct table access. Nested
+  JSON without a separately reviewed customer-facing schema is excluded even
+  when size-bounded, and every scope MUST enforce a record ceiling before
+  returning content.
 
 The lifecycle policy, complete storage inventory, customer ceremonies, and
 restore procedure are defined in [Hosted data lifecycle](data-lifecycle.md).

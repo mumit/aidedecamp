@@ -29,15 +29,32 @@ manufacture an account export.
 
 | Scope | Included | Always excluded |
 | --- | --- | --- |
-| `account` | tenant/principal profile, installations, connector metadata, policy, autonomy, onboarding, and channel preferences/destinations | connector credentials, route ciphertext, sessions, link/OAuth transactions, internal jobs |
-| `conversations` | conversations and turns retained by Attune, with source provenance and timestamps | provider access tokens, raw task payloads, hidden model/tool authority |
-| `memories` | explicit memories and source metadata | raw embedding vectors and model-provider secrets |
-| `activity` | customer-visible audit events and usage records | audit-chain internals, security-only events, IP/device abuse evidence, internal identifiers unrelated to the owner |
+| `account` | tenant/principal profile, installation and connector descriptors, policy version/status, autonomy, onboarding, and channel preferences/destinations | policy document internals, connector credentials, route ciphertext, sessions, link/OAuth transactions, internal jobs |
+| `conversations` | conversations and turns retained by Attune, including content and timestamps | unreviewed provenance objects, provider access tokens, raw task payloads, hidden model/tool authority |
+| `memories` | active explicit memories, source class, confidence, and timestamps | unreviewed provenance objects, deleted memories, raw embedding vectors, and model-provider secrets |
+| `activity` | customer-visible audit action/outcome descriptors and usage quantities | unreviewed metadata/attribute objects, audit-chain internals, identity hashes, security-only events, IP/device abuse evidence |
 
 The schema-versioned manifest identifies Attune, tenant export scope, request
 and generation timestamps, format versions, record counts, and a digest for
 each payload member. Stable customer-facing identifiers may be included;
 database implementation details and unrelated principals may not.
+
+Migration `0030_customer_export_projections.sql` implements those positive
+field lists as one claim-bound database function. It accepts only the export
+job ID and exact unexpired lease run ID, derives tenant, owner, and scope from
+the job, and refuses content unless the requesting principal is still the
+canonical hosted-onboarding owner. It returns a fixed member name, stable sort
+key, and exact schema-versioned record. Each scope is capped at 100,000 records
+before any row is returned. The function owner has `SELECT` only on the tables
+named by these four projections; the runtime export identity has no direct
+table access.
+
+Arbitrary JSON policy documents, conversation/memory provenance, audit
+metadata, and usage attributes are intentionally omitted. Their byte bounds
+do not make their internal fields customer-safe. Adding any such field
+requires a positive customer-facing schema, adversarial fixtures, and an
+explicit projection migration; the archive's forbidden-key scan remains a
+second fail-closed check, not a substitute for that review.
 
 ## Trust boundaries
 
@@ -100,14 +117,16 @@ names, connector ciphertext, route ciphertext, sessions, link secrets, raw
 embeddings, internal task authority, and unreviewed tables fail the job closed.
 Regex redaction is not the authorization boundary.
 
-The dormant archive builder now implements this envelope with fixed ZIP member
+The dormant database reader and archive builder now implement the reviewed
+projection and format boundary with fixed ZIP member
 names, timestamps, modes, schema version, scope-specific record kinds, member
 record counts and SHA-256 digests, and a whole-archive digest. It caps each
 record at 2 MiB, the archive at 50 MiB, total records at 100,000, and nesting at
 20 levels. It recursively normalizes field spelling before rejecting reviewed
 credential, authorization, identity-hash, route, claim, and audit-chain keys.
-It has no database projection, encryption key, object store, or download path
-yet and therefore does not make customer export available.
+They have no envelope-encryption key, object store, completion transition,
+cleanup executor, or download path yet and therefore do not make customer
+export available.
 
 ## Required evidence before activation
 

@@ -596,6 +596,18 @@ Development evidence on 2026-07-16:
   key, storage permission, queue route, control-plane endpoint, or UI was
   created.
 
+Migration `0030_customer_export_projections.sql` adds the next dormant slice:
+one positive projection function available only to the export executor. The
+function derives tenant, owner, and fixed scope from an exact unexpired claim,
+rechecks the current canonical onboarding owner, applies a 100,000-record
+ceiling before returning rows, and emits only fixed record fields. Its
+memberless owner receives exact `SELECT` grants for the reviewed source tables;
+the export runtime retains no direct table privileges. Policy documents,
+provenance objects, audit metadata, usage attributes, credentials, encrypted
+routes, internal identity hashes, embeddings, and audit-chain values are not
+projected. Applying it still creates no export job, object, KMS key, storage
+permission, completion transition, queue route, endpoint, or UI.
+
 ## Production gates
 
 Before this job or schema is promoted beyond development:

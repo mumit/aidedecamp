@@ -270,6 +270,19 @@ FUNCTION_OWNER_TABLE_PRIVILEGES = frozenset(
         ("attune_export_coordinator", "attune.principals", "SELECT"),
         ("attune_export_coordinator", "attune.audit_intents", "SELECT"),
         ("attune_export_coordinator", "attune.audit_intents", "INSERT"),
+        ("attune_export_coordinator", "attune.tenants", "SELECT"),
+        ("attune_export_coordinator", "attune.installations", "SELECT"),
+        ("attune_export_coordinator", "attune.connectors", "SELECT"),
+        ("attune_export_coordinator", "attune.policies", "SELECT"),
+        ("attune_export_coordinator", "attune.autonomy_grants", "SELECT"),
+        ("attune_export_coordinator", "attune.hosted_onboarding_states", "SELECT"),
+        ("attune_export_coordinator", "attune.hosted_channel_preferences", "SELECT"),
+        ("attune_export_coordinator", "attune.hosted_channel_destinations", "SELECT"),
+        ("attune_export_coordinator", "attune.conversations", "SELECT"),
+        ("attune_export_coordinator", "attune.conversation_turns", "SELECT"),
+        ("attune_export_coordinator", "attune.memories", "SELECT"),
+        ("attune_export_coordinator", "attune.audit_events", "SELECT"),
+        ("attune_export_coordinator", "attune.usage_records", "SELECT"),
     }
 )
 

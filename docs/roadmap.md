@@ -110,14 +110,17 @@ are not active yet. Slack installation/lifecycle,
 export/deletion, support repair, customer-visible audit, adversarial assurance,
 and external security review remain later independent slices.
 
-The first customer-export authority slice is implemented but not deployed:
-four server-defined scopes, recent-owner-session binding, idempotent request,
+The first customer-export authority slice is implemented and deployed:
+four server-defined scopes, recent-session binding, idempotent request,
 one-use executor claim, atomic audit evidence, and function-only mutation. It
 contains no ready/publish transition and grants no storage or KMS authority.
 The deterministic archive builder is also implemented and adversarially tested
 with fixed paths/schema/kinds, structural secret-negative validation, member
-and archive digests, and record/byte/depth ceilings. Reviewed database
-projections, envelope encryption, storage, cleanup, download, and UI remain.
+and archive digests, and record/byte/depth ceilings. A claim-bound positive
+database projection is implemented locally with a current-owner check, fixed
+fields, unreviewed nested-JSON exclusions, and a 100,000-record ceiling;
+development deployment evidence is still pending. Envelope encryption,
+storage, cleanup, download, and UI remain.
 
 The first platform mapping is [`hosted-gcp.md`](hosted-gcp.md), and the initial
 declarative substrate is `deploy/gcp/foundation`. Applying that foundation does

@@ -147,12 +147,16 @@ restore. It never falls back to activating the snapshot.
    broad synthetic-data identity to the operated project. Operational records and
    conversation/memory policies across database, vectors, caches, and task
    payloads remain later slices.
-3. **Export path (request/claim slice implemented, dormant):** migration 0029
+3. **Export path (projection/archive slice implemented, dormant):** migration 0029
    replaces arbitrary scope JSON and generic table mutation with four fixed
    scopes, a recent-session-bound idempotent request function, and a distinct
    one-use executor claim. Both transitions emit content-free audit intents;
-   the executor has no direct table access. There is deliberately no ready or
-   publish transition, object store, KMS authority, download surface, or UI yet.
+   the executor has no direct table access. Migration 0030 adds a current-owner,
+   claim- and lease-bound positive projection with a 100,000-record ceiling.
+   Unreviewed nested JSON is excluded, and the returned records pass through a
+   deterministic, bounded, secret-negative archive builder. There is
+   deliberately no ready or publish transition, envelope key, object store,
+   KMS authority, download surface, cleanup executor, or UI yet.
 4. **Deletion authority:** independent restore-suppression ledger and complete
    account erasure orchestrator, initially dormant.
 5. **Recovery proof:** isolated backup restore exercise demonstrating that a
