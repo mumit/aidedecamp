@@ -636,6 +636,23 @@ claims and changed metadata fail closed. Apply and verify this migration before
 building a writer, but do not describe export as available: no export job,
 upload orchestrator, cleanup, download authority, endpoint, or UI exists.
 
+Development completion evidence on 2026-07-16:
+
+- The full suite passed 999 tests with 35 optional tests skipped, and all 42
+  real-PostgreSQL tests passed. Completion coverage includes exact lease,
+  idempotent replay, changed-generation refusal, size/tag constraints,
+  server-selected expiry, direct-table denial, and one-time audit evidence.
+- Migrator manifest digest
+  `sha256:33137bdcd57ea57a1509e3b8ccf7d6fa42cb85a3bf2020b9e944ec3be0cc9554`
+  updated only the three existing operator jobs in place (`0 added, 3 changed,
+  0 destroyed`).
+- Execution `attune-development-database-migrate-gv7sx` applied exactly
+  migration 0031 and verified all 33 tenant tables plus the exact runtime and
+  function-owner boundary.
+- Both foundation and data plans were empty afterward. No export writer,
+  object, completion invocation, cleanup, download path, endpoint, or UI was
+  created.
+
 ## Production gates
 
 Before this job or schema is promoted beyond development:

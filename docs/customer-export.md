@@ -161,6 +161,11 @@ refused. The transition alone neither proves an object exists nor makes it
 downloadable, so it remains unusable until the fail-closed writer and cleanup
 paths are independently implemented and tested.
 
+The completion migration is deployed in development. Its exact-lease,
+idempotency, altered-metadata refusal, expiry, audit, role, and schema tests
+pass against real PostgreSQL, the live migrator verifier passes, and both
+infrastructure plans are empty. No export object was generated.
+
 ## Required evidence before activation
 
 - real-PostgreSQL cross-tenant, role, claim/replay, transition, and concurrency
