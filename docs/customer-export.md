@@ -219,8 +219,12 @@ Only deletion or verified absence allows the claim-bound database completion to
 move the job to `expired`, clear the wrapped DEK and every object/cryptographic
 field, close the winning attempt, and emit content-free audit evidence. A stale
 lease, substituted generation, or storage error leaves the export ready and
-retryable. The code and migration remain undeployed until their development
-migration and manual cleanup ceremony are reviewed.
+retryable. Migration 0034 is deployed in development. Execution
+`attune-development-database-migrate-xjhbb` applied exactly one migration and
+verified all 34 forced-RLS tenant tables and exact privileges. Manual execution
+`attune-development-export-cleanup-gftvm` then exercised both bounded queues and
+reported zero abandoned attempts, zero expired exports, and no possible
+backlog. Both infrastructure plans are empty; the job remains unscheduled.
 
 ## Required evidence before activation
 

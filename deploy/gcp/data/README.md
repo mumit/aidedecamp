@@ -730,6 +730,25 @@ the wrapped DEK and object metadata. Storage failure, generation substitution,
 and stale claims leave the row nonterminal. Apply and verify the migration, then
 repeat the manual cleanup ceremony before considering writer activation.
 
+Development expiry-cleanup evidence on 2026-07-16:
+
+- The full suite passed 1,026 tests with 36 optional tests skipped, and all 43
+  real-PostgreSQL tests passed. Coverage includes pre-expiry refusal, exact
+  generation binding, claim replay, storage failure, key/metadata erasure,
+  attempt closure, direct-table denial, and content-free audit evidence.
+- Immutable migrator digest
+  `sha256:8f93c97c01bdbb3c697d374a0953413d0bb163d55877aee330cccf8f4afc53bb`
+  updated only the four existing operator jobs in place (`0 added, 4 changed,
+  0 destroyed`). Execution `attune-development-database-migrate-xjhbb`
+  applied exactly migration 0034 and verified all 34 tenant tables and exact
+  runtime/function-owner privileges.
+- Execution `attune-development-export-cleanup-gftvm` exited successfully and
+  reported `attempts_deleted=0`, `exports_expired=0`, `objects_deleted=0`,
+  `batches=2`, and `backlog_possible=false`. Both cleanup alerts remain enabled
+  and the job remains manual-only.
+- Both foundation and data plans were empty afterward. No scheduler, writer
+  job, object, queue route, download path, endpoint, or UI exists.
+
 ## Production gates
 
 Before this job or schema is promoted beyond development:
