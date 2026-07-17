@@ -1061,6 +1061,52 @@ resource "google_compute_security_policy" "edge" {
   }
 
   dynamic "rule" {
+    for_each = var.enable_hosted_slack_install ? [1] : []
+    content {
+      action      = "throttle"
+      priority    = 891
+      description = "Permit only authenticated hosted Slack installation setup paths"
+      match {
+        expr {
+          expression = "request.headers['host'] == '${var.hostname}' && (request.path == '/v1/onboarding/channel-installations/slack/install' || request.path == '/v1/onboarding/channel-installations/slack/callback' || request.path == '/v1/onboarding/channel-installations/slack/test')"
+        }
+      }
+      rate_limit_options {
+        conform_action = "allow"
+        exceed_action  = "deny(429)"
+        enforce_on_key = "IP"
+        rate_limit_threshold {
+          count        = 10
+          interval_sec = 60
+        }
+      }
+    }
+  }
+
+  dynamic "rule" {
+    for_each = var.enable_hosted_channel_lifecycle && var.enable_hosted_slack_install ? [1] : []
+    content {
+      action      = "throttle"
+      priority    = 892
+      description = "Permit only recent-authenticated hosted Slack disconnection"
+      match {
+        expr {
+          expression = "request.headers['host'] == '${var.hostname}' && request.path == '/v1/onboarding/channel-installations/slack'"
+        }
+      }
+      rate_limit_options {
+        conform_action = "allow"
+        exceed_action  = "deny(429)"
+        enforce_on_key = "IP"
+        rate_limit_threshold {
+          count        = 5
+          interval_sec = 60
+        }
+      }
+    }
+  }
+
+  dynamic "rule" {
     for_each = var.enable_customer_exports ? [1] : []
     content {
       action      = "throttle"
