@@ -94,7 +94,7 @@ resource "google_compute_subnetwork" "broker_egress" {
   name                     = "${local.prefix}-broker-egress"
   region                   = var.region
   network                  = google_compute_network.private.id
-  ip_cidr_range            = "10.42.16.0/28"
+  ip_cidr_range            = "10.42.16.0/24"
   private_ip_google_access = true
 
   log_config {
