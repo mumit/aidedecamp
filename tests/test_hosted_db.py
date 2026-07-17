@@ -172,6 +172,12 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
     assert "REVOKE INSERT, UPDATE ON attune.export_jobs" in export
 
 
+def test_lifecycle_enums_preserve_string_behavior_on_python_310():
+    assert str(DataClass.CUSTOMER_CONTENT) == "customer_content"
+    assert DataClass.CUSTOMER_CONTENT == "customer_content"
+    assert str(DeletionRule.CRYPTO_ERASE) == "crypto_erase"
+
+
 def test_tenant_context_rejects_non_uuid_values():
     with pytest.raises(ValueError):
         TenantContext.parse("model-picked-tenant")

@@ -8,11 +8,18 @@ the live schema against this inventory before accepting it.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 from typing import Iterable
 
 
-class DataClass(StrEnum):
+class _StringEnum(str, Enum):
+    """Python 3.10-compatible equivalent of the 3.11 ``StrEnum`` behavior."""
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class DataClass(_StringEnum):
     ACCOUNT = "account"
     CUSTOMER_CONTENT = "customer_content"
     CREDENTIAL = "credential"
@@ -21,7 +28,7 @@ class DataClass(StrEnum):
     DELETION_LEDGER = "deletion_ledger"
 
 
-class DeletionRule(StrEnum):
+class DeletionRule(_StringEnum):
     ERASE = "erase"
     CRYPTO_ERASE = "crypto_erase"
     DEIDENTIFY = "deidentify"
