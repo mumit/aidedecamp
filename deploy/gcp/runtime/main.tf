@@ -547,6 +547,14 @@ resource "google_cloud_run_v2_service" "dispatch_broker" {
               audience   = local.worker_audience
             }
           ] : [],
+          var.enable_slack_conversation ? [
+            {
+              purpose    = "channel.slack.converse"
+              queue      = local.foundation.jobs_queue
+              target_url = "${google_cloud_run_v2_service.worker.uri}/v1/tasks/dispatch"
+              audience   = local.worker_audience
+            }
+          ] : [],
           var.enable_export_writer ? [
             {
               purpose    = "customer.export.generate"
@@ -918,7 +926,7 @@ resource "google_cloud_run_v2_service_iam_member" "channel_broker_control_plane_
 }
 
 resource "google_cloud_run_v2_service_iam_member" "channel_broker_worker_invoker" {
-  count    = var.enable_channel_broker && var.enable_google_chat_conversation ? 1 : 0
+  count    = var.enable_channel_broker && (var.enable_google_chat_conversation || var.enable_slack_conversation) ? 1 : 0
   project  = local.foundation.project_id
   location = local.foundation.region
   name     = google_cloud_run_v2_service.channel_broker[0].name
