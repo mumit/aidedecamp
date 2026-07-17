@@ -27,6 +27,10 @@ const googleChatLinkInstructions = document.querySelector("#google-chat-link-ins
 const googleChatLinkCommand = document.querySelector("#google-chat-link-command");
 const googleChatLinkExpiry = document.querySelector("#google-chat-link-expiry");
 const slackInstallation = document.querySelector("#slack-installation");
+const slackInstallationState = document.querySelector("#slack-installation-state");
+const slackInstallStart = document.querySelector("#slack-install-start");
+const slackDeliveryTest = document.querySelector("#slack-delivery-test");
+const slackDisconnect = document.querySelector("#slack-disconnect");
 const policyReview = document.querySelector("#policy-review");
 const policyAutomatic = document.querySelector("#policy-automatic");
 const policyExcluded = document.querySelector("#policy-excluded");
@@ -529,6 +533,22 @@ function renderChannelInstallations(payload) {
       !["active", "pending_test", "needs_relink"].includes(destination);
     googleChatDisconnect.disabled = false;
   }
+  if (slack?.selected) {
+    const destination = slack.destination_state || "not_started";
+    slackInstallationState.textContent =
+      destination === "active"
+        ? "Owner-only Slack destination verified and active. No new installation is needed."
+        : destination === "pending_test"
+          ? "Slack app installed and owner-only destination linked; delivery test remains."
+          : "Slack is selected but not installed.";
+    slackInstallStart.hidden = destination === "active" || destination === "pending_test";
+    slackInstallStart.disabled = false;
+    slackDeliveryTest.hidden = destination !== "pending_test";
+    slackDeliveryTest.disabled = false;
+    slackDisconnect.hidden =
+      !hostedChannelLifecycleAvailable || !["active", "pending_test"].includes(destination);
+    slackDisconnect.disabled = false;
+  }
 }
 
 async function showChannelInstallations() {
@@ -643,6 +663,101 @@ googleChatDisconnect.addEventListener("click", async () => {
       show("Sign out and sign in again before disconnecting Google Chat.", "pending");
     } else {
       show("Google Chat could not be disconnected. Please try again.", "error");
+    }
+  }
+});
+
+slackInstallStart.addEventListener("click", async () => {
+  slackInstallStart.disabled = true;
+  show("Preparing Slack installation…");
+  try {
+    const csrf = cookie("__Host-attune_csrf");
+    if (!csrf) throw new Error("missing session binding");
+    const result = await json(
+      await fetch("/v1/onboarding/channel-installations/slack/install", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { Accept: "application/json", "X-Attune-CSRF": csrf },
+      }),
+    );
+    window.location.assign(result.authorize_url);
+  } catch (error) {
+    slackInstallStart.disabled = false;
+    if (error.code === "recent_authentication_required") {
+      show("Sign out and sign in again before installing Slack.", "pending");
+    } else {
+      show("Slack installation could not be started. Please try again.", "error");
+    }
+  }
+});
+
+slackDeliveryTest.addEventListener("click", async () => {
+  slackDeliveryTest.disabled = true;
+  show("Sending the fixed, content-free Slack connection test…");
+  try {
+    const csrf = cookie("__Host-attune_csrf");
+    if (!csrf) throw new Error("missing session binding");
+    const result = await json(
+      await fetch("/v1/onboarding/channel-installations/slack/test", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { Accept: "application/json", "X-Attune-CSRF": csrf },
+      }),
+    );
+    renderChannelInstallations(result);
+    const state = await json(
+      await fetch("/v1/onboarding", {
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+      }),
+    );
+    renderOnboarding(state);
+    show("Slack delivery verified. Only the fixed connection-test text was sent.", "success");
+  } catch (error) {
+    slackDeliveryTest.disabled = false;
+    if (error.code === "recent_authentication_required") {
+      show("Sign out and sign in again before testing Slack delivery.", "pending");
+    } else {
+      show("Slack delivery could not be verified. No workspace data was sent.", "error");
+    }
+  }
+});
+
+slackDisconnect.addEventListener("click", async () => {
+  if (
+    !window.confirm(
+      "Disconnect Slack? Attune will immediately stop accepting messages and sending replies to this destination. You can reinstall later.",
+    )
+  ) return;
+  slackDisconnect.disabled = true;
+  show("Disconnecting Slack…");
+  try {
+    const csrf = cookie("__Host-attune_csrf");
+    if (!csrf) throw new Error("missing session binding");
+    const result = await json(
+      await fetch("/v1/onboarding/channel-installations/slack", {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "X-Attune-CSRF": csrf,
+        },
+        body: JSON.stringify({ confirmation: "disconnect" }),
+      }),
+    );
+    renderChannelInstallations(result);
+    if (result.onboarding) renderOnboarding(result.onboarding);
+    show(
+      "Slack is disconnected. Attune no longer accepts messages or sends replies to that destination.",
+      "success",
+    );
+  } catch (error) {
+    slackDisconnect.disabled = false;
+    if (error.code === "recent_authentication_required") {
+      show("Sign out and sign in again before disconnecting Slack.", "pending");
+    } else {
+      show("Slack could not be disconnected. Please try again.", "error");
     }
   }
 });
@@ -768,9 +883,21 @@ async function showWorkspace(session) {
   workspaceButton.disabled = false;
 }
 
+function slackInstallReturnMessage(outcome) {
+  if (outcome === "connected") {
+    return "Slack installation completed. Send the fixed connection test to verify the destination.";
+  }
+  if (outcome === "failed") {
+    return "The Slack installation was not completed. Try installing again.";
+  }
+  return null;
+}
+
 async function main() {
-  const outcome = new URLSearchParams(window.location.search).get("workspace");
-  if (outcome) window.history.replaceState({}, "", window.location.pathname);
+  const params = new URLSearchParams(window.location.search);
+  const outcome = params.get("workspace");
+  const slackOutcome = params.get("slack_install");
+  if (outcome || slackOutcome) window.history.replaceState({}, "", window.location.pathname);
   const session = await existingSession();
   if (session) {
     const messages = {
@@ -784,6 +911,8 @@ async function main() {
     sessionSignOut.hidden = false;
     await showWorkspace(session);
     await showOnboarding(session);
+    const slackMessage = slackInstallReturnMessage(slackOutcome);
+    if (slackMessage) slackInstallationState.textContent = slackMessage;
     return;
   }
   const auth = await configure();
