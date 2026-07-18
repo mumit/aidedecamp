@@ -268,6 +268,23 @@ the fixed `chat.postMessage` URL, and records the provider timestamp
 reference hash. The delivery test sends the same immutable connection-test
 sentence used for Google Chat.
 
+Acknowledgment. Slack's Events API ignores the synchronous response body, so
+unlike Google Chat -- which renders that response inline -- the owner would
+otherwise see no feedback until the conversation pipeline replies seconds
+later. Once `accept_slack_owner_message` durably accepts a message and the
+ingress dispatches it, the ingress calls the broker's
+`/v1/slack/acknowledge` with the same team/actor/destination/message
+references. `claim_slack_acknowledgment` resolves the same active,
+delivery-verified owner-DM destination, records a content-free pre-effect
+audit keyed to the provider message, and is idempotent per message: a
+retried Slack event wins the claim at most once and is never sent twice. The
+broker then decrypts the route and token and sends the fixed, provider-owned
+sentence ("Working on it.") through `chat.postMessage`, recording the
+outcome audit through `complete_slack_acknowledgment`. A failed or skipped
+acknowledgment is logged content-free and never affects the `200` already
+returned to Slack, and is never retried -- the conversation reply is still
+coming.
+
 Lifecycle. `disconnect_hosted_channel_destination_v2` extends the owner
 disconnect ceremony to Slack: it cancels outstanding setup attempts, deletes
 the encrypted route and bot-token envelopes, revokes the destination and

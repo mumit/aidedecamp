@@ -13,7 +13,12 @@ from typing import Protocol
 from uuid import UUID, uuid4
 
 from .repositories import ConnectionFactory, _fixed_hash
-from .slack_provider import SlackInstallation, SlackProvider, validate_bot_token
+from .slack_provider import (
+    ACKNOWLEDGMENT_TEXT,
+    SlackInstallation,
+    SlackProvider,
+    validate_bot_token,
+)
 from .vault_crypto import EncryptedCredential, EnvelopeCipher
 
 _OAUTH_STATE = re.compile(r"^[A-Za-z0-9_-]{43}$")
@@ -85,6 +90,21 @@ class ClaimedSlackConversationDelivery:
 @dataclass(frozen=True)
 class CompletedSlackConversationDelivery:
     delivery_state: str
+    outcome_audit_intent_id: UUID
+
+
+@dataclass(frozen=True)
+class ClaimedSlackAcknowledgment:
+    tenant_id: UUID
+    destination_id: UUID
+    encrypted_route: EncryptedCredential | None
+    encrypted_token: EncryptedCredential | None
+    pre_audit_intent_id: UUID | None
+    won: bool
+
+
+@dataclass(frozen=True)
+class CompletedSlackAcknowledgment:
     outcome_audit_intent_id: UUID
 
 
@@ -329,6 +349,58 @@ class PostgresSlackChannelBrokerRepository:
         )
         return CompletedSlackConversationDelivery(*row)
 
+    def claim_acknowledgment(
+        self,
+        *,
+        installation_ref_hash: bytes,
+        actor_ref_hash: bytes,
+        destination_ref_hash: bytes,
+        message_ref_hash: bytes,
+    ) -> ClaimedSlackAcknowledgment:
+        for name, value in (
+            ("installation_ref_hash", installation_ref_hash),
+            ("actor_ref_hash", actor_ref_hash),
+            ("destination_ref_hash", destination_ref_hash),
+            ("message_ref_hash", message_ref_hash),
+        ):
+            _fixed_hash(name, value)
+        row = self._call(
+            "SELECT * FROM attune.claim_slack_acknowledgment(%s, %s, %s, %s)",
+            (
+                installation_ref_hash,
+                actor_ref_hash,
+                destination_ref_hash,
+                message_ref_hash,
+            ),
+        )
+        (
+            tenant_id, destination_id,
+            route_ciphertext, route_nonce, route_wrapped, route_key, route_version,
+            token_ciphertext, token_nonce, token_wrapped, token_key, token_version,
+            audit, won,
+        ) = row
+        encrypted_route = None if not won else EncryptedCredential(
+            route_ciphertext, route_nonce, route_wrapped, route_key, route_version
+        )
+        encrypted_token = None if not won else EncryptedCredential(
+            token_ciphertext, token_nonce, token_wrapped, token_key, token_version
+        )
+        return ClaimedSlackAcknowledgment(
+            tenant_id, destination_id, encrypted_route, encrypted_token, audit, won
+        )
+
+    def complete_acknowledgment(
+        self, *, message_ref_hash: bytes, succeeded: bool
+    ) -> CompletedSlackAcknowledgment:
+        _fixed_hash("message_ref_hash", message_ref_hash)
+        if not isinstance(succeeded, bool):
+            raise TypeError("succeeded must be boolean")
+        row = self._call(
+            "SELECT * FROM attune.complete_slack_acknowledgment(%s, %s)",
+            (message_ref_hash, succeeded),
+        )
+        return CompletedSlackAcknowledgment(*row)
+
     def _call(self, statement: str, values: tuple):
         with closing(self._connect()) as connection:
             try:
@@ -514,6 +586,54 @@ class SlackInstallBroker:
             raise RuntimeError("channel message pre-effect audit is unavailable")
         return accepted
 
+    def acknowledge_message(
+        self,
+        *,
+        team_ref: str,
+        actor_ref: str,
+        destination_ref: str,
+        message_ref: str,
+    ) -> bool:
+        installation_ref_hash = self._reference_hasher.hash("installation", team_ref)
+        actor_ref_hash = self._reference_hasher.hash("actor", actor_ref)
+        destination_ref_hash = self._reference_hasher.hash("destination", destination_ref)
+        message_ref_hash = self._reference_hasher.hash("message", message_ref)
+        claim = self._repository.claim_acknowledgment(
+            installation_ref_hash=installation_ref_hash,
+            actor_ref_hash=actor_ref_hash,
+            destination_ref_hash=destination_ref_hash,
+            message_ref_hash=message_ref_hash,
+        )
+        if not claim.won:
+            # Already acknowledged -- e.g. Slack retried the event -- so the
+            # fixed sentence must not be sent a second time.
+            return True
+        if (
+            claim.encrypted_route is None or claim.encrypted_token is None
+            or claim.pre_audit_intent_id is None
+        ):
+            raise RuntimeError("Slack acknowledgment claim is invalid")
+        if not self._audit_writer.write(claim.pre_audit_intent_id):
+            self._complete_acknowledgment_failed(message_ref_hash)
+            raise RuntimeError("Slack acknowledgment pre-effect audit is unavailable")
+        try:
+            channel, bot_token = self._decrypt_route_and_token(
+                claim.encrypted_route, claim.encrypted_token,
+                tenant_id=claim.tenant_id, destination_id=claim.destination_id,
+            )
+            self._provider.send_message(
+                bot_token=bot_token, channel=channel, text=ACKNOWLEDGMENT_TEXT
+            )
+        except BaseException:
+            self._complete_acknowledgment_failed(message_ref_hash)
+            raise
+        completed = self._repository.complete_acknowledgment(
+            message_ref_hash=message_ref_hash, succeeded=True
+        )
+        if not self._audit_writer.write(completed.outcome_audit_intent_id):
+            raise RuntimeError("Slack acknowledgment outcome audit is unavailable")
+        return True
+
     def deliver_reply(
         self, *, destination_id: UUID, job_id: UUID,
         now: datetime | None = None,
@@ -638,6 +758,15 @@ class SlackInstallBroker:
                 destination_id=destination_id,
                 claim_hash=claim_hash,
                 succeeded=False,
+            )
+            self._audit_writer.write(completed.outcome_audit_intent_id)
+        except Exception:
+            pass
+
+    def _complete_acknowledgment_failed(self, message_ref_hash: bytes) -> None:
+        try:
+            completed = self._repository.complete_acknowledgment(
+                message_ref_hash=message_ref_hash, succeeded=False
             )
             self._audit_writer.write(completed.outcome_audit_intent_id)
         except Exception:

@@ -636,7 +636,7 @@ def verify_database_boundary(connection: Any, bindings: dict[str, str]) -> None:
             ),
             "attune_policy_executor": (True, False, True, False),
             "attune_channel_config_executor": (True, False, False, False),
-            "attune_channel_link_executor": (True, False, False, False),
+            "attune_channel_link_executor": (True, False, True, False),
             "attune_channel_message_executor": (True, False, True, False),
             "attune_channel_lifecycle_executor": (True, False, False, False),
             "attune_retention_executor": (True, False, True, False),

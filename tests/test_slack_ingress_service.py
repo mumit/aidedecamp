@@ -11,15 +11,24 @@ INTENT = UUID("10000000-0000-4000-8000-000000000111")
 
 
 class Broker:
-    def __init__(self, error=None):
+    def __init__(self, error=None, ack_error=None, ack_result=True):
         self.error = error
+        self.ack_error = ack_error
+        self.ack_result = ack_result
         self.calls = []
+        self.ack_calls = []
 
     def accept_slack_message(self, **kwargs):
         self.calls.append(kwargs)
         if self.error:
             raise self.error
         return INTENT
+
+    def acknowledge_slack_message(self, **kwargs):
+        self.ack_calls.append(kwargs)
+        if self.ack_error:
+            raise self.ack_error
+        return self.ack_result
 
 
 class Dispatcher:
@@ -110,6 +119,41 @@ def test_owner_dm_message_is_accepted_and_dispatched():
         "text": "what is on my calendar tomorrow?",
     }]
     assert dispatcher.calls == [INTENT]
+
+
+def test_acknowledgment_is_sent_after_successful_accept_and_dispatch():
+    broker, dispatcher = Broker(), Dispatcher()
+    app = client(broker, dispatcher)
+    raw, headers = signed(dm_event())
+    response = app.post("/v1/provider/slack/events", data=raw, headers=headers)
+    assert response.status_code == 200
+    assert broker.ack_calls == [{
+        "team_ref": "teams/T0123456789",
+        "actor_ref": "teams/T0123456789/users/U0123456789",
+        "destination_ref": "teams/T0123456789/channels/D0123456789",
+        "message_ref": (
+            "teams/T0123456789/channels/D0123456789/messages/1752600000.000100"
+        ),
+    }]
+
+
+def test_acknowledgment_is_not_sent_when_dispatch_fails():
+    broker = Broker()
+    app = client(broker, Dispatcher(result=False))
+    raw, headers = signed(dm_event())
+    app.post("/v1/provider/slack/events", data=raw, headers=headers)
+    assert broker.ack_calls == []
+
+
+def test_acknowledgment_failure_is_content_free_and_still_returns_ok():
+    broker = Broker(ack_error=RuntimeError("sensitive tenant value"))
+    app = client(broker, Dispatcher())
+    raw, headers = signed(dm_event())
+    response = app.post("/v1/provider/slack/events", data=raw, headers=headers)
+    assert response.status_code == 200
+    assert response.get_json() == {"ok": True}
+    assert b"sensitive tenant value" not in response.data
+    assert broker.ack_calls
 
 
 def test_non_dm_and_bot_events_are_acknowledged_without_broker_contact():

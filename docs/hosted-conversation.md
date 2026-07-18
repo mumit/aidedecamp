@@ -157,6 +157,17 @@ The job is successful only after provider acknowledgement and content-free
 post-effect audit. Ambiguous model, Workspace, database, audit, or provider
 outcomes enter reconciliation instead of being treated as safe retries.
 
+Google Chat renders the ingress's synchronous response, so the owner sees
+immediate feedback while the job above runs. Slack's Events API ignores that
+response body, so the Slack ingress instead asks the channel broker to send
+a fixed, provider-owned acknowledgment ("Working on it.") right after a
+message is durably accepted and dispatched. The acknowledgment is audited
+before and after the send and idempotent per provider message -- a retried
+Slack event never sends it twice -- and its failure never affects the `200`
+already returned to Slack (see the Slack implementation's "Acknowledgment"
+section in
+[`hosted-channel-installation.md`](hosted-channel-installation.md)).
+
 ## Data handling
 
 - Provider message bodies and assistant replies are C3.

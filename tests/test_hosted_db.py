@@ -130,7 +130,7 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
     )
     sql_by_name = {migration.name: migration.sql for migration in migrations}
     assert migrations[0].name == "0001_tenant_boundary.sql"
-    assert migrations[-1].name == "0039_slack_reinstall_installation_reuse.sql"
+    assert migrations[-1].name == "0040_slack_message_acknowledgment.sql"
     download = sql_by_name["0037_customer_export_download.sql"]
     assert "GRANT attune_export_cleanup_coordinator TO %I" in download
     assert "REVOKE attune_export_cleanup_coordinator FROM %I" in download
@@ -242,6 +242,14 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
     assert "SET LOCAL ROLE attune_channel_link_executor" in reinstall
     assert "RESET ROLE" in reinstall
     assert "TO attune_channel_broker" in reinstall
+    acknowledgment = sql_by_name["0040_slack_message_acknowledgment.sql"]
+    assert "claim_slack_acknowledgment" in acknowledgment
+    assert "complete_slack_acknowledgment" in acknowledgment
+    assert "fixed_acknowledgment_v1" in acknowledgment
+    assert "LIMIT 2" in acknowledgment
+    assert "GRANT attune_channel_link_executor TO %I" in acknowledgment
+    assert "TO attune_channel_broker" in acknowledgment
+    assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_link_executor" in acknowledgment
 
 
 def test_lifecycle_enums_preserve_string_behavior_on_python_310():
@@ -378,7 +386,7 @@ def initialized_database(database_url: str):
             cursor.execute(f'CREATE ROLE "{role}" NOLOGIN INHERIT')
     admin.autocommit = False
 
-    assert apply_migrations(admin) == 39
+    assert apply_migrations(admin) == 40
     with admin.cursor() as cursor:
         cursor.execute("GRANT attune_worker TO attune_test_stale_member")
     admin.commit()
@@ -3757,6 +3765,46 @@ def test_slack_install_delivery_conversation_and_lifecycle_are_function_only(
     assert replayed.accepted_new is False
     assert replayed.dispatch_intent_id == accepted.dispatch_intent_id
 
+    # The fixed Slack acknowledgment resolves the same active, owner-DM
+    # destination by reference hash, and is idempotent per provider message:
+    # a retried Slack event must win the claim at most once.
+    ack_claim = broker.claim_acknowledgment(
+        installation_ref_hash=installation_hash,
+        actor_ref_hash=actor_hash,
+        destination_ref_hash=destination_hash,
+        message_ref_hash=message_hash,
+    )
+    assert ack_claim.won is True
+    assert ack_claim.destination_id == installed.destination_id
+    assert ack_claim.encrypted_route.ciphertext == b"r" * 32
+    assert ack_claim.encrypted_token.ciphertext == b"t" * 32
+    assert writer.write(ack_claim.pre_audit_intent_id) is not None
+    completed_ack = broker.complete_acknowledgment(
+        message_ref_hash=message_hash, succeeded=True
+    )
+    assert writer.write(completed_ack.outcome_audit_intent_id) is not None
+    replay_ack = broker.claim_acknowledgment(
+        installation_ref_hash=installation_hash,
+        actor_ref_hash=actor_hash,
+        destination_ref_hash=destination_hash,
+        message_ref_hash=message_hash,
+    )
+    assert replay_ack.won is False
+    assert replay_ack.destination_id == installed.destination_id
+    assert replay_ack.encrypted_route is None and replay_ack.encrypted_token is None
+
+    direct_ack = _role_connection_factory(
+        database_url, ROLE_BINDINGS["attune_channel_broker"]
+    )()
+    try:
+        with direct_ack.cursor() as cursor, pytest.raises(
+            psycopg.errors.InsufficientPrivilege
+        ):
+            cursor.execute("SELECT * FROM attune.audit_intents")
+        direct_ack.rollback()
+    finally:
+        direct_ack.close()
+
     with tenant_transaction(initialized_database, context) as cursor:
         cursor.execute(
             "SELECT id, (payload->>'conversation_id')::uuid FROM attune.jobs "
@@ -3856,6 +3904,16 @@ def test_slack_install_delivery_conversation_and_lifecycle_are_function_only(
             destination_ref_hash=destination_hash,
             message_ref_hash=hashlib.sha256(b"slack-after-disconnect").digest(),
             text="This must not be accepted",
+        )
+    # The revoked destination is no longer active, so the acknowledgment
+    # claim must resolve nothing for it either -- only an active destination
+    # is ever eligible.
+    with pytest.raises(psycopg.errors.NoDataFound):
+        broker.claim_acknowledgment(
+            installation_ref_hash=installation_hash,
+            actor_ref_hash=actor_hash,
+            destination_ref_hash=destination_hash,
+            message_ref_hash=hashlib.sha256(b"slack-ack-after-disconnect").digest(),
         )
     with tenant_transaction(initialized_database, context) as cursor:
         cursor.execute(

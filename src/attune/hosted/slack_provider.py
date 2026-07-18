@@ -13,6 +13,7 @@ POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage"
 AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize"
 REQUIRED_BOT_SCOPES = frozenset({"chat:write", "im:write", "im:history"})
 CONNECTION_TEST_TEXT = "Attune connection test succeeded. No workspace data was accessed."
+ACKNOWLEDGMENT_TEXT = "Working on it."
 MAX_SLACK_TEXT_CHARS = 8_000
 TEAM_ID = re.compile(r"^T[A-Z0-9]{4,20}$")
 USER_ID = re.compile(r"^[UW][A-Z0-9]{4,20}$")

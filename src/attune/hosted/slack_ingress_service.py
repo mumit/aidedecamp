@@ -19,6 +19,7 @@ MAX_REQUEST_BYTES = 65_536
 
 class ChannelBroker(Protocol):
     def accept_slack_message(self, **kwargs): ...
+    def acknowledge_slack_message(self, **kwargs) -> bool: ...
 
 
 class DispatchBroker(Protocol):
@@ -86,6 +87,23 @@ def create_app(
             dispatched = False
         if not dispatched:
             LOG.warning("Slack message was not dispatched")
+        else:
+            # Slack renders no synchronous response, so send the fixed
+            # acknowledgment now that the message is durably accepted and
+            # dispatched. This must never affect the 200 sent back to Slack,
+            # and is never retried -- the conversation reply is still coming.
+            try:
+                if not broker.acknowledge_slack_message(
+                    team_ref=message.team_ref,
+                    actor_ref=message.actor_ref,
+                    destination_ref=message.destination_ref,
+                    message_ref=message.message_ref,
+                ):
+                    LOG.warning("Slack message was not acknowledged")
+            except Exception as error:
+                LOG.warning(
+                    "Slack message acknowledgment failed (%s)", type(error).__name__
+                )
         return jsonify({"ok": True})
 
     return app

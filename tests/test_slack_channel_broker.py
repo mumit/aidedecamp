@@ -5,9 +5,11 @@ import pytest
 
 from attune.hosted.slack_channel_broker import (
     AcceptedSlackMessage,
+    ClaimedSlackAcknowledgment,
     ClaimedSlackConversationDelivery,
     ClaimedSlackDelivery,
     ClaimedSlackInstall,
+    CompletedSlackAcknowledgment,
     CompletedSlackConversationDelivery,
     CompletedSlackDelivery,
     InstalledSlackDestination,
@@ -29,6 +31,8 @@ DELIVERY_PRE_AUDIT = UUID("10000000-0000-4000-8000-000000000108")
 DELIVERY_OUTCOME_AUDIT = UUID("10000000-0000-4000-8000-000000000109")
 MESSAGE_AUDIT = UUID("10000000-0000-4000-8000-000000000110")
 MESSAGE_DISPATCH = UUID("10000000-0000-4000-8000-000000000111")
+ACK_PRE_AUDIT = UUID("10000000-0000-4000-8000-000000000113")
+ACK_OUTCOME_AUDIT = UUID("10000000-0000-4000-8000-000000000114")
 
 
 class Wrapper:
@@ -68,6 +72,9 @@ class Repository:
         self.messages = []
         self.reply_claims = []
         self.reply_completions = []
+        self.ack_claims = []
+        self.ack_completions = []
+        self.ack_won = True
 
     def claim(self, **kwargs):
         self.claims.append(kwargs)
@@ -126,6 +133,21 @@ class Repository:
             "delivered" if kwargs["succeeded"] else "failed",
             DELIVERY_OUTCOME_AUDIT,
         )
+
+    def claim_acknowledgment(self, **kwargs):
+        self.ack_claims.append(kwargs)
+        if not self.ack_won:
+            return ClaimedSlackAcknowledgment(
+                TENANT, DESTINATION, None, None, None, False
+            )
+        return ClaimedSlackAcknowledgment(
+            TENANT, DESTINATION, ROUTE_ENCRYPTED, TOKEN_ENCRYPTED,
+            ACK_PRE_AUDIT, True,
+        )
+
+    def complete_acknowledgment(self, **kwargs):
+        self.ack_completions.append(kwargs)
+        return CompletedSlackAcknowledgment(ACK_OUTCOME_AUDIT)
 
 
 class Writer:
@@ -307,6 +329,70 @@ def test_message_acceptance_hashes_all_provider_authority_and_writes_audit():
         call["installation_ref_hash"], call["actor_ref_hash"],
         call["destination_ref_hash"], call["message_ref_hash"],
     }) == 4
+
+
+def test_acknowledgment_hashes_refs_writes_audit_and_sends_fixed_sentence():
+    repository, writer, provider = Repository(), Writer(), Provider()
+    result = broker(repository, writer, provider).acknowledge_message(
+        team_ref="teams/T0123456789",
+        actor_ref="teams/T0123456789/users/U0123456789",
+        destination_ref="teams/T0123456789/channels/D0123456789",
+        message_ref="teams/T0123456789/channels/D0123456789/messages/1752600000.000100",
+    )
+    assert result is True
+    assert writer.calls == [ACK_PRE_AUDIT, ACK_OUTCOME_AUDIT]
+    kind, call = provider.calls[0]
+    assert kind == "message"
+    assert call["text"] == "Working on it."
+    assert call["channel"] == "D0123456789"
+    assert repository.ack_completions[0]["succeeded"] is True
+    claim_call = repository.ack_claims[0]
+    assert len({
+        claim_call["installation_ref_hash"], claim_call["actor_ref_hash"],
+        claim_call["destination_ref_hash"], claim_call["message_ref_hash"],
+    }) == 4
+
+
+def test_acknowledgment_second_claim_is_idempotent_and_never_sends():
+    repository, writer, provider = Repository(), Writer(), Provider()
+    repository.ack_won = False
+    result = broker(repository, writer, provider).acknowledge_message(
+        team_ref="teams/T0123456789",
+        actor_ref="teams/T0123456789/users/U0123456789",
+        destination_ref="teams/T0123456789/channels/D0123456789",
+        message_ref="teams/T0123456789/channels/D0123456789/messages/1752600000.000100",
+    )
+    assert result is True
+    assert provider.calls == []
+    assert writer.calls == []
+    assert repository.ack_completions == []
+
+
+def test_acknowledgment_audit_failure_never_sends_and_records_failure():
+    repository, provider = Repository(), Provider()
+    with pytest.raises(RuntimeError, match="pre-effect"):
+        broker(repository, Writer((False,)), provider).acknowledge_message(
+            team_ref="teams/T0123456789",
+            actor_ref="teams/T0123456789/users/U0123456789",
+            destination_ref="teams/T0123456789/channels/D0123456789",
+            message_ref="teams/T0123456789/channels/D0123456789/messages/1752600000.000100",
+        )
+    assert provider.calls == []
+    assert repository.ack_completions[-1]["succeeded"] is False
+
+
+def test_acknowledgment_provider_failure_records_failed_completion():
+    repository = Repository()
+    with pytest.raises(RuntimeError, match="provider"):
+        broker(
+            repository, Writer(), Provider(RuntimeError("provider failed"))
+        ).acknowledge_message(
+            team_ref="teams/T0123456789",
+            actor_ref="teams/T0123456789/users/U0123456789",
+            destination_ref="teams/T0123456789/channels/D0123456789",
+            message_ref="teams/T0123456789/channels/D0123456789/messages/1752600000.000100",
+        )
+    assert repository.ack_completions[-1]["succeeded"] is False
 
 
 def test_reference_hashes_are_domain_separated_from_google_chat():

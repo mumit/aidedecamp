@@ -30,6 +30,13 @@ MESSAGE_BODY = {
     "message_ref": "teams/T0123456789/channels/D0123456789/messages/1752600000.000100",
     "text": "hello",
 }
+ACK_BODY = {
+    "version": 1,
+    "team_ref": "teams/T0123456789",
+    "actor_ref": "teams/T0123456789/users/U0123456789",
+    "destination_ref": "teams/T0123456789/channels/D0123456789",
+    "message_ref": "teams/T0123456789/channels/D0123456789/messages/1752600000.000100",
+}
 
 
 class GoogleChatBroker:
@@ -65,6 +72,12 @@ class SlackBroker:
 
     def deliver_reply(self, **kwargs):
         self.calls.append(("reply", kwargs))
+        if self.error:
+            raise self.error
+        return True
+
+    def acknowledge_message(self, **kwargs):
+        self.calls.append(("acknowledge", kwargs))
         if self.error:
             raise self.error
         return True
@@ -196,6 +209,43 @@ def test_slack_message_acceptance_is_slack_ingress_only():
     }
 
 
+def test_slack_acknowledgment_is_slack_ingress_only():
+    broker = SlackBroker()
+    app = client(broker)
+    for token in ("ingress", "control", "worker", "other"):
+        assert app.post(
+            "/v1/slack/acknowledge",
+            headers={"Authorization": f"Bearer {token}"},
+            json=ACK_BODY,
+        ).status_code == 403
+    response = app.post(
+        "/v1/slack/acknowledge",
+        headers={"Authorization": "Bearer slack-ingress"},
+        json=ACK_BODY,
+    )
+    assert response.status_code == 200
+    assert response.get_json() == {"status": "acknowledged"}
+    kind, call = broker.calls[-1]
+    assert kind == "acknowledge"
+    assert set(call) == {"team_ref", "actor_ref", "destination_ref", "message_ref"}
+    assert app.post(
+        "/v1/slack/acknowledge",
+        headers={"Authorization": "Bearer slack-ingress"},
+        json={**ACK_BODY, "text": "attacker supplied"},
+    ).status_code == 400
+
+
+def test_slack_acknowledgment_failure_is_content_free():
+    app = client(SlackBroker(RuntimeError("xoxb-secret-token")))
+    response = app.post(
+        "/v1/slack/acknowledge",
+        headers={"Authorization": "Bearer slack-ingress"},
+        json=ACK_BODY,
+    )
+    assert response.status_code == 503
+    assert b"xoxb" not in response.data
+
+
 def test_slack_delivery_and_reply_split_control_plane_and_worker_identities():
     broker = SlackBroker()
     app = client(broker)
@@ -308,3 +358,19 @@ def test_client_slack_methods_use_exact_versioned_contracts():
         job_id=UUID("10000000-0000-4000-8000-000000000112"),
     )
     assert session.calls[0][0] == f"{URL}/v1/slack/deliver-reply"
+
+    session = Session({"status": "acknowledged"})
+    broker_client = ChannelBrokerClient(
+        URL, AUDIENCE, token_provider=lambda _: "token", session=session
+    )
+    assert broker_client.acknowledge_slack_message(
+        team_ref=MESSAGE_BODY["team_ref"],
+        actor_ref=MESSAGE_BODY["actor_ref"],
+        destination_ref=MESSAGE_BODY["destination_ref"],
+        message_ref=MESSAGE_BODY["message_ref"],
+    )
+    url, call = session.calls[0]
+    assert url == f"{URL}/v1/slack/acknowledge"
+    assert set(call["json"]) == {
+        "version", "team_ref", "actor_ref", "destination_ref", "message_ref",
+    }

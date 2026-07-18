@@ -286,6 +286,39 @@ def create_app(
                 "accepted_new": result.accepted_new,
             })
 
+        @app.post("/v1/slack/acknowledge")
+        def acknowledge_slack_message():
+            if not authorized(expected_slack_ingress):
+                return jsonify({"error": "forbidden"}), 403
+            if not request.is_json:
+                return jsonify({"error": "invalid_request"}), 400
+            body = request.get_json(silent=True)
+            expected = {
+                "version", "team_ref", "actor_ref", "destination_ref", "message_ref",
+            }
+            if (
+                not isinstance(body, dict)
+                or set(body) != expected
+                or body.get("version") != 1
+            ):
+                return jsonify({"error": "invalid_request"}), 400
+            try:
+                acknowledged = slack_broker.acknowledge_message(
+                    team_ref=body["team_ref"], actor_ref=body["actor_ref"],
+                    destination_ref=body["destination_ref"],
+                    message_ref=body["message_ref"],
+                )
+            except ValueError:
+                return jsonify({"error": "invalid_request"}), 400
+            except Exception as error:
+                LOG.warning(
+                    "Slack acknowledgment failed (%s)", type(error).__name__
+                )
+                return jsonify({"error": "acknowledgment_unavailable"}), 503
+            return jsonify({"status": "acknowledged"}) if acknowledged else (
+                jsonify({"error": "acknowledgment_unavailable"}), 503
+            )
+
         @app.post("/v1/slack/deliver-reply")
         def deliver_slack_reply():
             if not authorized(expected_worker):

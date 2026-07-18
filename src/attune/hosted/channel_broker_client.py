@@ -201,6 +201,30 @@ class ChannelBrokerClient:
             raise RuntimeError("channel message acceptance is invalid")
         return intent_id
 
+    def acknowledge_slack_message(
+        self, *, team_ref: str, actor_ref: str, destination_ref: str,
+        message_ref: str,
+    ) -> bool:
+        token = self._token_provider(self._audience)
+        if not isinstance(token, str) or not token:
+            raise RuntimeError("channel broker identity token is unavailable")
+        response = self._session.post(
+            f"{self._service_url}/v1/slack/acknowledge",
+            json={
+                "version": 1, "team_ref": team_ref, "actor_ref": actor_ref,
+                "destination_ref": destination_ref, "message_ref": message_ref,
+            },
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=self._timeout,
+            allow_redirects=False,
+        )
+        if response.status_code != 200:
+            return False
+        try:
+            return response.json() == {"status": "acknowledged"}
+        except ValueError:
+            return False
+
     def deliver_slack_reply(self, *, destination_id: UUID, job_id: UUID) -> bool:
         if not isinstance(destination_id, UUID) or not isinstance(job_id, UUID):
             raise TypeError("delivery references must be UUIDs")
