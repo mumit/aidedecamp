@@ -50,6 +50,7 @@ FUNCTION_OWNER_ROLES = (
     "attune_export_coordinator",
     "attune_export_cleanup_coordinator",
     "attune_export_download_coordinator",
+    "attune_web_message_executor",
 )
 
 FUNCTION_OWNER_TABLE_PRIVILEGES = frozenset(
@@ -326,6 +327,32 @@ FUNCTION_OWNER_TABLE_PRIVILEGES = frozenset(
         ("attune_export_download_coordinator", "attune.principals", "SELECT"),
         ("attune_export_download_coordinator", "attune.audit_intents", "INSERT"),
         ("attune_export_download_coordinator", "attune.audit_intents", "SELECT"),
+        ("attune_web_message_executor", "attune.tenants", "SELECT"),
+        ("attune_web_message_executor", "attune.principals", "SELECT"),
+        ("attune_web_message_executor", "attune.identity_sessions", "SELECT"),
+        ("attune_web_message_executor", "attune.connectors", "SELECT"),
+        ("attune_web_message_executor", "attune.policies", "SELECT"),
+        ("attune_web_message_executor", "attune.installations", "SELECT"),
+        ("attune_web_message_executor", "attune.installations", "INSERT"),
+        ("attune_web_message_executor", "attune.installations", "UPDATE"),
+        ("attune_web_message_executor", "attune.provider_events", "SELECT"),
+        ("attune_web_message_executor", "attune.provider_events", "INSERT"),
+        ("attune_web_message_executor", "attune.provider_events", "UPDATE"),
+        ("attune_web_message_executor", "attune.conversations", "SELECT"),
+        ("attune_web_message_executor", "attune.conversations", "INSERT"),
+        ("attune_web_message_executor", "attune.conversations", "UPDATE"),
+        ("attune_web_message_executor", "attune.conversation_turns", "SELECT"),
+        ("attune_web_message_executor", "attune.conversation_turns", "INSERT"),
+        ("attune_web_message_executor", "attune.conversation_turns", "UPDATE"),
+        ("attune_web_message_executor", "attune.jobs", "SELECT"),
+        ("attune_web_message_executor", "attune.jobs", "INSERT"),
+        ("attune_web_message_executor", "attune.jobs", "UPDATE"),
+        ("attune_web_message_executor", "attune.dispatch_intents", "SELECT"),
+        ("attune_web_message_executor", "attune.dispatch_intents", "INSERT"),
+        ("attune_web_message_executor", "attune.dispatch_intents", "UPDATE"),
+        ("attune_web_message_executor", "attune.audit_intents", "SELECT"),
+        ("attune_web_message_executor", "attune.audit_intents", "INSERT"),
+        ("attune_web_message_executor", "attune.audit_intents", "UPDATE"),
     }
 )
 
@@ -643,6 +670,7 @@ def verify_database_boundary(connection: Any, bindings: dict[str, str]) -> None:
             "attune_export_coordinator": (True, False, True, False),
             "attune_export_cleanup_coordinator": (True, False, True, False),
             "attune_export_download_coordinator": (True, False, True, False),
+            "attune_web_message_executor": (True, False, True, False),
         }:
             raise RuntimeError("function owner schema privileges do not match policy")
 

@@ -130,7 +130,7 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
     )
     sql_by_name = {migration.name: migration.sql for migration in migrations}
     assert migrations[0].name == "0001_tenant_boundary.sql"
-    assert migrations[-1].name == "0040_slack_message_acknowledgment.sql"
+    assert migrations[-1].name == "0041_web_conversation.sql"
     download = sql_by_name["0037_customer_export_download.sql"]
     assert "GRANT attune_export_cleanup_coordinator TO %I" in download
     assert "REVOKE attune_export_cleanup_coordinator FROM %I" in download
@@ -250,6 +250,15 @@ def test_packaged_migrations_are_ordered_and_checksum_pinned():
     assert "GRANT attune_channel_link_executor TO %I" in acknowledgment
     assert "TO attune_channel_broker" in acknowledgment
     assert "REVOKE CREATE ON SCHEMA attune FROM attune_channel_link_executor" in acknowledgment
+    web_conversation = sql_by_name["0041_web_conversation.sql"]
+    assert "accept_web_owner_message" in web_conversation
+    assert "attune_web_message_executor" in web_conversation
+    assert "'channel_message'" in web_conversation
+    assert "attune_control_plane', 'MEMBER'" in web_conversation
+    assert "GRANT attune_web_message_executor TO %I" in web_conversation
+    assert "REVOKE CREATE ON SCHEMA attune FROM attune_web_message_executor" in web_conversation
+    assert "TO attune_control_plane" in web_conversation
+    assert "provider IN ('google', 'slack', 'web')" in web_conversation
 
 
 def test_lifecycle_enums_preserve_string_behavior_on_python_310():
@@ -386,7 +395,7 @@ def initialized_database(database_url: str):
             cursor.execute(f'CREATE ROLE "{role}" NOLOGIN INHERIT')
     admin.autocommit = False
 
-    assert apply_migrations(admin) == 40
+    assert apply_migrations(admin) == 41
     with admin.cursor() as cursor:
         cursor.execute("GRANT attune_worker TO attune_test_stale_member")
     admin.commit()
@@ -3971,3 +3980,188 @@ def test_slack_install_delivery_conversation_and_lifecycle_are_function_only(
     assert reinstalled.destination_id == installed.destination_id
     assert reinstalled.destination_status == "pending_test"
     assert writer.write(reinstalled.outcome_audit_intent_id) is not None
+
+
+def test_web_conversation_accept_is_session_scoped_idempotent_and_function_only(
+    initialized_database, database_url
+):
+    psycopg = pytest.importorskip("psycopg")
+    context = TenantContext(CHANNEL_TENANT)
+    control_factory = _role_connection_factory(
+        database_url, ROLE_BINDINGS["attune_control_plane"]
+    )
+    writer = PostgresAuditWriterRepository(
+        _role_connection_factory(database_url, ROLE_BINDINGS["attune_audit_writer"])
+    )
+
+    # The Slack journey above already gave CHANNEL_TENANT an active policy
+    # and an active Google connector for CHANNEL_PRINCIPAL; refresh only the
+    # owner session so it is unexpired and unrevoked (web acceptance does not
+    # require recent authentication, unlike disconnect or export requests).
+    with tenant_transaction(initialized_database, context) as cursor:
+        cursor.execute(
+            "UPDATE attune.identity_sessions SET revoked_at = NULL, "
+            "expires_at = clock_timestamp() + interval '8 hours' "
+            "WHERE tenant_id = %s AND id = %s",
+            (CHANNEL_TENANT, CHANNEL_SESSION),
+        )
+
+    def accept(text: str):
+        connection = control_factory()
+        try:
+            with tenant_transaction(connection, context) as cursor:
+                cursor.execute(
+                    "SELECT * FROM attune.accept_web_owner_message(%s, %s, %s)",
+                    (CHANNEL_PRINCIPAL, CHANNEL_SESSION, text),
+                )
+                return cursor.fetchone()
+        finally:
+            connection.close()
+
+    first = accept("What is on my calendar today?")
+    dispatch_id, audit_id, conversation_id, sequence, accepted_new = first
+    assert sequence == 1
+    assert accepted_new is True
+    assert writer.write(audit_id) is not None
+
+    second = accept("And tomorrow?")
+    assert second[2] == conversation_id
+    assert second[3] == 2
+    assert second[4] is True
+    assert second[0] != dispatch_id
+
+    with initialized_database.cursor() as cursor:
+        cursor.execute(
+            "SELECT sequence, actor_type, content FROM attune.conversation_turns "
+            "WHERE tenant_id = %s AND conversation_id = %s ORDER BY sequence",
+            (CHANNEL_TENANT, conversation_id),
+        )
+        assert cursor.fetchall() == [
+            (1, "user", "What is on my calendar today?"),
+            (2, "user", "And tomorrow?"),
+        ]
+        cursor.execute(
+            "SELECT count(*) FROM attune.jobs "
+            "WHERE tenant_id = %s AND kind = 'channel.web.converse'",
+            (CHANNEL_TENANT,),
+        )
+        assert cursor.fetchone() == (2,)
+    initialized_database.commit()
+
+    # Gate: an unknown or revoked session is refused, with no 10-minute
+    # recency requirement -- the session refreshed above is well past any
+    # "recent" window and still accepted above.
+    connection = control_factory()
+    try:
+        with pytest.raises(psycopg.errors.NoDataFound):
+            with tenant_transaction(connection, context) as cursor:
+                cursor.execute(
+                    "SELECT * FROM attune.accept_web_owner_message(%s, %s, %s)",
+                    (
+                        CHANNEL_PRINCIPAL,
+                        UUID("30000000-0000-4000-8000-000000000299"),
+                        "hi",
+                    ),
+                )
+    finally:
+        connection.close()
+
+    # Gate: without an active policy, acceptance is refused.
+    with tenant_transaction(initialized_database, context) as cursor:
+        cursor.execute(
+            "UPDATE attune.policies SET active = false WHERE tenant_id = %s",
+            (CHANNEL_TENANT,),
+        )
+    connection = control_factory()
+    try:
+        with pytest.raises(psycopg.errors.NoDataFound):
+            with tenant_transaction(connection, context) as cursor:
+                cursor.execute(
+                    "SELECT * FROM attune.accept_web_owner_message(%s, %s, %s)",
+                    (CHANNEL_PRINCIPAL, CHANNEL_SESSION, "hi"),
+                )
+    finally:
+        connection.close()
+    with tenant_transaction(initialized_database, context) as cursor:
+        cursor.execute(
+            "UPDATE attune.policies SET active = true WHERE tenant_id = %s",
+            (CHANNEL_TENANT,),
+        )
+
+    # Gate: without an active Google connector, acceptance is refused.
+    with tenant_transaction(initialized_database, context) as cursor:
+        cursor.execute(
+            "UPDATE attune.connectors SET status = 'revoked' "
+            "WHERE tenant_id = %s AND principal_id = %s AND provider = 'google'",
+            (CHANNEL_TENANT, CHANNEL_PRINCIPAL),
+        )
+    connection = control_factory()
+    try:
+        with pytest.raises(psycopg.errors.NoDataFound):
+            with tenant_transaction(connection, context) as cursor:
+                cursor.execute(
+                    "SELECT * FROM attune.accept_web_owner_message(%s, %s, %s)",
+                    (CHANNEL_PRINCIPAL, CHANNEL_SESSION, "hi"),
+                )
+    finally:
+        connection.close()
+    with tenant_transaction(initialized_database, context) as cursor:
+        cursor.execute(
+            "UPDATE attune.connectors SET status = 'active' "
+            "WHERE tenant_id = %s AND principal_id = %s AND provider = 'google'",
+            (CHANNEL_TENANT, CHANNEL_PRINCIPAL),
+        )
+
+    # Privilege: only the control-plane role may execute the function.
+    direct = _role_connection_factory(
+        database_url, ROLE_BINDINGS["attune_channel_broker"]
+    )()
+    try:
+        with direct.cursor() as cursor, pytest.raises(
+            psycopg.errors.InsufficientPrivilege
+        ):
+            cursor.execute(
+                "SELECT * FROM attune.accept_web_owner_message(%s, %s, %s)",
+                (CHANNEL_PRINCIPAL, CHANNEL_SESSION, "hi"),
+            )
+        direct.rollback()
+    finally:
+        direct.close()
+
+    # Privilege: direct writes into provider_events and installations remain
+    # denied even to the control plane's own ordinary role -- only the
+    # validated function may produce them.
+    direct = control_factory()
+    try:
+        with direct.cursor() as cursor:
+            cursor.execute(
+                "SELECT set_config('attune.tenant_id', %s, false)",
+                (str(CHANNEL_TENANT),),
+            )
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                cursor.execute(
+                    "INSERT INTO attune.provider_events "
+                    "(tenant_id, installation_id, provider, kind, "
+                    "deduplication_key, signal) VALUES "
+                    "(%s, %s, 'web', 'web.message', %s, '{}'::jsonb)",
+                    (
+                        CHANNEL_TENANT,
+                        UUID("30000000-0000-4000-8000-000000000301"),
+                        hashlib.sha256(b"direct-provider-event").digest(),
+                    ),
+                )
+        direct.rollback()
+        with direct.cursor() as cursor:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                cursor.execute(
+                    "INSERT INTO attune.installations "
+                    "(tenant_id, provider, kind, external_ref_hash) VALUES "
+                    "(%s, 'web', 'channel', %s)",
+                    (
+                        CHANNEL_TENANT,
+                        hashlib.sha256(b"direct-installation").digest(),
+                    ),
+                )
+        direct.rollback()
+    finally:
+        direct.close()
